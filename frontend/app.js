@@ -1,5 +1,7 @@
 const API_BASE = "http://localhost:8787/api";
 const app = document.querySelector("#app");
+let activeUser = null;
+let activeExpiresAt = null;
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -73,6 +75,9 @@ async function handleLogin(event) {
 }
 
 function renderIndex({ user, expiresAt }) {
+  activeUser = user;
+  activeExpiresAt = expiresAt;
+
   app.innerHTML = `
     <header class="topbar">
       <div class="brand">
@@ -88,22 +93,124 @@ function renderIndex({ user, expiresAt }) {
           <h1>Index</h1>
           <p>Signed in as ${escapeHtml(user.name)}. Session expires in ${hoursLeft(expiresAt)}h.</p>
         </div>
-        <button class="button button-primary" type="button">Add tool</button>
       </div>
 
       <div class="tool-list" aria-label="Available tools">
         <article class="tool-row">
           <div>
-            <h2>Tools</h2>
-            <p>The first tool slot is ready for whatever we build next.</p>
+            <h2>HTML to iframe Base64</h2>
+            <p>Convert an HTML file into an iframe-ready Base64 data string and save it to Outputs.</p>
           </div>
-          <span class="badge">Empty</span>
+          <button class="button button-secondary" id="open-html-tool" type="button">Open</button>
         </article>
       </div>
     </section>
   `;
 
   document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  document.querySelector("#open-html-tool").addEventListener("click", renderHtmlBase64Tool);
+}
+
+function renderHtmlBase64Tool() {
+  app.innerHTML = `
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">O</span>
+        <span>Optimus</span>
+      </div>
+      <button class="button button-secondary" id="logout-button" type="button">Log out</button>
+    </header>
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>HTML to iframe Base64</h1>
+          <p>Select an HTML file and save the generated string to Outputs.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <form class="tool-panel" id="html-base64-form">
+        <div class="field">
+          <label for="html-file">HTML file</label>
+          <input id="html-file" name="htmlFile" type="file" accept=".html,.htm,text/html" required />
+        </div>
+        <p class="error" id="tool-error"></p>
+        <button class="button button-primary" type="submit">Create TXT output</button>
+      </form>
+
+      <section class="result-panel" id="result-panel" hidden>
+        <div class="result-head">
+          <div>
+            <h2>Output</h2>
+            <p id="saved-path"></p>
+          </div>
+          <button class="button button-secondary" id="copy-output" type="button">Copy</button>
+        </div>
+        <textarea id="base64-output" readonly spellcheck="false"></textarea>
+        <iframe id="iframe-preview" title="HTML preview"></iframe>
+      </section>
+    </section>
+  `;
+
+  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#html-base64-form").addEventListener("submit", handleHtmlBase64Submit);
+}
+
+async function handleHtmlBase64Submit(event) {
+  event.preventDefault();
+
+  const fileInput = document.querySelector("#html-file");
+  const [file] = fileInput.files;
+  if (!file) {
+    showToolError("Choose an HTML file first.");
+    return;
+  }
+
+  try {
+    const html = await file.text();
+    const result = await request("/tools/html-base64", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.name,
+        html,
+      }),
+    });
+
+    showToolResult(result);
+  } catch (error) {
+    showToolError(error.message);
+  }
+}
+
+function showToolResult(result) {
+  const panel = document.querySelector("#result-panel");
+  const savedPath = document.querySelector("#saved-path");
+  const output = document.querySelector("#base64-output");
+  const preview = document.querySelector("#iframe-preview");
+  const copyButton = document.querySelector("#copy-output");
+
+  savedPath.textContent = `Saved as ${result.fileName}`;
+  output.value = result.iframeSource;
+  preview.src = result.iframeSource;
+  panel.hidden = false;
+
+  copyButton.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(result.iframeSource);
+    copyButton.textContent = "Copied";
+    window.setTimeout(() => {
+      copyButton.textContent = "Copy";
+    }, 1200);
+  });
+}
+
+function showToolError(message) {
+  const error = document.querySelector("#tool-error");
+  error.textContent = message;
+  error.classList.add("is-visible");
 }
 
 async function handleLogout() {

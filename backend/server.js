@@ -1,13 +1,48 @@
 const crypto = require("node:crypto");
+const fs = require("node:fs/promises");
 const http = require("node:http");
+const path = require("node:path");
+
+loadEnvFile(path.join(__dirname, "..", ".env"));
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "localhost";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:4173";
 const ACCESS_KEY = process.env.OPTIMUS_ACCESS_KEY || "optimus";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const MAX_JSON_BODY_BYTES = 10 * 1024 * 1024;
+const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
 
 const sessions = new Map();
+
+function loadEnvFile(filePath) {
+  try {
+    const contents = require("node:fs").readFileSync(filePath, "utf8");
+
+    for (const line of contents.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+
+      const separatorIndex = trimmed.indexOf("=");
+      if (separatorIndex === -1) {
+        continue;
+      }
+
+      const key = trimmed.slice(0, separatorIndex).trim();
+      const value = trimmed.slice(separatorIndex + 1).trim().replace(/^["']|["']$/g, "");
+
+      if (key && !Object.hasOwn(process.env, key)) {
+        process.env[key] = value;
+      }
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
 
 function sendJson(response, status, payload, headers = {}) {
   response.writeHead(status, {
@@ -30,10 +65,12 @@ function corsHeaders() {
 function readJson(request) {
   return new Promise((resolve, reject) => {
     let body = "";
+    let bytes = 0;
 
     request.on("data", (chunk) => {
+      bytes += chunk.length;
       body += chunk;
-      if (body.length > 10_000) {
+      if (bytes > MAX_JSON_BODY_BYTES) {
         request.destroy();
         reject(new Error("Request body too large"));
       }
@@ -52,6 +89,16 @@ function readJson(request) {
       }
     });
   });
+}
+
+function requireSession(request, response) {
+  const session = currentSession(request);
+  if (!session) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return null;
+  }
+
+  return session;
 }
 
 function parseCookies(header = "") {
@@ -113,6 +160,37 @@ function cleanExpiredSessions() {
   }
 }
 
+function outputFileName(fileName) {
+  const parsed = path.parse(fileName || "page.html");
+  const baseName = parsed.name || "page";
+  const safeBaseName = baseName
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+
+  return `base62-${safeBaseName || "page"}.txt`;
+}
+
+async function saveIframeSource({ fileName, html }) {
+  if (!fileName || typeof html !== "string") {
+    throw new Error("An HTML file is required");
+  }
+
+  const iframeSource = `data:text/html;base64,${Buffer.from(html, "utf8").toString("base64")}`;
+  const savedFileName = outputFileName(fileName);
+  const outputPath = path.join(OUTPUTS_DIR, savedFileName);
+
+  await fs.mkdir(OUTPUTS_DIR, { recursive: true });
+  await fs.writeFile(outputPath, iframeSource, "utf8");
+
+  return {
+    fileName: savedFileName,
+    outputPath,
+    iframeSource,
+  };
+}
+
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
@@ -128,9 +206,8 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/auth/me") {
-    const session = currentSession(request);
+    const session = requireSession(request, response);
     if (!session) {
-      sendJson(response, 401, { error: "Unauthorized" });
       return;
     }
 
@@ -138,6 +215,18 @@ async function handleRequest(request, response) {
       user: { name: session.name },
       expiresAt: session.expiresAt,
     });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/html-base64") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const payload = await readJson(request);
+    const result = await saveIframeSource(payload);
+    sendJson(response, 200, result);
     return;
   }
 

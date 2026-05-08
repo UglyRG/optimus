@@ -1,0 +1,4 @@
+.DS_Store
+.env
+Outputs/*.txt
+!Outputs/.gitkeep

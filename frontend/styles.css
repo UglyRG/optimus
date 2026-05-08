@@ -97,6 +97,10 @@ button {
   outline: none;
 }
 
+.field input[type="file"] {
+  padding: 10px;
+}
+
 .field input:focus {
   border-color: var(--brand);
   box-shadow: 0 0 0 4px var(--focus);
@@ -224,21 +228,86 @@ button {
   white-space: nowrap;
 }
 
+.tool-panel,
+.result-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  background: var(--panel);
+}
+
+.tool-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.tool-panel .button {
+  width: fit-content;
+}
+
+.result-panel[hidden] {
+  display: none;
+}
+
+.result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.result-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.result-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+textarea {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--ink);
+  font: 0.86rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.5;
+}
+
+iframe {
+  width: 100%;
+  min-height: 340px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
 @media (max-width: 680px) {
   .topbar,
   .page-head,
-  .tool-row {
+  .tool-row,
+  .result-head {
     align-items: stretch;
     grid-template-columns: 1fr;
   }
 
   .topbar,
-  .page-head {
+  .page-head,
+  .result-head {
     flex-direction: column;
   }
 
   .topbar .button,
-  .page-head .button {
+  .page-head .button,
+  .tool-panel .button,
+  .result-head .button {
     width: 100%;
   }
 }

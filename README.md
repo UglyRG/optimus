@@ -6,3 +6,9 @@ Optimus is split into two local services:
 - `npm run frontend` starts the UI at `http://localhost:4173`.
 
 Set `OPTIMUS_ACCESS_KEY` before starting the backend to use your own access key. If it is not set, the local development key is `optimus`.
+
+## Tools
+
+### HTML to iframe Base64
+
+Upload an `.html` file from the UI to create an iframe-ready `data:text/html;base64,...` string. Outputs are saved locally in `Outputs/` as `base62-initialfilename.txt`.
