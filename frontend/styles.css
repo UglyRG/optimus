@@ -1,16 +1,17 @@
 :root {
   color-scheme: light;
-  --bg: #f6f7f4;
+  --bg: #f5f8ff;
   --panel: #ffffff;
-  --ink: #18221e;
-  --muted: #65726b;
-  --line: #dce2dd;
-  --brand: #245b4f;
-  --brand-hover: #183f38;
+  --ink: #172b4d;
+  --muted: #586a8c;
+  --line: #d6e3f8;
+  --brand: #0052cc;
+  --brand-hover: #0041a3;
+  --accent: #0065ff;
   --danger: #9f3d34;
   --danger-bg: #fff1ee;
-  --focus: rgba(36, 91, 79, 0.2);
-  --shadow: 0 18px 44px rgba(24, 34, 30, 0.08);
+  --focus: rgba(0, 101, 255, 0.22);
+  --shadow: 0 18px 44px rgba(23, 43, 77, 0.08);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -115,6 +116,10 @@ button {
   border-radius: 8px;
   padding: 10px 14px;
   font-weight: 800;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
 }
 
 .button-primary {
@@ -127,9 +132,14 @@ button {
 }
 
 .button-secondary {
-  border-color: var(--line);
+  border-color: #b8cae8;
   background: #fff;
-  color: var(--ink);
+  color: var(--brand);
+}
+
+.button-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .error {
@@ -160,18 +170,12 @@ button {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 10px;
-  font-weight: 850;
 }
 
-.brand-mark {
-  display: inline-grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--brand);
-  color: #fff;
+.brand-logo {
+  display: block;
+  width: clamp(150px, 18vw, 210px);
+  height: auto;
 }
 
 .index-page {
@@ -206,6 +210,10 @@ button {
 
 .tool-row + .tool-row {
   border-top: 1px solid var(--line);
+}
+
+.tool-row:hover {
+  background: #f8fbff;
 }
 
 .tool-row h2 {

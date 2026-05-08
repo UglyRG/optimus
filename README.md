@@ -3,9 +3,19 @@
 Optimus is split into two local services:
 
 - `npm run backend` starts the API at `http://localhost:8787`.
-- `npm run frontend` starts the UI at `http://localhost:4173`.
+- `npm run frontend` starts the Node static UI server at `http://localhost:4173`.
 
-Set `OPTIMUS_ACCESS_KEY` before starting the backend to use your own access key. If it is not set, the local development key is `optimus`.
+Create a local `.env` file for private values. It is ignored by Git.
+
+```env
+OPTIMUS_ACCESS_KEY=your-login-password
+```
+
+If `OPTIMUS_ACCESS_KEY` is not set, the local development key is `optimus`.
+
+## Assets
+
+Branding and favicon files live in `frontend/assets/`. A root `frontend/favicon.ico` is also present so browsers can resolve `/favicon.ico` without a 404.
 
 ## Tools
 

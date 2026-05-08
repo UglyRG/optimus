@@ -79,13 +79,7 @@ function renderIndex({ user, expiresAt }) {
   activeExpiresAt = expiresAt;
 
   app.innerHTML = `
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">O</span>
-        <span>Optimus</span>
-      </div>
-      <button class="button button-secondary" id="logout-button" type="button">Log out</button>
-    </header>
+    ${renderTopbar()}
 
     <section class="index-page">
       <div class="page-head">
@@ -113,13 +107,7 @@ function renderIndex({ user, expiresAt }) {
 
 function renderHtmlBase64Tool() {
   app.innerHTML = `
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">O</span>
-        <span>Optimus</span>
-      </div>
-      <button class="button button-secondary" id="logout-button" type="button">Log out</button>
-    </header>
+    ${renderTopbar()}
 
     <section class="index-page">
       <div class="page-head">
@@ -158,6 +146,17 @@ function renderHtmlBase64Tool() {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
   document.querySelector("#html-base64-form").addEventListener("submit", handleHtmlBase64Submit);
+}
+
+function renderTopbar() {
+  return `
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="./assets/optimus-horizontal.svg" alt="Optimus" />
+      </div>
+      <button class="button button-secondary" id="logout-button" type="button">Log out</button>
+    </header>
+  `;
 }
 
 async function handleHtmlBase64Submit(event) {
