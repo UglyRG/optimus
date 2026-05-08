@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "backend": "node backend/server.js",
+    "frontend": "python3 -m http.server 4173 --directory frontend"
+  }
+}
