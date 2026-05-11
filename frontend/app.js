@@ -3,6 +3,8 @@ const app = document.querySelector("#app");
 let activeUser = null;
 let activeExpiresAt = null;
 let suiteSourceFiles = [];
+let demoContentJsonDirty = false;
+let demoSizingJsonDirty = false;
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -236,6 +238,9 @@ async function renderPresentationSuiteTool() {
 }
 
 function renderDemoBuilderTool() {
+  demoContentJsonDirty = false;
+  demoSizingJsonDirty = false;
+  const defaultContent = createDefaultDemoContent(2);
   app.innerHTML = `
     ${renderTopbar()}
 
@@ -267,7 +272,7 @@ function renderDemoBuilderTool() {
           </div>
           <div class="field">
             <label for="demo-title">Demo title</label>
-            <input id="demo-title" name="title" value="Funding Advisor Demo" required />
+            <input id="demo-title" name="title" value="Use-case Demo" required />
           </div>
         </div>
 
@@ -306,6 +311,30 @@ function renderDemoBuilderTool() {
           </div>
         </div>
 
+        <div class="field">
+          <label for="demo-content-json">Content JSON</label>
+          <textarea class="content-json-input" id="demo-content-json" name="contentJson" spellcheck="false">${escapeHtml(
+            JSON.stringify(defaultContent, null, 2),
+          )}</textarea>
+        </div>
+
+        <div class="field">
+          <label for="demo-sizing-json">Sizing JSON</label>
+          <textarea class="content-json-input" id="demo-sizing-json" name="sizingJson" spellcheck="false">${escapeHtml(
+            JSON.stringify(createDefaultSizingContent(defaultContent), null, 2),
+          )}</textarea>
+        </div>
+
+        <section class="form-preview" aria-label="Template preview">
+          <div class="result-head">
+            <div>
+              <h2>Template preview</h2>
+              <p>Uses the predefined values above before creating the HTML output.</p>
+            </div>
+          </div>
+          <iframe class="live-preview-frame" id="demo-builder-live-preview" title="Live Demo Builder template preview"></iframe>
+        </section>
+
         <p class="error" id="tool-error"></p>
         <button class="button button-primary" type="submit">Create demo template</button>
       </form>
@@ -328,7 +357,10 @@ function renderDemoBuilderTool() {
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
-  document.querySelector("#demo-builder-form").addEventListener("submit", handleDemoBuilderSubmit);
+  const form = document.querySelector("#demo-builder-form");
+  form.addEventListener("input", handleDemoBuilderFormInput);
+  form.addEventListener("submit", handleDemoBuilderSubmit);
+  updateDemoBuilderLivePreview();
 }
 
 function renderTopbar() {
@@ -439,30 +471,345 @@ async function handleDemoBuilderSubmit(event) {
   event.preventDefault();
 
   const form = event.currentTarget;
-  const data = new FormData(form);
 
   try {
     const result = await request("/tools/demo-builder", {
       method: "POST",
-      body: JSON.stringify({
-        fileName: String(data.get("fileName")).trim(),
-        scenarioCount: Number(data.get("scenarioCount")),
-        logoText: String(data.get("logoText")).trim(),
-        title: String(data.get("title")).trim(),
-        subtitle: String(data.get("subtitle")).trim(),
-        fontUi: String(data.get("fontUi")).trim(),
-        fontMono: String(data.get("fontMono")).trim(),
-        brandColor: String(data.get("brandColor")).trim(),
-        accentColor: String(data.get("accentColor")).trim(),
-        backgroundColor: String(data.get("backgroundColor")).trim(),
-        fontColor: String(data.get("fontColor")).trim(),
-      }),
+      body: JSON.stringify(readDemoBuilderFormValues(form)),
     });
 
     showDemoBuilderResult(result);
   } catch (error) {
     showToolError(error.message);
   }
+}
+
+function readDemoBuilderFormValues(form = document.querySelector("#demo-builder-form")) {
+  const data = new FormData(form);
+  return {
+    fileName: String(data.get("fileName")).trim(),
+    scenarioCount: Number(data.get("scenarioCount")),
+    logoText: String(data.get("logoText")).trim(),
+    title: String(data.get("title")).trim(),
+    subtitle: String(data.get("subtitle")).trim(),
+    fontUi: String(data.get("fontUi")).trim(),
+    fontMono: String(data.get("fontMono")).trim(),
+    brandColor: String(data.get("brandColor")).trim(),
+    accentColor: String(data.get("accentColor")).trim(),
+    backgroundColor: String(data.get("backgroundColor")).trim(),
+    fontColor: String(data.get("fontColor")).trim(),
+    contentJson: String(data.get("contentJson")).trim(),
+    sizingJson: String(data.get("sizingJson")).trim(),
+  };
+}
+
+function handleDemoBuilderFormInput(event) {
+  if (event.target.id === "demo-content-json") {
+    demoContentJsonDirty = true;
+  }
+
+  if (event.target.id === "demo-sizing-json") {
+    demoSizingJsonDirty = true;
+  }
+
+  if (event.target.id === "demo-scenario-count" && !demoContentJsonDirty) {
+    const count = Math.min(8, Math.max(1, Number(event.target.value) || 1));
+    const content = createDefaultDemoContent(count);
+    document.querySelector("#demo-content-json").value = JSON.stringify(content, null, 2);
+    if (!demoSizingJsonDirty) {
+      document.querySelector("#demo-sizing-json").value = JSON.stringify(createDefaultSizingContent(content), null, 2);
+    }
+  }
+
+  updateDemoBuilderLivePreview();
+}
+
+function updateDemoBuilderLivePreview() {
+  const preview = document.querySelector("#demo-builder-live-preview");
+  if (!preview) {
+    return;
+  }
+
+  preview.srcdoc = buildDemoBuilderLivePreviewHtml(readDemoBuilderFormValues());
+}
+
+function buildDemoBuilderLivePreviewHtml(values) {
+  const content = parseDemoContentJson(values.contentJson);
+  if (content.error) {
+    return buildDemoBuilderPreviewErrorHtml(content.error);
+  }
+
+  const sizingContent = parseDemoSizingJson(values.sizingJson, content.scenarios);
+  if (sizingContent.error) {
+    return buildDemoBuilderPreviewErrorHtml(sizingContent.error);
+  }
+
+  const scenarios = content.scenarios;
+  const scenario = scenarios[0];
+  const messages = scenario.messages.length ? scenario.messages : createDefaultDemoContent(1)[0].messages;
+  const logs = scenario.logs.length ? scenario.logs : createDefaultDemoContent(1)[0].logs;
+  const sizing = sizingContent.sizing[0];
+  const fontUi = safePreviewCssFont(values.fontUi, "Inter, system-ui, sans-serif");
+  const fontMono = safePreviewCssFont(values.fontMono, "JetBrains Mono, monospace");
+  const scenarioOptions = scenarios.map((item) => `<option>${escapeHtml(item.label)}</option>`).join("");
+  const scenarioPicker = scenarios.length > 1
+    ? `<label class="scenario-picker"><span>Scenario</span><select>${scenarioOptions}</select></label>`
+    : "";
+  const previewMessages = messages.slice(0, 4).map(renderPreviewMessage).join("");
+  const previewDoc = renderPreviewPrerequisitesDoc(sizing);
+  const previewLogs = logs
+    .slice(0, 5)
+    .map((log) => `<span class="log-type">${escapeHtml(log.type)}</span> ${escapeHtml(log.text)}`)
+    .join("<br>");
+  const sizingMeta = `${sizing.capabilityTier} · ${sizing.connectedDataSources} data sources · ${sizing.connectedEnterpriseSystems} enterprise systems • ${sizing.commercialTier}`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; background: ${escapeAttribute(values.backgroundColor || "#0e1117")}; color: ${escapeAttribute(values.fontColor || "#e8eaf0")}; font: 13px ${fontUi}; }
+  .header { height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: ${escapeAttribute(values.brandColor || "#003a7d")}; border-bottom: 2px solid ${escapeAttribute(values.accentColor || "#c8a84b")}; flex: 0 0 auto; }
+  .logo { background: #fff; color: ${escapeAttribute(values.brandColor || "#003a7d")}; border-radius: 4px; padding: 5px 9px; font-weight: 900; letter-spacing: 1px; }
+  h1 { margin: 0; font-size: 14px; line-height: 1.1; }
+  p { margin: 3px 0 0; color: rgba(255,255,255,.68); font-size: 11px; }
+  .scenario-picker { margin-left: auto; display: flex; align-items: center; gap: 7px; }
+  .scenario-picker span { color: rgba(255,255,255,.62); font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
+  select { max-width: 190px; height: 30px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 0 8px; background: rgba(255,255,255,.12); color: #fff; font: inherit; }
+  .main { flex: 1; min-height: 0; display: grid; grid-template-columns: 42% 58%; }
+  .chat { background: #f8f9fb; color: #1a2030; border-right: 1px solid #2a3550; padding: 12px; }
+  .bubble { width: fit-content; max-width: 92%; margin-bottom: 9px; padding: 8px 10px; border-radius: 12px; background: #fff; border: 1px solid #d8dde8; line-height: 1.4; }
+  .bubble.user { margin-left: auto; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; border-color: ${escapeAttribute(values.brandColor || "#003a7d")}; }
+  .right { display: grid; grid-template-rows: 1fr 92px; background: #141820; }
+  .doc { margin: 12px; border: 1px solid #2a3550; border-radius: 8px; overflow: hidden; background: #1e2638; }
+  .doc-head { padding: 10px 12px; border-bottom: 1px solid #2a3550; font-weight: 800; }
+  .doc-body { padding: 10px 12px; color: #9aa5b8; line-height: 1.5; }
+  .logs { border-top: 2px solid ${escapeAttribute(values.accentColor || "#c8a84b")}; padding: 8px 10px; background: #0b0f16; color: #9aa5b8; font: 10px ${fontMono}; }
+  .log-type { color: ${escapeAttribute(values.accentColor || "#c8a84b")}; font-weight: 900; }
+  .demo-bar { min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-top: 1px solid #2a3550; background: #1e2638; flex: 0 0 auto; }
+  .simulation-controls, .speed-control { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+  .demo-label { color: #64748b; font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
+  .demo-bar button { border: 0; border-radius: 6px; padding: 6px 9px; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; font: 700 10px ${fontUi}; }
+  .demo-bar button:disabled { opacity: .45; }
+  .speed-control button { padding: 4px 6px; border: 1px solid #2a3550; background: #141820; color: #9aa5b8; font: 9px ${fontMono}; }
+  .speed-control button.active { border-color: ${escapeAttribute(values.brandColor || "#003a7d")}; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; }
+  .sizing-info { margin-left: auto; color: #9aa5b8; font: 9px ${fontMono}; white-space: nowrap; }
+</style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">${escapeHtml(values.logoText || "LOGO")}</div>
+    <div><h1>${escapeHtml(values.title || "Use-case Demo")}</h1><p>${escapeHtml(values.subtitle || "Configurable agent simulation template")}</p></div>
+    ${scenarioPicker}
+  </header>
+  <main class="main">
+    <section class="chat">
+      ${previewMessages}
+    </section>
+    <section class="right">
+      ${previewDoc}
+      <div class="logs">${previewLogs}</div>
+    </section>
+  </main>
+  <footer class="demo-bar">
+    <div class="simulation-controls">
+      <span class="demo-label">SIMULATION</span>
+      <button type="button">Start / replay</button>
+      <button type="button" disabled>Pause</button>
+    </div>
+    <div class="sizing-info">${escapeHtml(sizingMeta)}</div>
+    <div class="speed-control">
+      <span class="demo-label">Speed</span>
+      <button type="button">0.5x</button>
+      <button type="button" class="active">1x</button>
+      <button type="button">2x</button>
+      <button type="button">3x</button>
+    </div>
+  </footer>
+</body>
+</html>`;
+}
+
+function createDefaultDemoContent(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `scenario-${index + 1}`,
+    label: `Scenario ${index + 1} - Placeholder`,
+    messages: [
+      {
+        role: "agent",
+        text: `Welcome. This is the opening assistant message for scenario ${index + 1}.`,
+      },
+      {
+        role: "user",
+        text: "Replace this with the user's business question or prompt.",
+      },
+      {
+        role: "agent",
+        text: "Replace this with the agent response. Use <strong>HTML</strong> for emphasis when needed.",
+      },
+    ],
+    docs: [
+      {
+        title: "Document Template",
+        subtitle: "Evidence, assumptions, outputs, or preview content",
+        icon: "DOC",
+        sections: [
+          {
+            heading: "Placeholder Section",
+            rows: [
+              { label: "Field", value: "Placeholder value", tone: "neutral" },
+              { label: "Status", value: "Ready for editing", tone: "ok" },
+            ],
+          },
+        ],
+      },
+    ],
+    logs: [
+      { type: "info", text: "Intent detected - replace with scenario-specific processing step." },
+      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference." },
+      { type: "success", text: "Scenario output prepared." },
+    ],
+  }));
+}
+
+function createDefaultSizingContent(scenarios) {
+  return scenarios.map((scenario, index) => ({
+    scenarioId: scenario.id,
+    title: "Deployment Prerequisites",
+    subtitle: `${scenario.label} · ${index === 0 ? "SOLO" : "AEON"}`,
+    capabilityTier: index === 0 ? "SOLO" : "AEON",
+    commercialTier: "Tier 1 - Starter",
+    connectedDataSources: 5,
+    connectedEnterpriseSystems: 1,
+    implementationSize: "Medium (75-120 man-days)",
+    knowledgeDataSources: [
+      "Ingested (unstructured): Primary domain documentation (PDF)",
+      "Ingested (structured): Program calendar or source table (JSON/CSV)",
+      "Live structured: CRM or member profile API (read-only)",
+    ],
+    enterpriseSystemConnections: [
+      "CRM - Read access: profile, history, status, and metadata",
+    ],
+    regulatoryFrameworks: [
+      "Relevant policy / compliance framework",
+      "Internal review and approval rules",
+    ],
+    clientSidePrerequisites: [
+      "API credentials for connected systems",
+      "Validated source documents and current profile data",
+      "Named human reviewer for edge cases",
+    ],
+    keySizingDrivers: [
+      "1 enterprise system connector",
+      "5 knowledge sources - multi-framework",
+      "Approval workflow requires human review",
+      "Data mapping and normalization",
+    ],
+  }));
+}
+
+function parseDemoContentJson(contentJson) {
+  try {
+    const parsed = JSON.parse(contentJson || "[]");
+    const scenarios = Array.isArray(parsed) ? parsed : parsed.scenarios;
+    if (!Array.isArray(scenarios) || scenarios.length < 1 || scenarios.length > 8) {
+      return { error: "Content JSON must contain between 1 and 8 scenarios." };
+    }
+
+    return {
+      scenarios: scenarios.map((scenario, index) => ({
+        id: String(scenario.id || `scenario-${index + 1}`),
+        label: String(scenario.label || `Scenario ${index + 1}`),
+        messages: Array.isArray(scenario.messages) ? scenario.messages : [],
+        docs: Array.isArray(scenario.docs) ? scenario.docs : [],
+        logs: Array.isArray(scenario.logs) ? scenario.logs : [],
+      })),
+    };
+  } catch {
+    return { error: "Content JSON is not valid JSON." };
+  }
+}
+
+function parseDemoSizingJson(sizingJson, scenarios) {
+  try {
+    const parsed = JSON.parse(sizingJson || "[]");
+    const entries = Array.isArray(parsed) ? parsed : parsed.sizing;
+    if (!Array.isArray(entries)) {
+      return { error: "Sizing JSON must be an array or an object with a sizing array." };
+    }
+
+    const defaults = createDefaultSizingContent(scenarios);
+    const byScenario = new Map(entries.map((entry) => [String(entry.scenarioId || ""), entry]));
+    return {
+      sizing: scenarios.map((scenario, index) => {
+        const entry = byScenario.get(scenario.id) || {};
+        const fallback = defaults[index];
+        return {
+          scenarioId: scenario.id,
+          title: String(entry.title || fallback.title),
+          subtitle: String(entry.subtitle || fallback.subtitle),
+          capabilityTier: String(entry.capabilityTier || fallback.capabilityTier),
+          commercialTier: String(entry.commercialTier || fallback.commercialTier),
+          connectedDataSources: Number(entry.connectedDataSources ?? fallback.connectedDataSources) || 0,
+          connectedEnterpriseSystems: Number(entry.connectedEnterpriseSystems ?? fallback.connectedEnterpriseSystems) || 0,
+          implementationSize: String(entry.implementationSize || fallback.implementationSize),
+          knowledgeDataSources: Array.isArray(entry.knowledgeDataSources) ? entry.knowledgeDataSources : fallback.knowledgeDataSources,
+          enterpriseSystemConnections: Array.isArray(entry.enterpriseSystemConnections) ? entry.enterpriseSystemConnections : fallback.enterpriseSystemConnections,
+          regulatoryFrameworks: Array.isArray(entry.regulatoryFrameworks) ? entry.regulatoryFrameworks : fallback.regulatoryFrameworks,
+          clientSidePrerequisites: Array.isArray(entry.clientSidePrerequisites) ? entry.clientSidePrerequisites : fallback.clientSidePrerequisites,
+          keySizingDrivers: Array.isArray(entry.keySizingDrivers) ? entry.keySizingDrivers : fallback.keySizingDrivers,
+        };
+      }),
+    };
+  } catch {
+    return { error: "Sizing JSON is not valid JSON." };
+  }
+}
+
+function renderPreviewMessage(message) {
+  const role = message.role === "user" ? "user" : "agent";
+  return `<div class="bubble ${role}">${sanitizePreviewHtml(message.text || "Placeholder message")}</div>`;
+}
+
+function renderPreviewDoc(doc) {
+  const safeDoc = doc || createDefaultDemoContent(1)[0].docs[0];
+  const rows = (safeDoc.sections || [])
+    .flatMap((section) => section.rows || [])
+    .slice(0, 4)
+    .map((row) => `${escapeHtml(row.label || "Field")}: ${escapeHtml(row.value || "Placeholder value")}`)
+    .join("<br>");
+
+  return `<article class="doc"><div class="doc-head">${escapeHtml(safeDoc.title || "Document Template")}</div><div class="doc-body">${escapeHtml(safeDoc.subtitle || "Evidence view")}<br>${rows}</div></article>`;
+}
+
+function renderPreviewPrerequisitesDoc(sizing) {
+  const sourceItems = (sizing.knowledgeDataSources || []).slice(0, 3);
+  const driverItems = (sizing.keySizingDrivers || []).slice(0, 3);
+  const items = [
+    ...sourceItems.map((item) => `✓ ${escapeHtml(item)}`),
+    `Scope: ${escapeHtml(sizing.implementationSize)}`,
+    ...driverItems.map((item) => `✓ ${escapeHtml(item)}`),
+  ].join("<br>");
+
+  return `<article class="doc"><div class="doc-head">⚙️ ${escapeHtml(sizing.title || "Deployment Prerequisites")}</div><div class="doc-body">${escapeHtml(sizing.subtitle || "Scenario prerequisites")}<br>${items}</div></article>`;
+}
+
+function buildDemoBuilderPreviewErrorHtml(message) {
+  return `<!doctype html><html lang="en"><body style="margin:0;padding:18px;font:14px system-ui;color:#9f3d34;background:#fff1ee;"><strong>Preview unavailable</strong><br>${escapeHtml(message)}</body></html>`;
+}
+
+function sanitizePreviewHtml(value) {
+  return escapeHtml(value).replace(/&lt;(\/?strong)&gt;/g, "<$1>");
+}
+
+function safePreviewCssFont(value, fallback) {
+  const font = String(value || "").trim();
+  if (!font || /[<>{};]/.test(font)) {
+    return fallback;
+  }
+
+  return font.slice(0, 120);
 }
 
 function showToolResult(result) {

@@ -230,6 +230,215 @@ function scriptJson(value) {
   return JSON.stringify(value, null, 2).replace(/<\//g, "<\\/").replace(/<!--/g, "\\u003c!--");
 }
 
+function defaultDemoScenarios(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `scenario-${index + 1}`,
+    label: `Scenario ${index + 1} - Placeholder`,
+    messages: [
+      {
+        role: "agent",
+        text: `Welcome. This is the opening assistant message for scenario ${index + 1}.`,
+      },
+      {
+        role: "user",
+        text: "Replace this with the user's business question or prompt.",
+      },
+      {
+        role: "agent",
+        text: "Replace this with the agent response. Use <strong>HTML</strong> for emphasis when needed.",
+      },
+    ],
+    docs: [
+      {
+        title: "Document Template",
+        subtitle: "Evidence, assumptions, outputs, or preview content",
+        icon: "DOC",
+        sections: [
+          {
+            heading: "Placeholder Section",
+            rows: [
+              { label: "Field", value: "Placeholder value", tone: "neutral" },
+              { label: "Status", value: "Ready for editing", tone: "ok" },
+            ],
+          },
+        ],
+      },
+    ],
+    logs: [
+      { type: "info", text: "Intent detected - replace with scenario-specific processing step." },
+      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference." },
+      { type: "success", text: "Scenario output prepared." },
+    ],
+  }));
+}
+
+function defaultDemoSizing(scenarios) {
+  return scenarios.map((scenario, index) => ({
+    scenarioId: scenario.id,
+    title: "Deployment Prerequisites",
+    subtitle: `${scenario.label} · ${index === 0 ? "SOLO" : "AEON"}`,
+    capabilityTier: index === 0 ? "SOLO" : "AEON",
+    commercialTier: "Tier 1 - Starter",
+    connectedDataSources: 5,
+    connectedEnterpriseSystems: 1,
+    implementationSize: "Medium (75-120 man-days)",
+    knowledgeDataSources: [
+      "Ingested (unstructured): Primary domain documentation (PDF)",
+      "Ingested (structured): Program calendar or source table (JSON/CSV)",
+      "Live structured: CRM or member profile API (read-only)",
+    ],
+    enterpriseSystemConnections: [
+      "CRM - Read access: profile, history, status, and metadata",
+    ],
+    regulatoryFrameworks: [
+      "Relevant policy / compliance framework",
+      "Internal review and approval rules",
+    ],
+    clientSidePrerequisites: [
+      "API credentials for connected systems",
+      "Validated source documents and current profile data",
+      "Named human reviewer for edge cases",
+    ],
+    keySizingDrivers: [
+      "1 enterprise system connector",
+      "5 knowledge sources - multi-framework",
+      "Approval workflow requires human review",
+      "Data mapping and normalization",
+    ],
+  }));
+}
+
+function normalizeDemoScenarios(contentJson, fallbackCount) {
+  if (!String(contentJson || "").trim()) {
+    return defaultDemoScenarios(fallbackCount);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(contentJson);
+  } catch {
+    throw new Error("Content JSON is not valid JSON");
+  }
+
+  const scenarios = Array.isArray(parsed) ? parsed : parsed.scenarios;
+  if (!Array.isArray(scenarios) || scenarios.length < 1 || scenarios.length > 8) {
+    throw new Error("Content JSON must contain between 1 and 8 scenarios");
+  }
+
+  return scenarios.map((scenario, scenarioIndex) => ({
+    id: cleanText(scenario.id, `scenario-${scenarioIndex + 1}`, 48),
+    label: cleanText(scenario.label, `Scenario ${scenarioIndex + 1}`, 90),
+    messages: normalizeMessages(scenario.messages),
+    docs: normalizeDocs(scenario.docs),
+    logs: normalizeLogs(scenario.logs),
+  }));
+}
+
+function normalizeDemoSizing(sizingJson, scenarios) {
+  const defaults = defaultDemoSizing(scenarios);
+  if (!String(sizingJson || "").trim()) {
+    return defaults;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(sizingJson);
+  } catch {
+    throw new Error("Sizing JSON is not valid JSON");
+  }
+
+  const entries = Array.isArray(parsed) ? parsed : parsed.sizing;
+  if (!Array.isArray(entries)) {
+    throw new Error("Sizing JSON must be an array or an object with a sizing array");
+  }
+
+  const byScenario = new Map(entries.map((entry) => [String(entry.scenarioId || ""), entry]));
+  return scenarios.map((scenario, index) => normalizeSizingEntry(byScenario.get(scenario.id), defaults[index], scenario));
+}
+
+function normalizeSizingEntry(entry = {}, fallback, scenario) {
+  return {
+    scenarioId: scenario.id,
+    title: cleanText(entry.title, fallback.title, 100),
+    subtitle: cleanText(entry.subtitle, fallback.subtitle, 160),
+    capabilityTier: cleanText(entry.capabilityTier, fallback.capabilityTier, 40),
+    commercialTier: cleanText(entry.commercialTier, fallback.commercialTier, 80),
+    connectedDataSources: cleanNumber(entry.connectedDataSources, fallback.connectedDataSources),
+    connectedEnterpriseSystems: cleanNumber(entry.connectedEnterpriseSystems, fallback.connectedEnterpriseSystems),
+    implementationSize: cleanText(entry.implementationSize, fallback.implementationSize, 120),
+    knowledgeDataSources: normalizeStringList(entry.knowledgeDataSources, fallback.knowledgeDataSources),
+    enterpriseSystemConnections: normalizeStringList(entry.enterpriseSystemConnections, fallback.enterpriseSystemConnections),
+    regulatoryFrameworks: normalizeStringList(entry.regulatoryFrameworks, fallback.regulatoryFrameworks),
+    clientSidePrerequisites: normalizeStringList(entry.clientSidePrerequisites, fallback.clientSidePrerequisites),
+    keySizingDrivers: normalizeStringList(entry.keySizingDrivers, fallback.keySizingDrivers),
+  };
+}
+
+function cleanText(value, fallback, maxLength) {
+  const text = String(value || "").trim();
+  return (text || fallback).slice(0, maxLength);
+}
+
+function cleanNumber(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return fallback;
+  }
+
+  return Math.round(number);
+}
+
+function normalizeStringList(items, fallback) {
+  const source = Array.isArray(items) && items.length ? items : fallback;
+  return source.slice(0, 20).map((item) => cleanText(item, "Placeholder item", 300));
+}
+
+function normalizeMessages(messages) {
+  const safeMessages = Array.isArray(messages) && messages.length ? messages : defaultDemoScenarios(1)[0].messages;
+  return safeMessages.slice(0, 20).map((message) => ({
+    role: ["agent", "user"].includes(message.role) ? message.role : "agent",
+    text: cleanText(message.text, "Placeholder message", 3000),
+  }));
+}
+
+function normalizeDocs(docs) {
+  const safeDocs = Array.isArray(docs) && docs.length ? docs : defaultDemoScenarios(1)[0].docs;
+  return safeDocs.slice(0, 12).map((doc) => ({
+    title: cleanText(doc.title, "Document Template", 100),
+    subtitle: cleanText(doc.subtitle, "Evidence, assumptions, outputs, or preview content", 140),
+    icon: cleanText(doc.icon, "DOC", 16),
+    sections: normalizeDocSections(doc.sections),
+  }));
+}
+
+function normalizeDocSections(sections) {
+  const safeSections = Array.isArray(sections) && sections.length
+    ? sections
+    : defaultDemoScenarios(1)[0].docs[0].sections;
+
+  return safeSections.slice(0, 10).map((section) => ({
+    heading: cleanText(section.heading, "Placeholder Section", 100),
+    rows: normalizeDocRows(section.rows),
+  }));
+}
+
+function normalizeDocRows(rows) {
+  const safeRows = Array.isArray(rows) && rows.length ? rows : defaultDemoScenarios(1)[0].docs[0].sections[0].rows;
+  return safeRows.slice(0, 20).map((row) => ({
+    label: cleanText(row.label, "Field", 80),
+    value: cleanText(row.value, "Placeholder value", 300),
+    tone: ["neutral", "ok", "warn", "danger"].includes(row.tone) ? row.tone : "neutral",
+  }));
+}
+
+function normalizeLogs(logs) {
+  const safeLogs = Array.isArray(logs) && logs.length ? logs : defaultDemoScenarios(1)[0].logs;
+  return safeLogs.slice(0, 40).map((log) => ({
+    type: cleanText(log.type, "info", 24).toLowerCase(),
+    text: cleanText(log.text, "Placeholder log entry", 300),
+  }));
+}
+
 function safeOutputTxtFileName(fileName) {
   const candidate = String(fileName || "").trim();
   if (!candidate || path.basename(candidate) !== candidate || path.extname(candidate) !== ".txt") {
@@ -343,46 +552,8 @@ function buildDemoBuilderHtml(options) {
   const accentColor = safeHexColor(options.accentColor, "#c8a84b");
   const backgroundColor = safeHexColor(options.backgroundColor, "#0e1117");
   const fontColor = safeHexColor(options.fontColor, "#e8eaf0");
-  const scenarios = Array.from({ length: scenarioCount }, (_, index) => ({
-    id: `scenario-${index + 1}`,
-    label: `Scenario ${index + 1} - Placeholder`,
-    capability: index === 0 ? "SOLO" : "AEON",
-    messages: [
-      {
-        role: "agent",
-        text: `Welcome. This is the opening assistant message for scenario ${index + 1}.`,
-      },
-      {
-        role: "user",
-        text: "Replace this with the user's business question or prompt.",
-      },
-      {
-        role: "agent",
-        text: "Replace this with the agent response. Use <strong>HTML</strong> for emphasis when needed.",
-      },
-    ],
-    docs: [
-      {
-        title: "Document Template",
-        subtitle: "Evidence, assumptions, outputs, or preview content",
-        icon: "DOC",
-        sections: [
-          {
-            heading: "Placeholder Section",
-            rows: [
-              { label: "Field", value: "Placeholder value", tone: "neutral" },
-              { label: "Status", value: "Ready for editing", tone: "ok" },
-            ],
-          },
-        ],
-      },
-    ],
-    logs: [
-      { type: "info", text: "Intent detected - replace with scenario-specific processing step." },
-      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference." },
-      { type: "success", text: "Scenario output prepared." },
-    ],
-  }));
+  const scenarios = normalizeDemoScenarios(options.contentJson, scenarioCount);
+  const sizing = normalizeDemoSizing(options.sizingJson, scenarios);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -404,6 +575,7 @@ function buildDemoBuilderHtml(options) {
   --border: #2a3550;
   --text-primary: ${fontColor};
   --text-secondary: #9aa5b8;
+  --text-muted: #64748b;
   --chat-bg: #f8f9fb;
   --chat-text: #1a2030;
   --brand: ${brandColor};
@@ -451,14 +623,21 @@ button, select { font: inherit; }
 .row-value.ok { color: var(--success); font-weight: 800; }
 .row-value.warn { color: var(--warn); font-weight: 800; }
 .row-value.danger { color: var(--danger); font-weight: 800; }
+.checklist-item { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.07); color: var(--text-secondary); line-height: 1.45; }
+.check-icon { width: 16px; height: 16px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: rgba(52,211,153,.15); color: var(--success); font-size: 10px; font-weight: 900; }
 .logs { border-top: 2px solid var(--accent); padding: 10px 12px; background: #0b0f16; font: 11px var(--font-mono); }
 .log-entry { display: grid; grid-template-columns: 58px 70px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
 .log-time { color: #64748b; }
 .log-type { color: var(--accent); font-weight: 900; text-transform: uppercase; }
 .log-text { color: var(--text-secondary); }
-.demo-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--bg-card); }
-.demo-bar button { border: 0; border-radius: 6px; padding: 8px 13px; background: var(--brand); color: #fff; font-weight: 800; cursor: pointer; }
-.demo-bar span { color: var(--text-secondary); font: 11px var(--font-mono); }
+.demo-bar { flex: 0 0 auto; min-height: 46px; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--border); background: var(--bg-card); }
+.simulation-controls, .speed-control { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.demo-label { color: var(--text-muted); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
+.demo-bar button { border: 0; border-radius: 6px; padding: 7px 11px; background: var(--brand); color: #fff; font-weight: 800; cursor: pointer; }
+.demo-bar button:disabled { opacity: .45; cursor: default; }
+.speed-control button { padding: 5px 8px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font: 10px var(--font-mono); }
+.speed-control button.active { border-color: var(--brand); background: var(--brand); color: #fff; }
+.sizing-info { margin-left: auto; color: var(--text-secondary); font: 11px var(--font-mono); white-space: nowrap; }
 @media (max-width: 820px) {
   body { overflow: auto; height: auto; }
   .header { height: auto; align-items: flex-start; flex-wrap: wrap; padding: 14px; }
@@ -496,8 +675,19 @@ button, select { font: inherit; }
 </main>
 
 <footer class="demo-bar">
-  <button type="button" id="startButton">Start / replay</button>
-  <span id="scenarioMeta"></span>
+  <div class="simulation-controls">
+    <span class="demo-label">SIMULATION</span>
+    <button type="button" id="startButton">Start / replay</button>
+    <button type="button" id="pauseButton" disabled>Pause</button>
+  </div>
+  <div class="sizing-info" id="sizingInfo"></div>
+  <div class="speed-control" aria-label="Simulation speed">
+    <span class="demo-label">Speed</span>
+    <button type="button" class="speed-button" data-speed="0.5">0.5x</button>
+    <button type="button" class="speed-button active" data-speed="1">1x</button>
+    <button type="button" class="speed-button" data-speed="2">2x</button>
+    <button type="button" class="speed-button" data-speed="3">3x</button>
+  </div>
 </footer>
 
 <script>
@@ -509,6 +699,10 @@ button, select { font: inherit; }
   Brand placeholders:
   - logoText: text badge fallback.
   - logoImage: optional URL/path. Leave blank to use logoText.
+
+  Sizing placeholders:
+  - sizing belongs to the shell, not the scenario content JSON.
+  - Later Demo Builder will expose these through a dedicated form.
 
   Scenario placeholders:
   - Add/remove objects in scenarios to control the number showcased.
@@ -545,12 +739,14 @@ const TEMPLATE_CONFIG = ${scriptJson(
         backgroundColor,
         fontColor,
       },
+      sizing,
       scenarios,
     },
   )};
 
 let activeScenario = TEMPLATE_CONFIG.scenarios[0]?.id;
 let logClock = 0;
+let speedMultiplier = 1;
 
 const logo = document.getElementById("brandLogo");
 const title = document.getElementById("demoTitle");
@@ -561,7 +757,7 @@ const scenarioSelect = document.getElementById("scenarioSelect");
 const messages = document.getElementById("messages");
 const docs = document.getElementById("docs");
 const logs = document.getElementById("logs");
-const scenarioMeta = document.getElementById("scenarioMeta");
+const sizingInfo = document.getElementById("sizingInfo");
 
 function applyBrand() {
   if (TEMPLATE_CONFIG.brand.logoImage) {
@@ -572,6 +768,30 @@ function applyBrand() {
   title.textContent = TEMPLATE_CONFIG.brand.title;
   subtitle.textContent = TEMPLATE_CONFIG.brand.subtitle;
   agentName.textContent = TEMPLATE_CONFIG.brand.agentName;
+  renderSizingInfo();
+}
+
+function renderSizingInfo() {
+  const sizing = sizingForScenario(currentScenario()?.id);
+  sizingInfo.textContent = (sizing.capabilityTier || "SOLO") + " · " + sizing.connectedDataSources + " data sources · " + sizing.connectedEnterpriseSystems + " enterprise systems • " + (sizing.commercialTier || "Tier 1 - Starter");
+}
+
+function sizingForScenario(scenarioId) {
+  const entries = Array.isArray(TEMPLATE_CONFIG.sizing) ? TEMPLATE_CONFIG.sizing : [];
+  return entries.find((entry) => entry.scenarioId === scenarioId) || entries[0] || {
+    title: "Deployment Prerequisites",
+    subtitle: "Scenario prerequisites",
+    capabilityTier: "SOLO",
+    commercialTier: "Tier 1 - Starter",
+    connectedDataSources: 0,
+    connectedEnterpriseSystems: 0,
+    implementationSize: "TBD",
+    knowledgeDataSources: [],
+    enterpriseSystemConnections: [],
+    regulatoryFrameworks: [],
+    clientSidePrerequisites: [],
+    keySizingDrivers: [],
+  };
 }
 
 function populateScenarios() {
@@ -590,10 +810,10 @@ function renderScenario() {
   const scenario = currentScenario();
   if (!scenario) return;
   messages.innerHTML = scenario.messages.map(renderMessage).join("");
-  docs.innerHTML = scenario.docs.map(renderDoc).join("");
+  docs.innerHTML = renderPrerequisitesDoc(sizingForScenario(scenario.id)) + scenario.docs.map(renderDoc).join("");
   logs.innerHTML = "";
   logClock = 0;
-  scenarioMeta.textContent = scenario.capability + " · " + scenario.messages.length + " messages · " + scenario.docs.length + " docs · " + scenario.logs.length + " logs";
+  renderSizingInfo();
 }
 
 function replayLogs() {
@@ -601,7 +821,14 @@ function replayLogs() {
   logs.innerHTML = "";
   logClock = 0;
   scenario.logs.forEach((entry, index) => {
-    window.setTimeout(() => addLog(entry), 240 * index);
+    window.setTimeout(() => addLog(entry), (240 * index) / speedMultiplier);
+  });
+}
+
+function setSpeed(speed) {
+  speedMultiplier = speed;
+  document.querySelectorAll(".speed-button").forEach((button) => {
+    button.classList.toggle("active", Number(button.dataset.speed) === speed);
   });
 }
 
@@ -611,6 +838,23 @@ function renderMessage(message) {
 
 function renderDoc(doc) {
   return '<article class="doc-card"><div class="doc-head"><div class="doc-icon">' + escapeHtml(doc.icon) + '</div><div><div class="doc-title">' + escapeHtml(doc.title) + '</div><div class="doc-subtitle">' + escapeHtml(doc.subtitle) + '</div></div></div><div class="doc-body">' + doc.sections.map(renderSection).join("") + '</div></article>';
+}
+
+function renderPrerequisitesDoc(sizing) {
+  return '<article class="doc-card"><div class="doc-head"><div class="doc-icon">⚙️</div><div><div class="doc-title">' + escapeHtml(sizing.title) + '</div><div class="doc-subtitle">' + escapeHtml(sizing.subtitle) + '</div></div></div><div class="doc-body">' +
+    renderChecklistSection("Knowledge / Data Sources", sizing.knowledgeDataSources) +
+    renderChecklistSection("Enterprise System Connections", sizing.enterpriseSystemConnections) +
+    renderChecklistSection("Regulatory / Compliance Frameworks", sizing.regulatoryFrameworks) +
+    renderChecklistSection("Client-Side Prerequisites", sizing.clientSidePrerequisites) +
+    '<h3>Project Sizing</h3><div class="row"><div class="row-label">Scope</div><div class="row-value ok">' + escapeHtml(sizing.implementationSize) + '</div></div>' +
+    '<div class="row"><div class="row-label">Capability</div><div class="row-value">' + escapeHtml(sizing.capabilityTier) + '</div></div>' +
+    '<div class="row"><div class="row-label">Commercial</div><div class="row-value">' + escapeHtml(sizing.commercialTier) + '</div></div>' +
+    renderChecklistSection("Key Sizing Drivers", sizing.keySizingDrivers) +
+  '</div></article>';
+}
+
+function renderChecklistSection(heading, items) {
+  return '<h3>' + escapeHtml(heading) + '</h3>' + (items || []).map((item) => '<div class="checklist-item"><span class="check-icon">✓</span><span>' + escapeHtml(item) + '</span></div>').join("");
 }
 
 function renderSection(section) {
@@ -638,6 +882,9 @@ scenarioSelect.addEventListener("change", () => {
   renderScenario();
 });
 document.getElementById("startButton").addEventListener("click", replayLogs);
+document.querySelectorAll(".speed-button").forEach((button) => {
+  button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
+});
 
 applyBrand();
 populateScenarios();
