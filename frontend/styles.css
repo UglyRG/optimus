@@ -107,6 +107,24 @@ button {
   box-shadow: 0 0 0 4px var(--focus);
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 220px);
+  gap: 16px;
+}
+
+.label-list {
+  display: grid;
+  gap: 10px;
+}
+
+.label-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -301,6 +319,8 @@ iframe {
   .topbar,
   .page-head,
   .tool-row,
+  .form-grid,
+  .label-row,
   .result-head {
     align-items: stretch;
     grid-template-columns: 1fr;

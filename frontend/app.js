@@ -97,12 +97,22 @@ function renderIndex({ user, expiresAt }) {
           </div>
           <button class="button button-secondary" id="open-html-tool" type="button">Open</button>
         </article>
+        <article class="tool-row">
+          <div>
+            <h2>Presentation Suite Builder</h2>
+            <p>Create a tabbed presentation suite HTML file with a deck tab and demo tabs.</p>
+          </div>
+          <button class="button button-secondary" id="open-presentation-suite-tool" type="button">Open</button>
+        </article>
       </div>
     </section>
   `;
 
   document.querySelector("#logout-button").addEventListener("click", handleLogout);
   document.querySelector("#open-html-tool").addEventListener("click", renderHtmlBase64Tool);
+  document
+    .querySelector("#open-presentation-suite-tool")
+    .addEventListener("click", renderPresentationSuiteTool);
 }
 
 function renderHtmlBase64Tool() {
@@ -148,6 +158,66 @@ function renderHtmlBase64Tool() {
   document.querySelector("#html-base64-form").addEventListener("submit", handleHtmlBase64Submit);
 }
 
+function renderPresentationSuiteTool() {
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>Presentation Suite Builder</h1>
+          <p>Generate a tabbed HTML template with the first tab as the deck and the remaining tabs as demos.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <form class="tool-panel" id="presentation-suite-form">
+        <div class="form-grid">
+          <div class="field">
+            <label for="suite-file-name">Output file name</label>
+            <input id="suite-file-name" name="fileName" placeholder="presentation-suite.html" required />
+          </div>
+          <div class="field">
+            <label for="suite-tab-count">Number of tabs</label>
+            <input id="suite-tab-count" name="tabCount" type="number" min="1" max="12" value="3" required />
+          </div>
+        </div>
+        <div class="field">
+          <label>Tab labels</label>
+          <div class="label-list" id="suite-label-list"></div>
+        </div>
+        <p class="error" id="tool-error"></p>
+        <button class="button button-primary" type="submit">Create HTML output</button>
+      </form>
+
+      <section class="result-panel" id="result-panel" hidden>
+        <div class="result-head">
+          <div>
+            <h2>Output</h2>
+            <p id="saved-path"></p>
+          </div>
+          <button class="button button-secondary" id="copy-output" type="button">Copy HTML</button>
+        </div>
+        <textarea id="suite-output" readonly spellcheck="false"></textarea>
+        <iframe id="iframe-preview" title="Presentation suite preview"></iframe>
+      </section>
+    </section>
+  `;
+
+  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+
+  const tabCount = document.querySelector("#suite-tab-count");
+  tabCount.addEventListener("input", renderSuiteLabelInputs);
+  renderSuiteLabelInputs();
+
+  document
+    .querySelector("#presentation-suite-form")
+    .addEventListener("submit", handlePresentationSuiteSubmit);
+}
+
 function renderTopbar() {
   return `
     <header class="topbar">
@@ -157,6 +227,25 @@ function renderTopbar() {
       <button class="button button-secondary" id="logout-button" type="button">Log out</button>
     </header>
   `;
+}
+
+function renderSuiteLabelInputs() {
+  const labelList = document.querySelector("#suite-label-list");
+  const tabCount = document.querySelector("#suite-tab-count");
+  const existingLabels = Array.from(labelList.querySelectorAll("input")).map((input) => input.value);
+  const count = Math.min(12, Math.max(1, Number(tabCount.value) || 1));
+  tabCount.value = count;
+
+  labelList.innerHTML = Array.from({ length: count }, (_, index) => {
+    const role = index === 0 ? "Deck" : index === 1 ? "Demo" : `Demo ${index}`;
+    const value = existingLabels[index] || (index === 0 ? "Deck" : `Demo ${index}`);
+    return `
+      <div class="label-row">
+        <span class="badge">${role}</span>
+        <input name="tabLabel" value="${escapeAttribute(value)}" required />
+      </div>
+    `;
+  }).join("");
 }
 
 async function handleHtmlBase64Submit(event) {
@@ -185,6 +274,29 @@ async function handleHtmlBase64Submit(event) {
   }
 }
 
+async function handlePresentationSuiteSubmit(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const labels = data.getAll("tabLabel").map((label) => String(label).trim());
+
+  try {
+    const result = await request("/tools/presentation-suite", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: String(data.get("fileName")).trim(),
+        tabCount: Number(data.get("tabCount")),
+        labels,
+      }),
+    });
+
+    showPresentationSuiteResult(result);
+  } catch (error) {
+    showToolError(error.message);
+  }
+}
+
 function showToolResult(result) {
   const panel = document.querySelector("#result-panel");
   const savedPath = document.querySelector("#saved-path");
@@ -202,6 +314,27 @@ function showToolResult(result) {
     copyButton.textContent = "Copied";
     window.setTimeout(() => {
       copyButton.textContent = "Copy";
+    }, 1200);
+  });
+}
+
+function showPresentationSuiteResult(result) {
+  const panel = document.querySelector("#result-panel");
+  const savedPath = document.querySelector("#saved-path");
+  const output = document.querySelector("#suite-output");
+  const preview = document.querySelector("#iframe-preview");
+  const copyButton = document.querySelector("#copy-output");
+
+  savedPath.textContent = `Saved as ${result.fileName}`;
+  output.value = result.html;
+  preview.srcdoc = result.html;
+  panel.hidden = false;
+
+  copyButton.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(result.html);
+    copyButton.textContent = "Copied";
+    window.setTimeout(() => {
+      copyButton.textContent = "Copy HTML";
     }, 1200);
   });
 }
@@ -239,6 +372,10 @@ function escapeHtml(value) {
         "'": "&#039;",
       })[character],
   );
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#096;");
 }
 
 loadSession();

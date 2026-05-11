@@ -1,6 +1,7 @@
 {
   "scripts": {
     "backend": "node backend/server.js",
+    "dev": "node scripts/dev.js",
     "frontend": "node frontend/server.js"
   }
 }

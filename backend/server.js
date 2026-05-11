@@ -172,6 +172,113 @@ function outputFileName(fileName) {
   return `base62-${safeBaseName || "page"}.txt`;
 }
 
+function outputHtmlFileName(fileName) {
+  const parsed = path.parse(fileName || "presentation-suite.html");
+  const baseName = parsed.name || "presentation-suite";
+  const safeBaseName = baseName
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+
+  return `${safeBaseName || "presentation-suite"}.html`;
+}
+
+function escapeTemplateHtml(value) {
+  return String(value).replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[character],
+  );
+}
+
+function formatSuiteDate(date = new Date()) {
+  const month = new Intl.DateTimeFormat("en-US", { month: "long" }).format(date);
+  const year = String(date.getFullYear()).slice(-2);
+  return `${month} ${year}`;
+}
+
+function tabIdForIndex(index) {
+  if (index === 0) {
+    return "deck";
+  }
+
+  return index === 1 ? "demo" : `demo${index}`;
+}
+
+function buildPresentationSuiteHtml({ labels, dateLabel = formatSuiteDate() }) {
+  const tabs = labels.map((label, index) => ({
+    id: tabIdForIndex(index),
+    label: escapeTemplateHtml(label),
+    isActive: index === 0,
+  }));
+
+  const buttons = tabs
+    .map(
+      (tab) =>
+        `    <button class="tab-btn${tab.isActive ? " active" : ""}" onclick="switchTab('${tab.id}',this)"><span class="tab-dot"></span>${tab.label}</button>`,
+    )
+    .join("\n");
+
+  const panels = tabs
+    .map(
+      (tab) =>
+        `  <div class="panel${tab.isActive ? " active" : ""}" id="panel-${tab.id}"></div>`,
+    )
+    .join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Presentation Suite</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:#f4f6fb; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  .topbar { background:#1a2744; height:56px; display:flex; align-items:center; padding:0 24px; flex-shrink:0; box-shadow:0 2px 12px rgba(26,39,68,0.25); z-index:100; }
+  .tab-nav { display:flex; gap:4px; flex:1; overflow-x:auto; }
+  .tab-btn { display:flex; align-items:center; gap:8px; padding:8px 18px; border-radius:8px; border:none; background:transparent; color:rgba(255,255,255,0.6); font-family:'DM Sans',sans-serif; font-size:13.5px; font-weight:500; cursor:pointer; transition:all 0.2s; white-space:nowrap; }
+  .tab-btn:hover { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.9); }
+  .tab-btn.active { background:rgba(45,156,219,0.2); color:#fff; font-weight:600; }
+  .tab-btn.active .tab-dot { background:#2d9cdb; }
+  .tab-dot { width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.3); transition:background 0.2s; flex:0 0 auto; }
+  .topbar-badge { margin-left:auto; padding-left:16px; font-size:11px; color:rgba(255,255,255,0.35); letter-spacing:0.5px; text-transform:uppercase; white-space:nowrap; }
+  .content-area { flex:1; overflow:hidden; position:relative; }
+  .panel { position:absolute; inset:0; display:none; flex-direction:column; }
+  .panel.active { display:flex; }
+  .panel iframe { width:100%; height:100%; border:none; flex:1; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <nav class="tab-nav">
+${buttons}
+  </nav>
+  <div class="topbar-badge">${escapeTemplateHtml(dateLabel)}</div>
+</div>
+<div class="content-area">
+${panels}
+</div>
+<script>
+function switchTab(tab, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + tab).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>`;
+}
+
 async function saveIframeSource({ fileName, html }) {
   if (!fileName || typeof html !== "string") {
     throw new Error("An HTML file is required");
@@ -188,6 +295,39 @@ async function saveIframeSource({ fileName, html }) {
     fileName: savedFileName,
     outputPath,
     iframeSource,
+  };
+}
+
+async function savePresentationSuite({ fileName, tabCount, labels }) {
+  const count = Number(tabCount);
+  if (!Number.isInteger(count) || count < 1 || count > 12) {
+    throw new Error("Choose between 1 and 12 tabs");
+  }
+
+  if (!Array.isArray(labels) || labels.length !== count) {
+    throw new Error("Provide one label for each tab");
+  }
+
+  const cleanLabels = labels.map((label, index) => {
+    const trimmed = String(label || "").trim();
+    if (trimmed) {
+      return trimmed.slice(0, 80);
+    }
+
+    return index === 0 ? "Deck" : `Demo ${index}`;
+  });
+
+  const savedFileName = outputHtmlFileName(fileName);
+  const outputPath = path.join(OUTPUTS_DIR, savedFileName);
+  const html = buildPresentationSuiteHtml({ labels: cleanLabels });
+
+  await fs.mkdir(OUTPUTS_DIR, { recursive: true });
+  await fs.writeFile(outputPath, html, "utf8");
+
+  return {
+    fileName: savedFileName,
+    outputPath,
+    html,
   };
 }
 
@@ -226,6 +366,18 @@ async function handleRequest(request, response) {
 
     const payload = await readJson(request);
     const result = await saveIframeSource(payload);
+    sendJson(response, 200, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/presentation-suite") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const payload = await readJson(request);
+    const result = await savePresentationSuite(payload);
     sendJson(response, 200, result);
     return;
   }
