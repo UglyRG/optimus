@@ -104,6 +104,11 @@ button {
   padding: 10px;
 }
 
+.field input[type="color"] {
+  height: 44px;
+  padding: 5px;
+}
+
 .field input:focus,
 .field select:focus {
   border-color: var(--brand);
@@ -113,6 +118,12 @@ button {
 .form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(140px, 220px);
+  gap: 16px;
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 16px;
 }
 
@@ -323,6 +334,7 @@ iframe {
   .page-head,
   .tool-row,
   .form-grid,
+  .color-grid,
   .label-row,
   .result-head {
     align-items: stretch;

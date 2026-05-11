@@ -105,6 +105,13 @@ function renderIndex({ user, expiresAt }) {
           </div>
           <button class="button button-secondary" id="open-presentation-suite-tool" type="button">Open</button>
         </article>
+        <article class="tool-row">
+          <div>
+            <h2>Demo Builder</h2>
+            <p>Create a branded, configurable agent demo template with scenarios, messages, docs, and logs.</p>
+          </div>
+          <button class="button button-secondary" id="open-demo-builder-tool" type="button">Open</button>
+        </article>
       </div>
     </section>
   `;
@@ -114,6 +121,7 @@ function renderIndex({ user, expiresAt }) {
   document
     .querySelector("#open-presentation-suite-tool")
     .addEventListener("click", renderPresentationSuiteTool);
+  document.querySelector("#open-demo-builder-tool").addEventListener("click", renderDemoBuilderTool);
 }
 
 function renderHtmlBase64Tool() {
@@ -227,6 +235,102 @@ async function renderPresentationSuiteTool() {
     .addEventListener("submit", handlePresentationSuiteSubmit);
 }
 
+function renderDemoBuilderTool() {
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>Demo Builder</h1>
+          <p>Generate a reusable demo HTML template with editable branding, scenarios, messages, documents, and logs.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <form class="tool-panel" id="demo-builder-form">
+        <div class="form-grid">
+          <div class="field">
+            <label for="demo-file-name">Output file name</label>
+            <input id="demo-file-name" name="fileName" value="demo-builder-template.html" required />
+          </div>
+          <div class="field">
+            <label for="demo-scenario-count">Number of scenarios</label>
+            <input id="demo-scenario-count" name="scenarioCount" type="number" min="1" max="8" value="2" required />
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="demo-logo-text">Logo text</label>
+            <input id="demo-logo-text" name="logoText" value="LOGO" required />
+          </div>
+          <div class="field">
+            <label for="demo-title">Demo title</label>
+            <input id="demo-title" name="title" value="Funding Advisor Demo" required />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="demo-subtitle">Subtitle</label>
+          <input id="demo-subtitle" name="subtitle" value="Configurable agent simulation template" />
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="demo-font-ui">UI font</label>
+            <input id="demo-font-ui" name="fontUi" value="Inter, system-ui, sans-serif" />
+          </div>
+          <div class="field">
+            <label for="demo-font-mono">Mono font</label>
+            <input id="demo-font-mono" name="fontMono" value="JetBrains Mono, monospace" />
+          </div>
+        </div>
+
+        <div class="color-grid">
+          <div class="field">
+            <label for="demo-brand-color">Brand</label>
+            <input id="demo-brand-color" name="brandColor" type="color" value="#003a7d" />
+          </div>
+          <div class="field">
+            <label for="demo-accent-color">Accent</label>
+            <input id="demo-accent-color" name="accentColor" type="color" value="#c8a84b" />
+          </div>
+          <div class="field">
+            <label for="demo-bg-color">Background</label>
+            <input id="demo-bg-color" name="backgroundColor" type="color" value="#0e1117" />
+          </div>
+          <div class="field">
+            <label for="demo-font-color">Font</label>
+            <input id="demo-font-color" name="fontColor" type="color" value="#e8eaf0" />
+          </div>
+        </div>
+
+        <p class="error" id="tool-error"></p>
+        <button class="button button-primary" type="submit">Create demo template</button>
+      </form>
+
+      <section class="result-panel" id="result-panel" hidden>
+        <div class="result-head">
+          <div>
+            <h2>Output</h2>
+            <p id="saved-path"></p>
+          </div>
+          <button class="button button-secondary" id="copy-output" type="button">Copy HTML</button>
+        </div>
+        <textarea id="demo-output" readonly spellcheck="false"></textarea>
+        <iframe id="iframe-preview" title="Demo Builder preview"></iframe>
+      </section>
+    </section>
+  `;
+
+  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#demo-builder-form").addEventListener("submit", handleDemoBuilderSubmit);
+}
+
 function renderTopbar() {
   return `
     <header class="topbar">
@@ -331,6 +435,36 @@ async function handlePresentationSuiteSubmit(event) {
   }
 }
 
+async function handleDemoBuilderSubmit(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const data = new FormData(form);
+
+  try {
+    const result = await request("/tools/demo-builder", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: String(data.get("fileName")).trim(),
+        scenarioCount: Number(data.get("scenarioCount")),
+        logoText: String(data.get("logoText")).trim(),
+        title: String(data.get("title")).trim(),
+        subtitle: String(data.get("subtitle")).trim(),
+        fontUi: String(data.get("fontUi")).trim(),
+        fontMono: String(data.get("fontMono")).trim(),
+        brandColor: String(data.get("brandColor")).trim(),
+        accentColor: String(data.get("accentColor")).trim(),
+        backgroundColor: String(data.get("backgroundColor")).trim(),
+        fontColor: String(data.get("fontColor")).trim(),
+      }),
+    });
+
+    showDemoBuilderResult(result);
+  } catch (error) {
+    showToolError(error.message);
+  }
+}
+
 function showToolResult(result) {
   const panel = document.querySelector("#result-panel");
   const savedPath = document.querySelector("#saved-path");
@@ -356,6 +490,27 @@ function showPresentationSuiteResult(result) {
   const panel = document.querySelector("#result-panel");
   const savedPath = document.querySelector("#saved-path");
   const output = document.querySelector("#suite-output");
+  const preview = document.querySelector("#iframe-preview");
+  const copyButton = document.querySelector("#copy-output");
+
+  savedPath.textContent = `Saved as ${result.fileName}`;
+  output.value = result.html;
+  preview.srcdoc = result.html;
+  panel.hidden = false;
+
+  copyButton.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(result.html);
+    copyButton.textContent = "Copied";
+    window.setTimeout(() => {
+      copyButton.textContent = "Copy HTML";
+    }, 1200);
+  });
+}
+
+function showDemoBuilderResult(result) {
+  const panel = document.querySelector("#result-panel");
+  const savedPath = document.querySelector("#saved-path");
+  const output = document.querySelector("#demo-output");
   const preview = document.querySelector("#iframe-preview");
   const copyButton = document.querySelector("#copy-output");
 
