@@ -212,25 +212,60 @@ function tabIdForIndex(index) {
   return index === 1 ? "demo" : `demo${index}`;
 }
 
-function buildPresentationSuiteHtml({ labels, dateLabel = formatSuiteDate() }) {
-  const tabs = labels.map((label, index) => ({
+function safeOutputTxtFileName(fileName) {
+  const candidate = String(fileName || "").trim();
+  if (!candidate || path.basename(candidate) !== candidate || path.extname(candidate) !== ".txt") {
+    throw new Error("Choose a valid TXT output file");
+  }
+
+  return candidate;
+}
+
+async function listIframeSourceFiles() {
+  await fs.mkdir(OUTPUTS_DIR, { recursive: true });
+  const entries = await fs.readdir(OUTPUTS_DIR, { withFileTypes: true });
+
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".txt"))
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+async function readIframeSourceFile(fileName) {
+  const safeFileName = safeOutputTxtFileName(fileName);
+  const contents = await fs.readFile(path.join(OUTPUTS_DIR, safeFileName), "utf8");
+  const iframeSource = contents.trim();
+
+  if (!iframeSource.startsWith("data:text/html;base64,")) {
+    throw new Error(`${safeFileName} is not an iframe-ready Base64 data string`);
+  }
+
+  return iframeSource;
+}
+
+function buildPresentationSuiteHtml({ tabs, dateLabel = formatSuiteDate() }) {
+  const normalizedTabs = tabs.map((tab, index) => ({
     id: tabIdForIndex(index),
-    label: escapeTemplateHtml(label),
+    label: escapeTemplateHtml(tab.label),
+    iframeSource: tab.iframeSource,
     isActive: index === 0,
   }));
 
-  const buttons = tabs
+  const buttons = normalizedTabs
     .map(
       (tab) =>
         `    <button class="tab-btn${tab.isActive ? " active" : ""}" onclick="switchTab('${tab.id}',this)"><span class="tab-dot"></span>${tab.label}</button>`,
     )
     .join("\n");
 
-  const panels = tabs
-    .map(
-      (tab) =>
-        `  <div class="panel${tab.isActive ? " active" : ""}" id="panel-${tab.id}"></div>`,
-    )
+  const panels = normalizedTabs
+    .map((tab) => {
+      const iframe = tab.iframeSource
+        ? `\n    <iframe src="${escapeTemplateHtml(tab.iframeSource)}" title="${tab.label}"></iframe>\n  `
+        : "";
+
+      return `  <div class="panel${tab.isActive ? " active" : ""}" id="panel-${tab.id}">${iframe}</div>`;
+    })
     .join("\n");
 
   return `<!DOCTYPE html>
@@ -298,7 +333,7 @@ async function saveIframeSource({ fileName, html }) {
   };
 }
 
-async function savePresentationSuite({ fileName, tabCount, labels }) {
+async function savePresentationSuite({ fileName, tabCount, labels, sourceFiles = [] }) {
   const count = Number(tabCount);
   if (!Number.isInteger(count) || count < 1 || count > 12) {
     throw new Error("Choose between 1 and 12 tabs");
@@ -317,9 +352,23 @@ async function savePresentationSuite({ fileName, tabCount, labels }) {
     return index === 0 ? "Deck" : `Demo ${index}`;
   });
 
+  if (!Array.isArray(sourceFiles) || sourceFiles.length !== count) {
+    throw new Error("Provide one content choice for each tab");
+  }
+
+  const tabs = await Promise.all(
+    cleanLabels.map(async (label, index) => {
+      const sourceFile = String(sourceFiles[index] || "").trim();
+      return {
+        label,
+        iframeSource: sourceFile ? await readIframeSourceFile(sourceFile) : "",
+      };
+    }),
+  );
+
   const savedFileName = outputHtmlFileName(fileName);
   const outputPath = path.join(OUTPUTS_DIR, savedFileName);
-  const html = buildPresentationSuiteHtml({ labels: cleanLabels });
+  const html = buildPresentationSuiteHtml({ tabs });
 
   await fs.mkdir(OUTPUTS_DIR, { recursive: true });
   await fs.writeFile(outputPath, html, "utf8");
@@ -355,6 +404,17 @@ async function handleRequest(request, response) {
       user: { name: session.name },
       expiresAt: session.expiresAt,
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/outputs/iframe-sources") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const files = await listIframeSourceFiles();
+    sendJson(response, 200, { files });
     return;
   }
 

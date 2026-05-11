@@ -26,4 +26,4 @@ Upload an `.html` file from the UI to create an iframe-ready `data:text/html;bas
 
 ### Presentation Suite Builder
 
-Specify an output filename, number of tabs, and tab labels to generate a tabbed presentation suite HTML template. The first tab is always the deck, remaining tabs are demos, and the date badge uses `Month YY` format. Outputs are saved locally in `Outputs/` as the requested `.html` file.
+Specify an output filename, number of tabs, tab labels, and optional iframe sources to generate a tabbed presentation suite HTML template. The first tab is always the deck, remaining tabs are demos, and the date badge uses `Month YY` format. Iframe sources are selected from `.txt` files in `Outputs/` and embedded directly into the generated HTML, so the final file does not reference the source `.txt` files. Outputs are saved locally in `Outputs/` as the requested `.html` file.

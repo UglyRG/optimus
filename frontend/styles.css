@@ -30,7 +30,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -88,7 +89,8 @@ button {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -102,7 +104,8 @@ button {
   padding: 10px;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   border-color: var(--brand);
   box-shadow: 0 0 0 4px var(--focus);
 }
@@ -120,7 +123,7 @@ button {
 
 .label-row {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-columns: 92px minmax(0, 1fr) minmax(220px, 0.8fr);
   align-items: center;
   gap: 10px;
 }

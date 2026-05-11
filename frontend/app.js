@@ -2,6 +2,7 @@ const API_BASE = "http://localhost:8787/api";
 const app = document.querySelector("#app");
 let activeUser = null;
 let activeExpiresAt = null;
+let suiteSourceFiles = [];
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -158,7 +159,15 @@ function renderHtmlBase64Tool() {
   document.querySelector("#html-base64-form").addEventListener("submit", handleHtmlBase64Submit);
 }
 
-function renderPresentationSuiteTool() {
+async function renderPresentationSuiteTool() {
+  suiteSourceFiles = [];
+  try {
+    const payload = await request("/outputs/iframe-sources");
+    suiteSourceFiles = payload.files || [];
+  } catch {
+    suiteSourceFiles = [];
+  }
+
   app.innerHTML = `
     ${renderTopbar()}
 
@@ -183,7 +192,7 @@ function renderPresentationSuiteTool() {
           </div>
         </div>
         <div class="field">
-          <label>Tab labels</label>
+          <label>Tabs</label>
           <div class="label-list" id="suite-label-list"></div>
         </div>
         <p class="error" id="tool-error"></p>
@@ -232,20 +241,43 @@ function renderTopbar() {
 function renderSuiteLabelInputs() {
   const labelList = document.querySelector("#suite-label-list");
   const tabCount = document.querySelector("#suite-tab-count");
-  const existingLabels = Array.from(labelList.querySelectorAll("input")).map((input) => input.value);
+  const existingLabels = Array.from(labelList.querySelectorAll('input[name="tabLabel"]')).map(
+    (input) => input.value,
+  );
+  const existingSourceFiles = Array.from(labelList.querySelectorAll('select[name="tabSourceFile"]')).map(
+    (select) => select.value,
+  );
   const count = Math.min(12, Math.max(1, Number(tabCount.value) || 1));
   tabCount.value = count;
 
   labelList.innerHTML = Array.from({ length: count }, (_, index) => {
     const role = index === 0 ? "Deck" : index === 1 ? "Demo" : `Demo ${index}`;
     const value = existingLabels[index] || (index === 0 ? "Deck" : `Demo ${index}`);
+    const selectedSourceFile = existingSourceFiles[index] || "";
     return `
       <div class="label-row">
         <span class="badge">${role}</span>
-        <input name="tabLabel" value="${escapeAttribute(value)}" required />
+        <input name="tabLabel" value="${escapeAttribute(value)}" aria-label="${role} label" required />
+        <select name="tabSourceFile" aria-label="${role} iframe source">
+          <option value="">No iframe</option>
+          ${renderSourceFileOptions(selectedSourceFile)}
+        </select>
       </div>
     `;
   }).join("");
+}
+
+function renderSourceFileOptions(selectedSourceFile) {
+  if (!suiteSourceFiles.length) {
+    return '<option value="" disabled>No TXT outputs found</option>';
+  }
+
+  return suiteSourceFiles
+    .map((fileName) => {
+      const selected = fileName === selectedSourceFile ? " selected" : "";
+      return `<option value="${escapeAttribute(fileName)}"${selected}>${escapeHtml(fileName)}</option>`;
+    })
+    .join("");
 }
 
 async function handleHtmlBase64Submit(event) {
@@ -280,6 +312,7 @@ async function handlePresentationSuiteSubmit(event) {
   const form = event.currentTarget;
   const data = new FormData(form);
   const labels = data.getAll("tabLabel").map((label) => String(label).trim());
+  const sourceFiles = data.getAll("tabSourceFile").map((fileName) => String(fileName).trim());
 
   try {
     const result = await request("/tools/presentation-suite", {
@@ -288,6 +321,7 @@ async function handlePresentationSuiteSubmit(event) {
         fileName: String(data.get("fileName")).trim(),
         tabCount: Number(data.get("tabCount")),
         labels,
+        sourceFiles,
       }),
     });
 
