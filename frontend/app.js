@@ -5,6 +5,7 @@ let activeExpiresAt = null;
 let suiteSourceFiles = [];
 let demoContentJsonDirty = false;
 let demoSizingJsonDirty = false;
+let demoGlossaryJsonDirty = false;
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -240,6 +241,7 @@ async function renderPresentationSuiteTool() {
 function renderDemoBuilderTool() {
   demoContentJsonDirty = false;
   demoSizingJsonDirty = false;
+  demoGlossaryJsonDirty = false;
   const defaultContent = createDefaultDemoContent(2);
   app.innerHTML = `
     ${renderTopbar()}
@@ -322,6 +324,13 @@ function renderDemoBuilderTool() {
           <label for="demo-sizing-json">Sizing JSON</label>
           <textarea class="content-json-input" id="demo-sizing-json" name="sizingJson" spellcheck="false">${escapeHtml(
             JSON.stringify(createDefaultSizingContent(defaultContent), null, 2),
+          )}</textarea>
+        </div>
+
+        <div class="field">
+          <label for="demo-glossary-json">Glossary JSON</label>
+          <textarea class="content-json-input" id="demo-glossary-json" name="glossaryJson" spellcheck="false">${escapeHtml(
+            JSON.stringify(createDefaultGlossaryContent(), null, 2),
           )}</textarea>
         </div>
 
@@ -500,6 +509,7 @@ function readDemoBuilderFormValues(form = document.querySelector("#demo-builder-
     fontColor: String(data.get("fontColor")).trim(),
     contentJson: String(data.get("contentJson")).trim(),
     sizingJson: String(data.get("sizingJson")).trim(),
+    glossaryJson: String(data.get("glossaryJson")).trim(),
   };
 }
 
@@ -510,6 +520,10 @@ function handleDemoBuilderFormInput(event) {
 
   if (event.target.id === "demo-sizing-json") {
     demoSizingJsonDirty = true;
+  }
+
+  if (event.target.id === "demo-glossary-json") {
+    demoGlossaryJsonDirty = true;
   }
 
   if (event.target.id === "demo-scenario-count" && !demoContentJsonDirty) {
@@ -544,6 +558,11 @@ function buildDemoBuilderLivePreviewHtml(values) {
     return buildDemoBuilderPreviewErrorHtml(sizingContent.error);
   }
 
+  const glossaryContent = parseDemoGlossaryJson(values.glossaryJson);
+  if (glossaryContent.error) {
+    return buildDemoBuilderPreviewErrorHtml(glossaryContent.error);
+  }
+
   const scenarios = content.scenarios;
   const scenario = scenarios[0];
   const messages = scenario.messages.length ? scenario.messages : createDefaultDemoContent(1)[0].messages;
@@ -555,12 +574,16 @@ function buildDemoBuilderLivePreviewHtml(values) {
   const scenarioPicker = scenarios.length > 1
     ? `<label class="scenario-picker"><span>Scenario</span><select>${scenarioOptions}</select></label>`
     : "";
+  const glossaryPreview = renderPreviewGlossary(glossaryContent.glossary);
   const previewMessages = messages.slice(0, 4).map(renderPreviewMessage).join("");
   const previewDoc = renderPreviewPrerequisitesDoc(sizing);
   const previewLogs = logs
     .slice(0, 5)
-    .map((log) => `<span class="log-type">${escapeHtml(log.type)}</span> ${escapeHtml(log.text)}`)
-    .join("<br>");
+    .map((log) => {
+      const type = normalizePreviewLogType(log.type);
+      return `<div class="log-line"><span class="log-type ${escapeAttribute(type)}">${escapeHtml(type)}</span><span>${escapeHtml(log.text)}</span></div>`;
+    })
+    .join("");
   const sizingMeta = `${sizing.capabilityTier} · ${sizing.connectedDataSources} data sources · ${sizing.connectedEnterpriseSystems} enterprise systems • ${sizing.commercialTier}`;
 
   return `<!doctype html>
@@ -577,16 +600,38 @@ function buildDemoBuilderLivePreviewHtml(values) {
   .scenario-picker { margin-left: auto; display: flex; align-items: center; gap: 7px; }
   .scenario-picker span { color: rgba(255,255,255,.62); font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
   select { max-width: 190px; height: 30px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 0 8px; background: rgba(255,255,255,.12); color: #fff; font: inherit; }
+  .glossary-button { border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 7px 9px; background: rgba(255,255,255,.12); color: #fff; font: 700 10px ${fontUi}; }
+  .glossary-popover { position: absolute; right: 16px; top: 58px; width: 260px; max-height: 190px; overflow: hidden; border: 1px solid #2a3550; border-radius: 8px; background: #1e2638; box-shadow: 0 14px 36px rgba(0,0,0,.35); }
+  .glossary-popover h2 { margin: 0; padding: 9px 11px; border-bottom: 1px solid #2a3550; font-size: 12px; }
+  .glossary-popover-body { padding: 8px 11px; color: #9aa5b8; font-size: 10px; line-height: 1.45; }
+  .glossary-popover strong { color: ${escapeAttribute(values.accentColor || "#c8a84b")}; font-family: ${fontMono}; }
   .main { flex: 1; min-height: 0; display: grid; grid-template-columns: 42% 58%; }
   .chat { background: #f8f9fb; color: #1a2030; border-right: 1px solid #2a3550; padding: 12px; }
   .bubble { width: fit-content; max-width: 92%; margin-bottom: 9px; padding: 8px 10px; border-radius: 12px; background: #fff; border: 1px solid #d8dde8; line-height: 1.4; }
   .bubble.user { margin-left: auto; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; border-color: ${escapeAttribute(values.brandColor || "#003a7d")}; }
-  .right { display: grid; grid-template-rows: 1fr 92px; background: #141820; }
+  .right { display: flex; flex-direction: column; min-width: 0; background: #141820; }
+  .right-tabs { height: 30px; display: flex; border-bottom: 1px solid #2a3550; background: #1e2638; }
+  .right-tab { display: flex; align-items: center; padding: 0 10px; border-bottom: 2px solid transparent; color: #64748b; font-size: 9px; font-weight: 800; }
+  .right-tab.active { color: #e8eaf0; border-bottom-color: ${escapeAttribute(values.brandColor || "#003a7d")}; background: #141820; }
+  .split-preview { flex: 1; min-height: 0; display: grid; grid-template-rows: 1fr 114px; }
+  .doc-tabs { display: flex; min-height: 28px; border-bottom: 1px solid #2a3550; background: #1e2638; }
+  .doc-tab { padding: 7px 9px; border-right: 1px solid #2a3550; color: #64748b; font-size: 9px; }
+  .doc-tab.active { color: #e8eaf0; border-bottom: 2px solid ${escapeAttribute(values.brandColor || "#003a7d")}; background: #141820; }
+  .docs-preview { min-height: 0; overflow: hidden; }
   .doc { margin: 12px; border: 1px solid #2a3550; border-radius: 8px; overflow: hidden; background: #1e2638; }
   .doc-head { padding: 10px 12px; border-bottom: 1px solid #2a3550; font-weight: 800; }
   .doc-body { padding: 10px 12px; color: #9aa5b8; line-height: 1.5; }
-  .logs { border-top: 2px solid ${escapeAttribute(values.accentColor || "#c8a84b")}; padding: 8px 10px; background: #0b0f16; color: #9aa5b8; font: 10px ${fontMono}; }
-  .log-type { color: ${escapeAttribute(values.accentColor || "#c8a84b")}; font-weight: 900; }
+  .log-head { border-top: 2px solid ${escapeAttribute(values.accentColor || "#c8a84b")}; border-bottom: 1px solid #2a3550; padding: 5px 10px; background: #1e2638; color: #64748b; display: flex; align-items: center; gap: 7px; font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #34d399; }
+  .logs { padding: 6px 10px; background: #0b0f16; color: #9aa5b8; font: 9.5px ${fontMono}; }
+  .log-line { display: flex; gap: 7px; align-items: flex-start; padding: 2px 0; border-bottom: 1px solid rgba(42,53,80,.25); }
+  .log-type { min-width: 46px; padding: 1px 4px; border-radius: 3px; text-align: center; color: ${escapeAttribute(values.accentColor || "#c8a84b")}; background: rgba(200,168,75,.14); font-size: 8px; font-weight: 900; text-transform: uppercase; }
+  .log-type.info { background: rgba(91,124,250,.15); color: #5b7cfa; }
+  .log-type.data { background: rgba(251,146,60,.15); color: #fb923c; }
+  .log-type.api { background: rgba(34,211,238,.15); color: #22d3ee; }
+  .log-type.decision { background: rgba(251,191,36,.15); color: #fbbf24; }
+  .log-type.success { background: rgba(52,211,153,.15); color: #34d399; }
+  .log-type.warn { background: rgba(251,191,36,.15); color: #fbbf24; }
   .demo-bar { min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-top: 1px solid #2a3550; background: #1e2638; flex: 0 0 auto; }
   .simulation-controls, .speed-control { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
   .demo-label { color: #64748b; font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
@@ -602,14 +647,31 @@ function buildDemoBuilderLivePreviewHtml(values) {
     <div class="logo">${escapeHtml(values.logoText || "LOGO")}</div>
     <div><h1>${escapeHtml(values.title || "Use-case Demo")}</h1><p>${escapeHtml(values.subtitle || "Configurable agent simulation template")}</p></div>
     ${scenarioPicker}
+    <button type="button" class="glossary-button">ⓘ Glossary</button>
+    ${glossaryPreview}
   </header>
   <main class="main">
     <section class="chat">
       ${previewMessages}
     </section>
     <section class="right">
-      ${previewDoc}
-      <div class="logs">${previewLogs}</div>
+      <div class="right-tabs">
+        <div class="right-tab active">Docs + Agent Log</div>
+        <div class="right-tab">Docs only</div>
+        <div class="right-tab">Agent Log only</div>
+      </div>
+      <div class="split-preview">
+        <div class="docs-preview">
+          <div class="doc-tabs">
+            <div class="doc-tab active">Prerequisites</div>
+          </div>
+          ${previewDoc}
+        </div>
+        <div>
+          <div class="log-head"><span class="live-dot"></span><span>Agent Log — Live Processing</span></div>
+          <div class="logs">${previewLogs}</div>
+        </div>
+      </div>
     </section>
   </main>
   <footer class="demo-bar">
@@ -639,14 +701,17 @@ function createDefaultDemoContent(count) {
       {
         role: "agent",
         text: `Welcome. This is the opening assistant message for scenario ${index + 1}.`,
+        delayMs: 0,
       },
       {
         role: "user",
         text: "Replace this with the user's business question or prompt.",
+        delayMs: 900,
       },
       {
         role: "agent",
         text: "Replace this with the agent response. Use <strong>HTML</strong> for emphasis when needed.",
+        delayMs: 1200,
       },
     ],
     docs: [
@@ -654,6 +719,8 @@ function createDefaultDemoContent(count) {
         title: "Document Template",
         subtitle: "Evidence, assumptions, outputs, or preview content",
         icon: "DOC",
+        revealAfterMessageIndex: 2,
+        delayMs: 250,
         sections: [
           {
             heading: "Placeholder Section",
@@ -666,9 +733,9 @@ function createDefaultDemoContent(count) {
       },
     ],
     logs: [
-      { type: "info", text: "Intent detected - replace with scenario-specific processing step." },
-      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference." },
-      { type: "success", text: "Scenario output prepared." },
+      { type: "info", text: "Intent detected - replace with scenario-specific processing step.", delayMs: 320 },
+      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference.", delayMs: 420 },
+      { type: "success", text: "Scenario output prepared.", delayMs: 520 },
     ],
   }));
 }
@@ -707,6 +774,37 @@ function createDefaultSizingContent(scenarios) {
       "Data mapping and normalization",
     ],
   }));
+}
+
+function createDefaultGlossaryContent() {
+  return [
+    {
+      category: "Systems & Data",
+      entries: [
+        {
+          term: "CRM",
+          definition: "Customer relationship management system containing profile, history, and account data.",
+        },
+        {
+          term: "RAG",
+          definition: "Retrieval-augmented generation: the agent searches trusted sources before composing an answer.",
+        },
+      ],
+    },
+    {
+      category: "Delivery Terms",
+      entries: [
+        {
+          term: "Capability Tier",
+          definition: "Operational complexity level for the use case, such as SOLO or AEON.",
+        },
+        {
+          term: "Commercial Tier",
+          definition: "Commercial packaging level used for sizing, pricing, or rollout planning.",
+        },
+      ],
+    },
+  ];
 }
 
 function parseDemoContentJson(contentJson) {
@@ -767,6 +865,30 @@ function parseDemoSizingJson(sizingJson, scenarios) {
   }
 }
 
+function parseDemoGlossaryJson(glossaryJson) {
+  try {
+    const parsed = JSON.parse(glossaryJson || "[]");
+    const glossary = Array.isArray(parsed) ? parsed : parsed.glossary;
+    if (!Array.isArray(glossary)) {
+      return { error: "Glossary JSON must be an array or an object with a glossary array." };
+    }
+
+    return {
+      glossary: glossary.map((category) => ({
+        category: String(category.category || "Glossary"),
+        entries: Array.isArray(category.entries)
+          ? category.entries.map((entry) => ({
+              term: String(entry.term || "Term"),
+              definition: String(entry.definition || "Definition"),
+            }))
+          : [],
+      })),
+    };
+  } catch {
+    return { error: "Glossary JSON is not valid JSON." };
+  }
+}
+
 function renderPreviewMessage(message) {
   const role = message.role === "user" ? "user" : "agent";
   return `<div class="bubble ${role}">${sanitizePreviewHtml(message.text || "Placeholder message")}</div>`;
@@ -793,6 +915,16 @@ function renderPreviewPrerequisitesDoc(sizing) {
   ].join("<br>");
 
   return `<article class="doc"><div class="doc-head">⚙️ ${escapeHtml(sizing.title || "Deployment Prerequisites")}</div><div class="doc-body">${escapeHtml(sizing.subtitle || "Scenario prerequisites")}<br>${items}</div></article>`;
+}
+
+function renderPreviewGlossary(glossary) {
+  const entries = (glossary || [])
+    .flatMap((category) => category.entries || [])
+    .slice(0, 3)
+    .map((entry) => `<strong>${escapeHtml(entry.term)}</strong>: ${escapeHtml(entry.definition)}`)
+    .join("<br>");
+
+  return `<div class="glossary-popover"><h2>Glossary</h2><div class="glossary-popover-body">${entries}</div></div>`;
 }
 
 function buildDemoBuilderPreviewErrorHtml(message) {
@@ -912,6 +1044,10 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value).replace(/`/g, "&#096;");
+}
+
+function normalizePreviewLogType(type) {
+  return String(type || "info").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "info";
 }
 
 loadSession();

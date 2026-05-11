@@ -238,14 +238,17 @@ function defaultDemoScenarios(count) {
       {
         role: "agent",
         text: `Welcome. This is the opening assistant message for scenario ${index + 1}.`,
+        delayMs: 0,
       },
       {
         role: "user",
         text: "Replace this with the user's business question or prompt.",
+        delayMs: 900,
       },
       {
         role: "agent",
         text: "Replace this with the agent response. Use <strong>HTML</strong> for emphasis when needed.",
+        delayMs: 1200,
       },
     ],
     docs: [
@@ -253,6 +256,8 @@ function defaultDemoScenarios(count) {
         title: "Document Template",
         subtitle: "Evidence, assumptions, outputs, or preview content",
         icon: "DOC",
+        revealAfterMessageIndex: 2,
+        delayMs: 250,
         sections: [
           {
             heading: "Placeholder Section",
@@ -265,9 +270,9 @@ function defaultDemoScenarios(count) {
       },
     ],
     logs: [
-      { type: "info", text: "Intent detected - replace with scenario-specific processing step." },
-      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference." },
-      { type: "success", text: "Scenario output prepared." },
+      { type: "info", text: "Intent detected - replace with scenario-specific processing step.", delayMs: 320 },
+      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference.", delayMs: 420 },
+      { type: "success", text: "Scenario output prepared.", delayMs: 520 },
     ],
   }));
 }
@@ -306,6 +311,37 @@ function defaultDemoSizing(scenarios) {
       "Data mapping and normalization",
     ],
   }));
+}
+
+function defaultDemoGlossary() {
+  return [
+    {
+      category: "Systems & Data",
+      entries: [
+        {
+          term: "CRM",
+          definition: "Customer relationship management system containing profile, history, and account data.",
+        },
+        {
+          term: "RAG",
+          definition: "Retrieval-augmented generation: the agent searches trusted sources before composing an answer.",
+        },
+      ],
+    },
+    {
+      category: "Delivery Terms",
+      entries: [
+        {
+          term: "Capability Tier",
+          definition: "Operational complexity level for the use case, such as SOLO or AEON.",
+        },
+        {
+          term: "Commercial Tier",
+          definition: "Commercial packaging level used for sizing, pricing, or rollout planning.",
+        },
+      ],
+    },
+  ];
 }
 
 function normalizeDemoScenarios(contentJson, fallbackCount) {
@@ -356,6 +392,37 @@ function normalizeDemoSizing(sizingJson, scenarios) {
   return scenarios.map((scenario, index) => normalizeSizingEntry(byScenario.get(scenario.id), defaults[index], scenario));
 }
 
+function normalizeDemoGlossary(glossaryJson) {
+  if (!String(glossaryJson || "").trim()) {
+    return defaultDemoGlossary();
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(glossaryJson);
+  } catch {
+    throw new Error("Glossary JSON is not valid JSON");
+  }
+
+  const categories = Array.isArray(parsed) ? parsed : parsed.glossary;
+  if (!Array.isArray(categories)) {
+    throw new Error("Glossary JSON must be an array or an object with a glossary array");
+  }
+
+  return categories.slice(0, 12).map((category) => ({
+    category: cleanText(category.category, "Glossary", 100),
+    entries: normalizeGlossaryEntries(category.entries),
+  }));
+}
+
+function normalizeGlossaryEntries(entries) {
+  const source = Array.isArray(entries) && entries.length ? entries : [{ term: "Term", definition: "Definition" }];
+  return source.slice(0, 30).map((entry) => ({
+    term: cleanText(entry.term, "Term", 80),
+    definition: cleanText(entry.definition, "Definition", 500),
+  }));
+}
+
 function normalizeSizingEntry(entry = {}, fallback, scenario) {
   return {
     scenarioId: scenario.id,
@@ -388,6 +455,30 @@ function cleanNumber(value, fallback) {
   return Math.round(number);
 }
 
+function cleanDelay(value, fallback) {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return fallback;
+  }
+
+  return Math.min(30000, Math.round(number));
+}
+
+function cleanOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return null;
+  }
+
+  return Math.round(number);
+}
+
 function normalizeStringList(items, fallback) {
   const source = Array.isArray(items) && items.length ? items : fallback;
   return source.slice(0, 20).map((item) => cleanText(item, "Placeholder item", 300));
@@ -398,6 +489,7 @@ function normalizeMessages(messages) {
   return safeMessages.slice(0, 20).map((message) => ({
     role: ["agent", "user"].includes(message.role) ? message.role : "agent",
     text: cleanText(message.text, "Placeholder message", 3000),
+    delayMs: cleanDelay(message.delayMs, 900),
   }));
 }
 
@@ -407,6 +499,10 @@ function normalizeDocs(docs) {
     title: cleanText(doc.title, "Document Template", 100),
     subtitle: cleanText(doc.subtitle, "Evidence, assumptions, outputs, or preview content", 140),
     icon: cleanText(doc.icon, "DOC", 16),
+    revealAfterMessageIndex: cleanOptionalNumber(doc.revealAfterMessageIndex),
+    revealAfterLogIndex: cleanOptionalNumber(doc.revealAfterLogIndex),
+    revealAtMs: cleanOptionalNumber(doc.revealAtMs),
+    delayMs: cleanDelay(doc.delayMs, 250),
     sections: normalizeDocSections(doc.sections),
   }));
 }
@@ -436,6 +532,7 @@ function normalizeLogs(logs) {
   return safeLogs.slice(0, 40).map((log) => ({
     type: cleanText(log.type, "info", 24).toLowerCase(),
     text: cleanText(log.text, "Placeholder log entry", 300),
+    delayMs: cleanDelay(log.delayMs, 420),
   }));
 }
 
@@ -554,6 +651,7 @@ function buildDemoBuilderHtml(options) {
   const fontColor = safeHexColor(options.fontColor, "#e8eaf0");
   const scenarios = normalizeDemoScenarios(options.contentJson, scenarioCount);
   const sizing = normalizeDemoSizing(options.sizingJson, scenarios);
+  const glossary = normalizeDemoGlossary(options.glossaryJson);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -580,6 +678,16 @@ function buildDemoBuilderHtml(options) {
   --chat-text: #1a2030;
   --brand: ${brandColor};
   --accent: ${accentColor};
+  --accent-blue: #5b7cfa;
+  --accent-cyan: #22d3ee;
+  --accent-purple: #a78bfa;
+  --accent-pink: #f472b6;
+  --accent-yellow: #fbbf24;
+  --accent-green: #34d399;
+  --accent-red: #f87171;
+  --accent-indigo: #818cf8;
+  --accent-orange: #fb923c;
+  --accent-teal: #2dd4bf;
   --success: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;
@@ -597,6 +705,7 @@ button, select { font: inherit; }
 .scenario-picker { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .scenario-picker span { color: rgba(255,255,255,.62); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
 .scenario-picker select { min-width: min(320px, 42vw); height: 32px; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 0 10px; background: rgba(255,255,255,.1); color: #fff; outline: none; }
+.glossary-button { border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 7px 10px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-weight: 800; }
 .main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 42%) minmax(0, 1fr); }
 .chat { min-width: 0; display: flex; flex-direction: column; background: var(--chat-bg); color: var(--chat-text); border-right: 1px solid var(--border); }
 .chat-head { flex: 0 0 auto; padding: 12px 14px; border-bottom: 1px solid #d8dde8; background: #fff; }
@@ -608,9 +717,25 @@ button, select { font: inherit; }
 .msg.agent { align-self: flex-start; }
 .bubble { padding: 10px 12px; border-radius: 12px; line-height: 1.55; background: #fff; border: 1px solid #d8dde8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 .msg.user .bubble { background: var(--brand); color: #fff; border-color: var(--brand); }
-.right { min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 190px; background: var(--bg-secondary); }
+.right { min-width: 0; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; }
+.right-tabs { height: 40px; flex: 0 0 auto; display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--bg-card); }
+.right-tab { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; padding: 0 14px; background: transparent; color: var(--text-muted); cursor: pointer; font-weight: 800; font-size: 11px; }
+.right-tab.active { color: var(--text-primary); border-bottom-color: var(--brand); background: var(--bg-secondary); }
+.right-view { flex: 1; min-height: 0; display: none; flex-direction: column; overflow: hidden; }
+.right-view.active { display: flex; }
+.split-view { display: none; }
+.split-view.active { display: flex; }
+.split-docs { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-bottom: 2px solid var(--accent); }
+.split-log { height: 170px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); }
+.split-log-head { flex: 0 0 auto; padding: 5px 12px; border-bottom: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); display: flex; align-items: center; gap: 8px; font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+.live-dot.active { background: var(--accent-green); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.75); } }
+.doc-tabs { flex: 0 0 auto; display: flex; min-height: 32px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--bg-card); }
+.doc-tab { flex: 0 0 auto; border: 0; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; padding: 7px 11px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 10px; }
+.doc-tab.active { color: var(--text-primary); border-bottom-color: var(--brand); background: var(--bg-secondary); }
 .docs, .logs { min-height: 0; overflow: auto; }
-.docs { padding: 14px; }
+.docs { flex: 1; padding: 14px; }
 .doc-card { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-card); }
 .doc-head { display: flex; gap: 10px; align-items: center; padding: 11px 13px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.03); }
 .doc-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 6px; background: rgba(255,255,255,.08); color: var(--accent); font: 10px var(--font-mono); }
@@ -625,11 +750,21 @@ button, select { font: inherit; }
 .row-value.danger { color: var(--danger); font-weight: 800; }
 .checklist-item { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.07); color: var(--text-secondary); line-height: 1.45; }
 .check-icon { width: 16px; height: 16px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: rgba(52,211,153,.15); color: var(--success); font-size: 10px; font-weight: 900; }
-.logs { border-top: 2px solid var(--accent); padding: 10px 12px; background: #0b0f16; font: 11px var(--font-mono); }
-.log-entry { display: grid; grid-template-columns: 58px 70px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
-.log-time { color: #64748b; }
-.log-type { color: var(--accent); font-weight: 900; text-transform: uppercase; }
-.log-text { color: var(--text-secondary); }
+.logs { flex: 1; padding: 8px 10px; background: var(--bg-primary); display: flex; flex-direction: column; gap: 1px; font: 10.5px var(--font-mono); }
+.log-entry { display: flex; align-items: flex-start; gap: 7px; padding: 3px 0; border-bottom: 1px solid rgba(42,53,80,.25); line-height: 1.4; }
+.log-time { min-width: 52px; flex: 0 0 auto; color: var(--text-muted); }
+.log-type { min-width: 52px; flex: 0 0 auto; padding: 1px 4px; border-radius: 3px; text-align: center; color: var(--accent); background: rgba(200,168,75,.14); font-size: 9px; font-weight: 800; line-height: 1.35; letter-spacing: .5px; text-transform: uppercase; }
+.log-text { flex: 1; color: var(--text-secondary); }
+.log-type.process { background: rgba(167,139,250,.15); color: var(--accent-purple); }
+.log-type.rag { background: rgba(244,114,182,.15); color: var(--accent-pink); }
+.log-type.info { background: rgba(91,124,250,.15); color: var(--accent-blue); }
+.log-type.success { background: rgba(52,211,153,.15); color: var(--accent-green); }
+.log-type.warn, .log-type.decision { background: rgba(251,191,36,.15); color: var(--accent-yellow); }
+.log-type.escalate, .log-type.error { background: rgba(248,113,113,.15); color: var(--accent-red); }
+.log-type.api { background: rgba(34,211,238,.15); color: var(--accent-cyan); }
+.log-type.action { background: rgba(129,140,248,.15); color: var(--accent-indigo); }
+.log-type.data { background: rgba(251,146,60,.15); color: var(--accent-orange); }
+.log-type.ml { background: rgba(45,212,191,.15); color: var(--accent-teal); }
 .demo-bar { flex: 0 0 auto; min-height: 46px; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--border); background: var(--bg-card); }
 .simulation-controls, .speed-control { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .demo-label { color: var(--text-muted); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
@@ -638,6 +773,17 @@ button, select { font: inherit; }
 .speed-control button { padding: 5px 8px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary); font: 10px var(--font-mono); }
 .speed-control button.active { border-color: var(--brand); background: var(--brand); color: #fff; }
 .sizing-info { margin-left: auto; color: var(--text-secondary); font: 11px var(--font-mono); white-space: nowrap; }
+.glossary-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(5,8,20,.72); z-index: 10; }
+.glossary-overlay.active { display: flex; }
+.glossary-modal { width: min(560px, 100%); max-height: 78vh; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); box-shadow: 0 24px 70px rgba(0,0,0,.45); }
+.glossary-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.glossary-head h2 { margin: 0; font-size: 14px; }
+.glossary-close { border: 0; background: transparent; color: var(--text-secondary); font-size: 18px; cursor: pointer; }
+.glossary-body { overflow: auto; padding: 12px 16px 16px; }
+.glossary-category { margin: 12px 0 6px; color: var(--text-muted); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
+.glossary-entry { display: grid; grid-template-columns: 110px 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.07); }
+.glossary-term { color: var(--accent); font: 700 11px var(--font-mono); }
+.glossary-definition { color: var(--text-secondary); line-height: 1.45; }
 @media (max-width: 820px) {
   body { overflow: auto; height: auto; }
   .header { height: auto; align-items: flex-start; flex-wrap: wrap; padding: 14px; }
@@ -658,6 +804,7 @@ button, select { font: inherit; }
     <span>Scenario</span>
     <select id="scenarioSelect"></select>
   </label>
+  <button type="button" class="glossary-button" id="glossaryButton">ⓘ Glossary</button>
 </header>
 
 <main class="main">
@@ -669,8 +816,28 @@ button, select { font: inherit; }
     <div class="messages" id="messages"></div>
   </section>
   <section class="right">
-    <div class="docs" id="docs"></div>
-    <div class="logs" id="logs"></div>
+    <div class="right-tabs">
+      <button type="button" class="right-tab active" data-view="split">Docs + Agent Log</button>
+      <button type="button" class="right-tab" data-view="docs">Docs only</button>
+      <button type="button" class="right-tab" data-view="log">Agent Log only</button>
+    </div>
+    <div class="right-view split-view active" id="splitView">
+      <div class="split-docs">
+        <div class="doc-tabs" id="docTabsSplit"></div>
+        <div class="docs" id="docsSplit"></div>
+      </div>
+      <div class="split-log">
+        <div class="split-log-head"><span class="live-dot" id="liveDot"></span><span>Agent Log — Live Processing</span></div>
+        <div class="logs" id="logsSplit"></div>
+      </div>
+    </div>
+    <div class="right-view" id="docsView">
+      <div class="doc-tabs" id="docTabsFull"></div>
+      <div class="docs" id="docsFull"></div>
+    </div>
+    <div class="right-view" id="logView">
+      <div class="logs" id="logsFull"></div>
+    </div>
   </section>
 </main>
 
@@ -690,6 +857,16 @@ button, select { font: inherit; }
   </div>
 </footer>
 
+<div class="glossary-overlay" id="glossaryOverlay">
+  <div class="glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossaryTitle">
+    <div class="glossary-head">
+      <h2 id="glossaryTitle">Glossary</h2>
+      <button type="button" class="glossary-close" id="glossaryClose" aria-label="Close glossary">×</button>
+    </div>
+    <div class="glossary-body" id="glossaryBody"></div>
+  </div>
+</div>
+
 <script>
 /*
   DEMO BUILDER CONFIG
@@ -704,23 +881,31 @@ button, select { font: inherit; }
   - sizing belongs to the shell, not the scenario content JSON.
   - Later Demo Builder will expose these through a dedicated form.
 
+  Glossary placeholders:
+  - glossary belongs to the shell, not the scenario content JSON.
+  - Edit categories and entries to control the top-right glossary modal.
+
   Scenario placeholders:
   - Add/remove objects in scenarios to control the number showcased.
   - Each scenario contains messages, docs, and logs.
 
   Message template:
-  { role: "agent" | "user", text: "HTML-enabled message" }
+  { role: "agent" | "user", text: "HTML-enabled message", delayMs: 900 }
 
   Document template:
   {
     title: "Tab/card title",
     subtitle: "Source or context",
     icon: "DOC",
+    revealAfterMessageIndex: 2,
+    revealAfterLogIndex: null,
+    revealAtMs: null,
+    delayMs: 250,
     sections: [{ heading: "Section", rows: [{ label: "Name", value: "Value", tone: "ok|warn|danger|neutral" }] }]
   }
 
   Log entry template:
-  { type: "info|data|api|decision|warn|success|error", text: "Processing detail" }
+  { type: "info|data|api|decision|warn|success|error", text: "Processing detail", delayMs: 420 }
 */
 const TEMPLATE_CONFIG = ${scriptJson(
     {
@@ -740,6 +925,7 @@ const TEMPLATE_CONFIG = ${scriptJson(
         fontColor,
       },
       sizing,
+      glossary,
       scenarios,
     },
   )};
@@ -747,6 +933,18 @@ const TEMPLATE_CONFIG = ${scriptJson(
 let activeScenario = TEMPLATE_CONFIG.scenarios[0]?.id;
 let logClock = 0;
 let speedMultiplier = 1;
+let docHistory = [];
+let scenarioDocs = [];
+let activeDocIndex = 0;
+let playbackTimer = null;
+let playbackEvents = [];
+let playbackIndex = 0;
+let playbackClock = 0;
+let currentEventDueAt = 0;
+let currentEventDelay = 0;
+let pausedRemainingDelay = 0;
+let isPlaying = false;
+let isPaused = false;
 
 const logo = document.getElementById("brandLogo");
 const title = document.getElementById("demoTitle");
@@ -755,9 +953,16 @@ const agentName = document.getElementById("agentName");
 const scenarioPicker = document.getElementById("scenarioPicker");
 const scenarioSelect = document.getElementById("scenarioSelect");
 const messages = document.getElementById("messages");
-const docs = document.getElementById("docs");
-const logs = document.getElementById("logs");
+const docsSplit = document.getElementById("docsSplit");
+const docsFull = document.getElementById("docsFull");
+const logsSplit = document.getElementById("logsSplit");
+const logsFull = document.getElementById("logsFull");
 const sizingInfo = document.getElementById("sizingInfo");
+const glossaryOverlay = document.getElementById("glossaryOverlay");
+const glossaryBody = document.getElementById("glossaryBody");
+const startButton = document.getElementById("startButton");
+const pauseButton = document.getElementById("pauseButton");
+const liveDot = document.getElementById("liveDot");
 
 function applyBrand() {
   if (TEMPLATE_CONFIG.brand.logoImage) {
@@ -769,11 +974,21 @@ function applyBrand() {
   subtitle.textContent = TEMPLATE_CONFIG.brand.subtitle;
   agentName.textContent = TEMPLATE_CONFIG.brand.agentName;
   renderSizingInfo();
+  renderGlossary();
 }
 
 function renderSizingInfo() {
   const sizing = sizingForScenario(currentScenario()?.id);
   sizingInfo.textContent = (sizing.capabilityTier || "SOLO") + " · " + sizing.connectedDataSources + " data sources · " + sizing.connectedEnterpriseSystems + " enterprise systems • " + (sizing.commercialTier || "Tier 1 - Starter");
+}
+
+function renderGlossary() {
+  const categories = Array.isArray(TEMPLATE_CONFIG.glossary) ? TEMPLATE_CONFIG.glossary : [];
+  glossaryBody.innerHTML = categories.map((category) => '<div class="glossary-category">' + escapeHtml(category.category) + '</div>' + (category.entries || []).map((entry) => '<div class="glossary-entry"><div class="glossary-term">' + escapeHtml(entry.term) + '</div><div class="glossary-definition">' + escapeHtml(entry.definition) + '</div></div>').join("")).join("");
+}
+
+function toggleGlossary(force) {
+  glossaryOverlay.classList.toggle("active", typeof force === "boolean" ? force : !glossaryOverlay.classList.contains("active"));
 }
 
 function sizingForScenario(scenarioId) {
@@ -809,27 +1024,230 @@ function currentScenario() {
 function renderScenario() {
   const scenario = currentScenario();
   if (!scenario) return;
-  messages.innerHTML = scenario.messages.map(renderMessage).join("");
-  docs.innerHTML = renderPrerequisitesDoc(sizingForScenario(scenario.id)) + scenario.docs.map(renderDoc).join("");
-  logs.innerHTML = "";
+  stopPlayback(true);
+  docHistory = [
+    { title: "Prerequisites", html: renderPrerequisitesDoc(sizingForScenario(scenario.id)) },
+  ];
+  scenarioDocs = scenario.docs.map((doc, index) => ({ index, title: doc.title, html: renderDoc(doc) }));
+  activeDocIndex = 0;
+  renderDocTabs();
+  showDoc(0);
+  logsSplit.innerHTML = "";
+  logsFull.innerHTML = "";
   logClock = 0;
   renderSizingInfo();
 }
 
-function replayLogs() {
-  const scenario = currentScenario();
-  logs.innerHTML = "";
-  logClock = 0;
-  scenario.logs.forEach((entry, index) => {
-    window.setTimeout(() => addLog(entry), (240 * index) / speedMultiplier);
+function renderDocTabs() {
+  [document.getElementById("docTabsSplit"), document.getElementById("docTabsFull")].forEach((container) => {
+    container.innerHTML = docHistory.map((doc, index) => '<button type="button" class="doc-tab' + (index === activeDocIndex ? " active" : "") + '" data-doc-index="' + index + '">' + escapeHtml(doc.title) + '</button>').join("");
   });
 }
 
+function showDoc(index) {
+  activeDocIndex = index;
+  const doc = docHistory[index];
+  if (!doc) return;
+  docsSplit.innerHTML = doc.html;
+  docsFull.innerHTML = doc.html;
+  renderDocTabs();
+}
+
+function revealDoc(docIndex) {
+  const existingIndex = docHistory.findIndex((doc) => doc.sourceIndex === docIndex);
+  if (existingIndex >= 0) {
+    showDoc(existingIndex);
+    return;
+  }
+  const doc = scenarioDocs.find((item) => item.index === docIndex);
+  if (!doc) return;
+  docHistory.push({ sourceIndex: doc.index, title: doc.title, html: doc.html });
+  showDoc(docHistory.length - 1);
+}
+
+function buildPlaybackEvents(scenario) {
+  const events = [];
+  const messageTimes = [];
+  const logTimes = [];
+  let messageAt = 0;
+  let logAt = 320;
+  scenario.messages.forEach((message, index) => {
+    if (index > 0) {
+      messageAt += Math.max(0, Number(message.delayMs) || 900);
+    }
+    messageTimes[index] = messageAt;
+    events.push({ at: messageAt, kind: "message", payload: message });
+  });
+  scenario.logs.forEach((entry, index) => {
+    if (index > 0) {
+      logAt += Math.max(0, Number(entry.delayMs) || 420);
+    }
+    logTimes[index] = logAt;
+    events.push({ at: logAt, kind: "log", payload: entry });
+  });
+  const agentAnswerTimes = scenario.messages
+    .map((message, index) => ({ message, at: messageTimes[index] }))
+    .filter((item, index) => item.message.role === "agent" && index > 0)
+    .map((item) => item.at);
+  const fallbackDocTimes = agentAnswerTimes.length ? agentAnswerTimes : (messageTimes.length ? messageTimes : logTimes);
+  let lastDocRevealAt = 0;
+  scenario.docs.forEach((doc, index) => {
+    const delay = Math.max(0, Number(doc.delayMs) || 250);
+    let revealAt = hasTimelineNumber(doc.revealAtMs) ? Number(doc.revealAtMs) : null;
+    if (revealAt === null && hasTimelineNumber(doc.revealAfterMessageIndex)) {
+      const messageIndex = Math.min(messageTimes.length - 1, Math.max(0, Number(doc.revealAfterMessageIndex)));
+      revealAt = (messageTimes[messageIndex] ?? 0) + delay;
+    }
+    if (revealAt === null && hasTimelineNumber(doc.revealAfterLogIndex)) {
+      const logIndex = Math.min(logTimes.length - 1, Math.max(0, Number(doc.revealAfterLogIndex)));
+      revealAt = (logTimes[logIndex] ?? 0) + delay;
+    }
+    if (revealAt === null) {
+      const baseTime = fallbackDocTimes[Math.min(index, fallbackDocTimes.length - 1)] ?? lastDocRevealAt;
+      revealAt = baseTime + delay;
+    }
+    if (index > 0) {
+      revealAt = Math.max(revealAt, lastDocRevealAt + 900);
+    }
+    lastDocRevealAt = revealAt;
+    events.push({ at: revealAt, kind: "doc", payload: index });
+  });
+  return events.sort((left, right) => left.at - right.at);
+}
+
+function hasTimelineNumber(value) {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+}
+
+function startPlayback() {
+  const scenario = currentScenario();
+  stopPlayback(true);
+  playbackEvents = buildPlaybackEvents(scenario);
+  playbackIndex = 0;
+  playbackClock = 0;
+  isPlaying = true;
+  isPaused = false;
+  startButton.textContent = "Replay";
+  pauseButton.disabled = playbackEvents.length === 0;
+  pauseButton.textContent = "Pause";
+  liveDot.classList.add("active");
+  scheduleNextPlaybackEvent();
+}
+
+function stopPlayback(resetContent) {
+  if (playbackTimer) {
+    window.clearTimeout(playbackTimer);
+    playbackTimer = null;
+  }
+  isPlaying = false;
+  isPaused = false;
+  playbackEvents = [];
+  playbackIndex = 0;
+  playbackClock = 0;
+  currentEventDueAt = 0;
+  currentEventDelay = 0;
+  pausedRemainingDelay = 0;
+  startButton.textContent = "Start / replay";
+  pauseButton.disabled = true;
+  pauseButton.textContent = "Pause";
+  liveDot.classList.remove("active");
+  if (resetContent) {
+    messages.innerHTML = "";
+    logsSplit.innerHTML = "";
+    logsFull.innerHTML = "";
+    logClock = 0;
+  }
+}
+
+function scheduleNextPlaybackEvent(delayOverride) {
+  if (!isPlaying || isPaused) return;
+  if (playbackIndex >= playbackEvents.length) {
+    finishPlayback();
+    return;
+  }
+  const event = playbackEvents[playbackIndex];
+  const naturalDelay = Math.max(0, event.at - playbackClock) / speedMultiplier;
+  currentEventDelay = typeof delayOverride === "number" ? delayOverride : naturalDelay;
+  currentEventDueAt = Date.now() + currentEventDelay;
+  playbackTimer = window.setTimeout(runNextPlaybackEvent, currentEventDelay);
+}
+
+function runNextPlaybackEvent() {
+  playbackTimer = null;
+  if (!isPlaying || isPaused) return;
+  const event = playbackEvents[playbackIndex];
+  if (!event) {
+    finishPlayback();
+    return;
+  }
+  playbackClock = event.at;
+  playbackIndex += 1;
+  if (event.kind === "message") {
+    addMessage(event.payload);
+  } else if (event.kind === "log") {
+    addLog(event.payload);
+  } else if (event.kind === "doc") {
+    revealDoc(event.payload);
+  }
+  scheduleNextPlaybackEvent();
+}
+
+function togglePause() {
+  if (!isPlaying) return;
+  if (!isPaused) {
+    if (playbackTimer) {
+      pausedRemainingDelay = Math.max(0, currentEventDueAt - Date.now());
+      window.clearTimeout(playbackTimer);
+      playbackTimer = null;
+    }
+    isPaused = true;
+    pauseButton.textContent = "Resume";
+    return;
+  }
+  isPaused = false;
+  pauseButton.textContent = "Pause";
+  scheduleNextPlaybackEvent(pausedRemainingDelay);
+}
+
+function finishPlayback() {
+  if (playbackTimer) {
+    window.clearTimeout(playbackTimer);
+    playbackTimer = null;
+  }
+  isPlaying = false;
+  isPaused = false;
+  pauseButton.disabled = true;
+  pauseButton.textContent = "Pause";
+  liveDot.classList.remove("active");
+}
+
+function replayLogs() {
+  startPlayback();
+}
+
 function setSpeed(speed) {
+  const previousSpeed = speedMultiplier;
   speedMultiplier = speed;
   document.querySelectorAll(".speed-button").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.speed) === speed);
   });
+  if (isPlaying && !isPaused && playbackTimer) {
+    const remainingAtBaseSpeed = Math.max(0, currentEventDueAt - Date.now()) * previousSpeed;
+    window.clearTimeout(playbackTimer);
+    playbackTimer = null;
+    scheduleNextPlaybackEvent(remainingAtBaseSpeed / speedMultiplier);
+  }
+}
+
+function addMessage(message) {
+  messages.insertAdjacentHTML("beforeend", renderMessage(message));
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function clearLogs() {
+  logsSplit.innerHTML = "";
+  logsFull.innerHTML = "";
+  logClock = 0;
 }
 
 function renderMessage(message) {
@@ -862,11 +1280,19 @@ function renderSection(section) {
 }
 
 function addLog(entry) {
-  logClock += 320;
+  logClock += Math.floor(Math.random() * 250 + 180);
   const seconds = Math.floor(logClock / 1000);
   const millis = String(logClock % 1000).padStart(3, "0");
-  logs.insertAdjacentHTML("beforeend", '<div class="log-entry"><span class="log-time">' + seconds + "." + millis + 's</span><span class="log-type">' + escapeHtml(entry.type) + '</span><span class="log-text">' + escapeHtml(entry.text) + '</span></div>');
-  logs.scrollTop = logs.scrollHeight;
+  const type = normalizeLogType(entry.type);
+  const html = '<div class="log-entry"><span class="log-time">' + seconds + "." + millis + 's</span><span class="log-type ' + escapeAttribute(type) + '">' + escapeHtml(type) + '</span><span class="log-text">' + escapeHtml(entry.text) + '</span></div>';
+  [logsSplit, logsFull].forEach((container) => {
+    container.insertAdjacentHTML("beforeend", html);
+    container.scrollTop = container.scrollHeight;
+  });
+}
+
+function normalizeLogType(type) {
+  return String(type || "info").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "info";
 }
 
 function escapeHtml(value) {
@@ -881,7 +1307,25 @@ scenarioSelect.addEventListener("change", () => {
   activeScenario = scenarioSelect.value;
   renderScenario();
 });
-document.getElementById("startButton").addEventListener("click", replayLogs);
+startButton.addEventListener("click", replayLogs);
+pauseButton.addEventListener("click", togglePause);
+document.querySelectorAll(".right-tab").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.querySelectorAll(".right-tab").forEach((tab) => tab.classList.toggle("active", tab === button));
+    document.getElementById("splitView").classList.toggle("active", button.dataset.view === "split");
+    document.getElementById("docsView").classList.toggle("active", button.dataset.view === "docs");
+    document.getElementById("logView").classList.toggle("active", button.dataset.view === "log");
+  });
+});
+document.addEventListener("click", (event) => {
+  const tab = event.target.closest(".doc-tab");
+  if (tab) showDoc(Number(tab.dataset.docIndex));
+});
+document.getElementById("glossaryButton").addEventListener("click", () => toggleGlossary(true));
+document.getElementById("glossaryClose").addEventListener("click", () => toggleGlossary(false));
+glossaryOverlay.addEventListener("click", (event) => {
+  if (event.target === glossaryOverlay) toggleGlossary(false);
+});
 document.querySelectorAll(".speed-button").forEach((button) => {
   button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
 });
