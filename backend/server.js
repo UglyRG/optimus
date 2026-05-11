@@ -800,7 +800,7 @@ button, select { font: inherit; }
     <h1 id="demoTitle"></h1>
     <p id="demoSubtitle"></p>
   </div>
-  <label class="scenario-picker" id="scenarioPicker">
+  <label class="scenario-picker" id="scenarioPicker" hidden>
     <span>Scenario</span>
     <select id="scenarioSelect"></select>
   </label>
@@ -844,7 +844,7 @@ button, select { font: inherit; }
 <footer class="demo-bar">
   <div class="simulation-controls">
     <span class="demo-label">SIMULATION</span>
-    <button type="button" id="startButton">Start / replay</button>
+    <button type="button" id="startButton">Start</button>
     <button type="button" id="pauseButton" disabled>Pause</button>
   </div>
   <div class="sizing-info" id="sizingInfo"></div>
@@ -1010,7 +1010,12 @@ function sizingForScenario(scenarioId) {
 }
 
 function populateScenarios() {
-  scenarioPicker.hidden = TEMPLATE_CONFIG.scenarios.length <= 1;
+  const hasMultipleScenarios = TEMPLATE_CONFIG.scenarios.length > 1;
+  scenarioPicker.hidden = !hasMultipleScenarios;
+  if (!hasMultipleScenarios) {
+    scenarioSelect.innerHTML = "";
+    return;
+  }
   scenarioSelect.innerHTML = TEMPLATE_CONFIG.scenarios
     .map((scenario) => '<option value="' + escapeAttribute(scenario.id) + '">' + escapeHtml(scenario.label) + '</option>')
     .join("");
@@ -1127,7 +1132,7 @@ function startPlayback() {
   playbackClock = 0;
   isPlaying = true;
   isPaused = false;
-  startButton.textContent = "Replay";
+  startButton.textContent = "Start";
   pauseButton.disabled = playbackEvents.length === 0;
   pauseButton.textContent = "Pause";
   liveDot.classList.add("active");
@@ -1147,7 +1152,7 @@ function stopPlayback(resetContent) {
   currentEventDueAt = 0;
   currentEventDelay = 0;
   pausedRemainingDelay = 0;
-  startButton.textContent = "Start / replay";
+  startButton.textContent = "Start";
   pauseButton.disabled = true;
   pauseButton.textContent = "Pause";
   liveDot.classList.remove("active");
@@ -1218,6 +1223,7 @@ function finishPlayback() {
   isPaused = false;
   pauseButton.disabled = true;
   pauseButton.textContent = "Pause";
+  startButton.textContent = "Replay";
   liveDot.classList.remove("active");
 }
 

@@ -677,7 +677,7 @@ function buildDemoBuilderLivePreviewHtml(values) {
   <footer class="demo-bar">
     <div class="simulation-controls">
       <span class="demo-label">SIMULATION</span>
-      <button type="button">Start / replay</button>
+      <button type="button">Start</button>
       <button type="button" disabled>Pause</button>
     </div>
     <div class="sizing-info">${escapeHtml(sizingMeta)}</div>
