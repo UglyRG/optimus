@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "/Users/argyris/Downloads/Projects/Optimus"
+exec npm run dev

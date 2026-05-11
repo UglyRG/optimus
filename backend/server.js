@@ -313,7 +313,7 @@ function defaultDemoSizing(scenarios) {
   }));
 }
 
-function defaultDemoGlossary() {
+function defaultGlossaryCategories() {
   return [
     {
       category: "Systems & Data",
@@ -342,6 +342,14 @@ function defaultDemoGlossary() {
       ],
     },
   ];
+}
+
+function defaultDemoGlossary(scenarios) {
+  return scenarios.map((scenario) => ({
+    scenarioId: scenario.id,
+    title: `${scenario.label} Glossary`,
+    categories: defaultGlossaryCategories(),
+  }));
 }
 
 function normalizeDemoScenarios(contentJson, fallbackCount) {
@@ -392,9 +400,9 @@ function normalizeDemoSizing(sizingJson, scenarios) {
   return scenarios.map((scenario, index) => normalizeSizingEntry(byScenario.get(scenario.id), defaults[index], scenario));
 }
 
-function normalizeDemoGlossary(glossaryJson) {
+function normalizeDemoGlossary(glossaryJson, scenarios) {
   if (!String(glossaryJson || "").trim()) {
-    return defaultDemoGlossary();
+    return defaultDemoGlossary(scenarios);
   }
 
   let parsed;
@@ -404,12 +412,36 @@ function normalizeDemoGlossary(glossaryJson) {
     throw new Error("Glossary JSON is not valid JSON");
   }
 
-  const categories = Array.isArray(parsed) ? parsed : parsed.glossary;
-  if (!Array.isArray(categories)) {
+  const glossary = Array.isArray(parsed) ? parsed : parsed.glossary;
+  if (!Array.isArray(glossary)) {
     throw new Error("Glossary JSON must be an array or an object with a glossary array");
   }
 
-  return categories.slice(0, 12).map((category) => ({
+  if (glossary.some((item) => Array.isArray(item.categories))) {
+    const defaults = defaultDemoGlossary(scenarios);
+    const byScenario = new Map(glossary.map((entry) => [String(entry.scenarioId || ""), entry]));
+    return scenarios.map((scenario, index) => {
+      const entry = byScenario.get(scenario.id) || glossary[index] || {};
+      return {
+        scenarioId: scenario.id,
+        title: cleanText(entry.title, `${scenario.label} Glossary`, 100),
+        categories: normalizeGlossaryCategories(entry.categories),
+      };
+    });
+  }
+
+  return [
+    {
+      scenarioId: "*",
+      title: "Glossary",
+      categories: normalizeGlossaryCategories(glossary),
+    },
+  ];
+}
+
+function normalizeGlossaryCategories(categories) {
+  const source = Array.isArray(categories) && categories.length ? categories : defaultGlossaryCategories();
+  return source.slice(0, 12).map((category) => ({
     category: cleanText(category.category, "Glossary", 100),
     entries: normalizeGlossaryEntries(category.entries),
   }));
@@ -652,7 +684,7 @@ function buildDemoBuilderHtml(options) {
   const fontColor = safeHexColor(options.fontColor, "#e8eaf0");
   const scenarios = normalizeDemoScenarios(options.contentJson, scenarioCount);
   const sizing = normalizeDemoSizing(options.sizingJson, scenarios);
-  const glossary = normalizeDemoGlossary(options.glossaryJson);
+  const glossary = normalizeDemoGlossary(options.glossaryJson, scenarios);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -696,6 +728,7 @@ function buildDemoBuilderHtml(options) {
   --font-mono: ${fontMono};
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; }
 body { min-width: 320px; height: 100vh; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-primary); color: var(--text-primary); font: 13px var(--font-ui); }
 button, select { font: inherit; }
 .header { height: 58px; flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--brand); border-bottom: 2px solid var(--accent); }
@@ -710,18 +743,26 @@ button, select { font: inherit; }
 .scenario-picker select { min-width: min(320px, 42vw); height: 32px; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 0 10px; background: rgba(255,255,255,.1); color: #fff; outline: none; }
 .scenario-title { display: flex; align-items: center; gap: 8px; min-height: 32px; color: #fff; font-size: 11px; font-weight: 800; }
 .glossary-button { border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 7px 10px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-weight: 800; }
-.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 42%) minmax(0, 1fr); }
-.chat { min-width: 0; display: flex; flex-direction: column; background: var(--chat-bg); color: var(--chat-text); border-right: 1px solid var(--border); }
+.main { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: minmax(320px, 42%) minmax(0, 1fr); }
+.chat { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--chat-bg); color: var(--chat-text); border-right: 1px solid var(--border); }
 .chat-head { flex: 0 0 auto; padding: 12px 14px; border-bottom: 1px solid #d8dde8; background: #fff; }
 .chat-head strong { display: block; font-size: 12px; }
 .chat-head span { color: #64748b; font-size: 11px; }
-.messages { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; }
-.msg { display: flex; max-width: 92%; }
-.msg.user { align-self: flex-end; }
-.msg.agent { align-self: flex-start; }
-.bubble { padding: 10px 12px; border-radius: 12px; line-height: 1.55; background: #fff; border: 1px solid #d8dde8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-.msg.user .bubble { background: var(--brand); color: #fff; border-color: var(--brand); }
-.right { min-width: 0; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; }
+.messages { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.messages > *, .logs > * { flex: 0 0 auto; }
+.msg { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; align-items: start; gap: 8px; max-width: 100%; }
+.msg.user { align-self: stretch; }
+.msg.agent { align-self: stretch; }
+.avatar { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--brand); color: #fff; font-size: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.16); }
+.avatar.user { grid-column: 3; background: #475569; }
+.avatar.agent { grid-column: 1; }
+.bubble { grid-column: 2; width: fit-content; max-width: min(680px, 100%); padding: 10px 12px; border-radius: 12px; line-height: 1.55; background: #fff; border: 1px solid #d8dde8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.msg.agent .bubble { border-top-left-radius: 4px; }
+.msg.user .bubble { justify-self: end; background: var(--brand); color: #fff; border-color: var(--brand); border-top-right-radius: 4px; }
+.chat-input-area { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid #d8dde8; background: #fff; }
+.chat-input-area input { flex: 1; min-width: 0; height: 34px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px; background: #f8fafc; color: #64748b; outline: none; }
+.chat-input-area button { flex: 0 0 auto; border: 0; border-radius: 6px; padding: 8px 13px; background: color-mix(in srgb, var(--brand) 58%, white); color: #fff; font-weight: 800; cursor: default; }
+.right { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; }
 .right-tabs { height: 40px; flex: 0 0 auto; display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--bg-card); }
 .right-tab { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; padding: 0 14px; background: transparent; color: var(--text-muted); cursor: pointer; font-weight: 800; font-size: 11px; }
 .right-tab.active { color: var(--text-primary); border-bottom-color: var(--brand); background: var(--bg-secondary); }
@@ -738,7 +779,10 @@ button, select { font: inherit; }
 .doc-tabs { flex: 0 0 auto; display: flex; min-height: 32px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--bg-card); }
 .doc-tab { flex: 0 0 auto; border: 0; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; padding: 7px 11px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 10px; }
 .doc-tab.active { color: var(--text-primary); border-bottom-color: var(--brand); background: var(--bg-secondary); }
-.docs, .logs { min-height: 0; overflow: auto; }
+.docs, .logs { min-height: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.messages::-webkit-scrollbar, .docs::-webkit-scrollbar, .logs::-webkit-scrollbar { width: 6px; }
+.messages::-webkit-scrollbar-thumb, .docs::-webkit-scrollbar-thumb, .logs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+.messages::-webkit-scrollbar-track, .docs::-webkit-scrollbar-track, .logs::-webkit-scrollbar-track { background: transparent; }
 .docs { flex: 1; padding: 14px; }
 .doc-card { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-card); }
 .doc-head { display: flex; gap: 10px; align-items: center; padding: 11px 13px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.03); }
@@ -821,6 +865,10 @@ button, select { font: inherit; }
       <span id="agentStatus">Ready</span>
     </div>
     <div class="messages" id="messages"></div>
+    <div class="chat-input-area">
+      <input readonly placeholder="Write your message here..." />
+      <button type="button">Send</button>
+    </div>
   </section>
   <section class="right">
     <div class="right-tabs">
@@ -890,7 +938,7 @@ button, select { font: inherit; }
 
   Glossary placeholders:
   - glossary belongs to the shell, not the scenario content JSON.
-  - Edit categories and entries to control the top-right glossary modal.
+  - Use one object per scenario: { scenarioId, title, categories: [{ category, entries: [{ term, definition }] }] }.
 
   Scenario placeholders:
   - Add/remove objects in scenarios to control the number showcased.
@@ -992,8 +1040,14 @@ function renderSizingInfo() {
 }
 
 function renderGlossary() {
-  const categories = Array.isArray(TEMPLATE_CONFIG.glossary) ? TEMPLATE_CONFIG.glossary : [];
-  glossaryBody.innerHTML = categories.map((category) => '<div class="glossary-category">' + escapeHtml(category.category) + '</div>' + (category.entries || []).map((entry) => '<div class="glossary-entry"><div class="glossary-term">' + escapeHtml(entry.term) + '</div><div class="glossary-definition">' + escapeHtml(entry.definition) + '</div></div>').join("")).join("");
+  const glossary = glossaryForScenario(currentScenario()?.id);
+  const categories = Array.isArray(glossary.categories) ? glossary.categories : [];
+  glossaryBody.innerHTML = '<div class="glossary-category">' + escapeHtml(glossary.title || "Glossary") + '</div>' + categories.map((category) => '<div class="glossary-category">' + escapeHtml(category.category) + '</div>' + (category.entries || []).map((entry) => '<div class="glossary-entry"><div class="glossary-term">' + escapeHtml(entry.term) + '</div><div class="glossary-definition">' + escapeHtml(entry.definition) + '</div></div>').join("")).join("");
+}
+
+function glossaryForScenario(scenarioId) {
+  const entries = Array.isArray(TEMPLATE_CONFIG.glossary) ? TEMPLATE_CONFIG.glossary : [];
+  return entries.find((entry) => entry.scenarioId === scenarioId) || entries.find((entry) => entry.scenarioId === "*") || entries[0] || { title: "Glossary", categories: [] };
 }
 
 function toggleGlossary(force) {
@@ -1052,6 +1106,7 @@ function renderScenario() {
   logsFull.innerHTML = "";
   logClock = 0;
   renderSizingInfo();
+  renderGlossary();
 }
 
 function renderDocTabs() {
@@ -1268,7 +1323,9 @@ function clearLogs() {
 }
 
 function renderMessage(message) {
-  return '<div class="msg ' + escapeAttribute(message.role) + '"><div class="bubble">' + message.text + '</div></div>';
+  const role = message.role === "user" ? "user" : "agent";
+  const avatar = role === "user" ? "👤" : "🤖";
+  return '<div class="msg ' + escapeAttribute(role) + '">' + (role === "agent" ? '<div class="avatar agent">' + avatar + '</div>' : '<div></div>') + '<div class="bubble">' + message.text + '</div>' + (role === "user" ? '<div class="avatar user">' + avatar + '</div>' : '<div></div>') + '</div>';
 }
 
 function renderDoc(doc) {

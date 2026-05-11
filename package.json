@@ -1,4 +1,5 @@
 {
+  "version": "0.2.0",
   "scripts": {
     "backend": "node backend/server.js",
     "dev": "node scripts/dev.js",

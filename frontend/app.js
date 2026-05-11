@@ -96,10 +96,10 @@ function renderIndex({ user, expiresAt }) {
       <div class="tool-list" aria-label="Available tools">
         <article class="tool-row">
           <div>
-            <h2>HTML to iframe Base64</h2>
-            <p>Convert an HTML file into an iframe-ready Base64 data string and save it to Outputs.</p>
+            <h2>Demo Builder</h2>
+            <p>Create a branded, configurable agent demo template with scenarios, messages, docs, and logs.</p>
           </div>
-          <button class="button button-secondary" id="open-html-tool" type="button">Open</button>
+          <button class="button button-secondary" id="open-demo-builder-tool" type="button">Open</button>
         </article>
         <article class="tool-row">
           <div>
@@ -110,10 +110,10 @@ function renderIndex({ user, expiresAt }) {
         </article>
         <article class="tool-row">
           <div>
-            <h2>Demo Builder</h2>
-            <p>Create a branded, configurable agent demo template with scenarios, messages, docs, and logs.</p>
+            <h2>HTML to iframe Base64</h2>
+            <p>Convert an HTML file into an iframe-ready Base64 data string and save it to Outputs.</p>
           </div>
-          <button class="button button-secondary" id="open-demo-builder-tool" type="button">Open</button>
+          <button class="button button-secondary" id="open-html-tool" type="button">Open</button>
         </article>
       </div>
     </section>
@@ -313,26 +313,38 @@ function renderDemoBuilderTool() {
           </div>
         </div>
 
-        <div class="field">
-          <label for="demo-content-json">Content JSON</label>
-          <textarea class="content-json-input" id="demo-content-json" name="contentJson" spellcheck="false">${escapeHtml(
-            JSON.stringify(defaultContent, null, 2),
-          )}</textarea>
-        </div>
+        <details class="json-section" open>
+          <summary><span>Content JSON</span><small id="demo-content-summary"></small></summary>
+          <div class="json-section-body">
+            <input class="json-file-input" id="demo-content-file" type="file" accept=".json,application/json" data-target="demo-content-json" data-preview="demo-content-preview" />
+            <textarea class="content-json-input" id="demo-content-json" name="contentJson" aria-label="Content JSON" spellcheck="false">${escapeHtml(
+              JSON.stringify(defaultContent, null, 2),
+            )}</textarea>
+            <div class="json-preview" id="demo-content-preview" aria-live="polite"></div>
+          </div>
+        </details>
 
-        <div class="field">
-          <label for="demo-sizing-json">Sizing JSON</label>
-          <textarea class="content-json-input" id="demo-sizing-json" name="sizingJson" spellcheck="false">${escapeHtml(
-            JSON.stringify(createDefaultSizingContent(defaultContent), null, 2),
-          )}</textarea>
-        </div>
+        <details class="json-section">
+          <summary><span>Sizing JSON</span><small id="demo-sizing-summary"></small></summary>
+          <div class="json-section-body">
+            <input class="json-file-input" id="demo-sizing-file" type="file" accept=".json,application/json" data-target="demo-sizing-json" data-preview="demo-sizing-preview" />
+            <textarea class="content-json-input" id="demo-sizing-json" name="sizingJson" aria-label="Sizing JSON" spellcheck="false">${escapeHtml(
+              JSON.stringify(createDefaultSizingContent(defaultContent), null, 2),
+            )}</textarea>
+            <div class="json-preview" id="demo-sizing-preview" aria-live="polite"></div>
+          </div>
+        </details>
 
-        <div class="field">
-          <label for="demo-glossary-json">Glossary JSON</label>
-          <textarea class="content-json-input" id="demo-glossary-json" name="glossaryJson" spellcheck="false">${escapeHtml(
-            JSON.stringify(createDefaultGlossaryContent(), null, 2),
-          )}</textarea>
-        </div>
+        <details class="json-section">
+          <summary><span>Glossary JSON</span><small id="demo-glossary-summary"></small></summary>
+          <div class="json-section-body">
+            <input class="json-file-input" id="demo-glossary-file" type="file" accept=".json,application/json" data-target="demo-glossary-json" data-preview="demo-glossary-preview" />
+            <textarea class="content-json-input" id="demo-glossary-json" name="glossaryJson" aria-label="Glossary JSON" spellcheck="false">${escapeHtml(
+              JSON.stringify(createDefaultGlossaryContent(defaultContent), null, 2),
+            )}</textarea>
+            <div class="json-preview" id="demo-glossary-preview" aria-live="polite"></div>
+          </div>
+        </details>
 
         <section class="form-preview" aria-label="Template preview">
           <div class="result-head">
@@ -345,7 +357,7 @@ function renderDemoBuilderTool() {
         </section>
 
         <p class="error" id="tool-error"></p>
-        <button class="button button-primary" type="submit">Create demo template</button>
+        <button class="button button-primary" type="submit">Create Demo</button>
       </form>
 
       <section class="result-panel" id="result-panel" hidden>
@@ -368,7 +380,9 @@ function renderDemoBuilderTool() {
   });
   const form = document.querySelector("#demo-builder-form");
   form.addEventListener("input", handleDemoBuilderFormInput);
+  form.addEventListener("change", handleDemoBuilderFormChange);
   form.addEventListener("submit", handleDemoBuilderSubmit);
+  updateDemoJsonPreviews();
   updateDemoBuilderLivePreview();
 }
 
@@ -516,26 +530,142 @@ function readDemoBuilderFormValues(form = document.querySelector("#demo-builder-
 function handleDemoBuilderFormInput(event) {
   if (event.target.id === "demo-content-json") {
     demoContentJsonDirty = true;
+    updateJsonPreviewForTextarea(event.target);
   }
 
   if (event.target.id === "demo-sizing-json") {
     demoSizingJsonDirty = true;
+    updateJsonPreviewForTextarea(event.target);
   }
 
   if (event.target.id === "demo-glossary-json") {
     demoGlossaryJsonDirty = true;
+    updateJsonPreviewForTextarea(event.target);
   }
 
   if (event.target.id === "demo-scenario-count" && !demoContentJsonDirty) {
     const count = Math.min(8, Math.max(1, Number(event.target.value) || 1));
     const content = createDefaultDemoContent(count);
     document.querySelector("#demo-content-json").value = JSON.stringify(content, null, 2);
+    updateJsonPreviewForTextarea(document.querySelector("#demo-content-json"));
     if (!demoSizingJsonDirty) {
       document.querySelector("#demo-sizing-json").value = JSON.stringify(createDefaultSizingContent(content), null, 2);
+      updateJsonPreviewForTextarea(document.querySelector("#demo-sizing-json"));
+    }
+    if (!demoGlossaryJsonDirty) {
+      document.querySelector("#demo-glossary-json").value = JSON.stringify(createDefaultGlossaryContent(content), null, 2);
+      updateJsonPreviewForTextarea(document.querySelector("#demo-glossary-json"));
     }
   }
 
   updateDemoBuilderLivePreview();
+}
+
+async function handleDemoBuilderFormChange(event) {
+  const input = event.target.closest(".json-file-input");
+  if (!input || !input.files?.length) {
+    return;
+  }
+
+  const target = document.querySelector(`#${input.dataset.target}`);
+  const preview = document.querySelector(`#${input.dataset.preview}`);
+  try {
+    const text = await input.files[0].text();
+    const parsed = JSON.parse(text);
+    target.value = JSON.stringify(parsed, null, 2);
+    markDemoJsonDirty(target.id);
+    if (target.id === "demo-content-json") {
+      syncDemoContentUpload(parsed);
+    }
+    updateJsonPreview(target.value, preview, input.files[0].name);
+    updateDemoBuilderLivePreview();
+  } catch (error) {
+    preview.innerHTML = `<div class="json-preview-error">Could not load JSON: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function syncDemoContentUpload(parsed) {
+  const scenarios = Array.isArray(parsed) ? parsed : parsed?.scenarios;
+  if (!Array.isArray(scenarios) || scenarios.length < 1) {
+    return;
+  }
+  const count = Math.min(8, scenarios.length);
+  document.querySelector("#demo-scenario-count").value = String(count);
+  if (!demoSizingJsonDirty) {
+    const sizingField = document.querySelector("#demo-sizing-json");
+    sizingField.value = JSON.stringify(createDefaultSizingContent(scenarios.slice(0, count)), null, 2);
+    updateJsonPreviewForTextarea(sizingField);
+  }
+  if (!demoGlossaryJsonDirty) {
+    const glossaryField = document.querySelector("#demo-glossary-json");
+    glossaryField.value = JSON.stringify(createDefaultGlossaryContent(scenarios.slice(0, count)), null, 2);
+    updateJsonPreviewForTextarea(glossaryField);
+  }
+}
+
+function markDemoJsonDirty(textareaId) {
+  if (textareaId === "demo-content-json") demoContentJsonDirty = true;
+  if (textareaId === "demo-sizing-json") demoSizingJsonDirty = true;
+  if (textareaId === "demo-glossary-json") demoGlossaryJsonDirty = true;
+}
+
+function updateDemoJsonPreviews() {
+  ["demo-content-json", "demo-sizing-json", "demo-glossary-json"].forEach((id) => {
+    updateJsonPreviewForTextarea(document.querySelector(`#${id}`));
+  });
+}
+
+function updateJsonPreviewForTextarea(textarea) {
+  if (!textarea) return;
+  const previewId = textarea.id.replace("-json", "-preview");
+  updateJsonPreview(textarea.value, document.querySelector(`#${previewId}`));
+}
+
+function updateJsonPreview(jsonText, preview, fileName = "") {
+  if (!preview) return;
+  try {
+    const parsed = JSON.parse(jsonText || "null");
+    const summary = summarizeDemoJsonPreview(preview.id, parsed);
+    const summaryEl = document.querySelector(`#${preview.id.replace("-preview", "-summary")}`);
+    if (summaryEl) {
+      summaryEl.textContent = summary;
+    }
+    preview.innerHTML = `
+      <div class="json-preview-head">
+        <strong>${escapeHtml(fileName || "Loaded JSON")}</strong>
+        <span>${escapeHtml(summary)}</span>
+      </div>
+      <pre>${escapeHtml(JSON.stringify(parsed, null, 2).slice(0, 1800))}${JSON.stringify(parsed, null, 2).length > 1800 ? "\n..." : ""}</pre>
+    `;
+  } catch (error) {
+    const summaryEl = document.querySelector(`#${preview.id.replace("-preview", "-summary")}`);
+    if (summaryEl) {
+      summaryEl.textContent = "Invalid JSON";
+    }
+    preview.innerHTML = `<div class="json-preview-error">Invalid JSON: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function summarizeDemoJsonPreview(previewId, parsed) {
+  const items = Array.isArray(parsed) ? parsed : parsed?.scenarios || parsed?.sizing || parsed?.glossary || [];
+  if (previewId === "demo-content-preview") {
+    const scenarios = Array.isArray(parsed) ? parsed : parsed?.scenarios || [];
+    const messages = scenarios.reduce((total, scenario) => total + (Array.isArray(scenario.messages) ? scenario.messages.length : 0), 0);
+    const docs = scenarios.reduce((total, scenario) => total + (Array.isArray(scenario.docs) ? scenario.docs.length : 0), 0);
+    const logs = scenarios.reduce((total, scenario) => total + (Array.isArray(scenario.logs) ? scenario.logs.length : 0), 0);
+    return `${scenarios.length} scenarios · ${messages} messages · ${docs} docs · ${logs} logs`;
+  }
+  if (previewId === "demo-sizing-preview") {
+    return `${items.length} sizing entries`;
+  }
+  if (previewId === "demo-glossary-preview") {
+    const scenarioGlossaries = items.filter((item) => Array.isArray(item.categories));
+    const categories = scenarioGlossaries.length
+      ? scenarioGlossaries.reduce((total, item) => total + item.categories.length, 0)
+      : items.length;
+    return `${scenarioGlossaries.length || "global"} glossary set${scenarioGlossaries.length === 1 ? "" : "s"} · ${categories} categories`;
+  }
+  return Array.isArray(items) ? `${items.length} entries` : "JSON object";
 }
 
 function updateDemoBuilderLivePreview() {
@@ -558,7 +688,7 @@ function buildDemoBuilderLivePreviewHtml(values) {
     return buildDemoBuilderPreviewErrorHtml(sizingContent.error);
   }
 
-  const glossaryContent = parseDemoGlossaryJson(values.glossaryJson);
+  const glossaryContent = parseDemoGlossaryJson(values.glossaryJson, content.scenarios);
   if (glossaryContent.error) {
     return buildDemoBuilderPreviewErrorHtml(glossaryContent.error);
   }
@@ -574,7 +704,7 @@ function buildDemoBuilderLivePreviewHtml(values) {
   const scenarioHeaderControl = scenarios.length > 1
     ? `<label class="scenario-picker"><span>Scenario</span><select>${scenarioOptions}</select></label>`
     : `<div class="scenario-title"><span>Scenario</span><strong>${escapeHtml(scenario.label)}</strong></div>`;
-  const glossaryPreview = renderPreviewGlossary(glossaryContent.glossary);
+  const glossaryPreview = renderPreviewGlossary(glossaryContent.glossary, scenario.id);
   const previewMessages = messages.slice(0, 4).map(renderPreviewMessage).join("");
   const previewDoc = renderPreviewPrerequisitesDoc(sizing);
   const previewLogs = logs
@@ -592,6 +722,7 @@ function buildDemoBuilderLivePreviewHtml(values) {
 <meta charset="UTF-8" />
 <style>
   * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; }
   body { margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; background: ${escapeAttribute(values.backgroundColor || "#0e1117")}; color: ${escapeAttribute(values.fontColor || "#e8eaf0")}; font: 13px ${fontUi}; }
   .header { height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: ${escapeAttribute(values.brandColor || "#003a7d")}; border-bottom: 2px solid ${escapeAttribute(values.accentColor || "#c8a84b")}; flex: 0 0 auto; }
   .logo { background: #fff; color: ${escapeAttribute(values.brandColor || "#003a7d")}; border-radius: 4px; padding: 5px 9px; font-weight: 900; letter-spacing: 1px; }
@@ -607,11 +738,18 @@ function buildDemoBuilderLivePreviewHtml(values) {
   .glossary-popover h2 { margin: 0; padding: 9px 11px; border-bottom: 1px solid #2a3550; font-size: 12px; }
   .glossary-popover-body { padding: 8px 11px; color: #9aa5b8; font-size: 10px; line-height: 1.45; }
   .glossary-popover strong { color: ${escapeAttribute(values.accentColor || "#c8a84b")}; font-family: ${fontMono}; }
-  .main { flex: 1; min-height: 0; display: grid; grid-template-columns: 42% 58%; }
-  .chat { background: #f8f9fb; color: #1a2030; border-right: 1px solid #2a3550; padding: 12px; }
-  .bubble { width: fit-content; max-width: 92%; margin-bottom: 9px; padding: 8px 10px; border-radius: 12px; background: #fff; border: 1px solid #d8dde8; line-height: 1.4; }
-  .bubble.user { margin-left: auto; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; border-color: ${escapeAttribute(values.brandColor || "#003a7d")}; }
-  .right { display: flex; flex-direction: column; min-width: 0; background: #141820; }
+  .main { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 42% 58%; }
+  .chat { min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: #f8f9fb; color: #1a2030; border-right: 1px solid #2a3550; scrollbar-width: thin; }
+  .preview-messages { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 9px; padding: 10px; }
+  .preview-msg { display: grid; grid-template-columns: 24px minmax(0,1fr) 24px; align-items: start; gap: 7px; }
+  .preview-avatar { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; font-size: 12px; }
+  .preview-avatar.user { grid-column: 3; background: #475569; }
+  .bubble { grid-column: 2; width: fit-content; max-width: 100%; padding: 8px 10px; border-radius: 12px; background: #fff; border: 1px solid #d8dde8; line-height: 1.4; }
+  .preview-msg.user .bubble { justify-self: end; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; border-color: ${escapeAttribute(values.brandColor || "#003a7d")}; }
+  .preview-input { flex: 0 0 auto; display: flex; gap: 6px; padding: 8px; border-top: 1px solid #d8dde8; background: #fff; }
+  .preview-input input { flex: 1; min-width: 0; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; background: #f8fafc; font: 10px ${fontUi}; }
+  .preview-input button { border: 0; border-radius: 6px; padding: 6px 9px; background: ${escapeAttribute(values.brandColor || "#003a7d")}; color: #fff; font: 700 10px ${fontUi}; }
+  .right { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: #141820; }
   .right-tabs { height: 30px; display: flex; border-bottom: 1px solid #2a3550; background: #1e2638; }
   .right-tab { display: flex; align-items: center; padding: 0 10px; border-bottom: 2px solid transparent; color: #64748b; font-size: 9px; font-weight: 800; }
   .right-tab.active { color: #e8eaf0; border-bottom-color: ${escapeAttribute(values.brandColor || "#003a7d")}; background: #141820; }
@@ -619,13 +757,14 @@ function buildDemoBuilderLivePreviewHtml(values) {
   .doc-tabs { display: flex; min-height: 28px; border-bottom: 1px solid #2a3550; background: #1e2638; }
   .doc-tab { padding: 7px 9px; border-right: 1px solid #2a3550; color: #64748b; font-size: 9px; }
   .doc-tab.active { color: #e8eaf0; border-bottom: 2px solid ${escapeAttribute(values.brandColor || "#003a7d")}; background: #141820; }
-  .docs-preview { min-height: 0; overflow: hidden; }
+  .docs-preview { min-height: 0; overflow: auto; }
   .doc { margin: 12px; border: 1px solid #2a3550; border-radius: 8px; overflow: hidden; background: #1e2638; }
   .doc-head { padding: 10px 12px; border-bottom: 1px solid #2a3550; font-weight: 800; }
   .doc-body { padding: 10px 12px; color: #9aa5b8; line-height: 1.5; }
   .log-head { border-top: 2px solid ${escapeAttribute(values.accentColor || "#c8a84b")}; border-bottom: 1px solid #2a3550; padding: 5px 10px; background: #1e2638; color: #64748b; display: flex; align-items: center; gap: 7px; font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
   .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #34d399; }
-  .logs { padding: 6px 10px; background: #0b0f16; color: #9aa5b8; font: 9.5px ${fontMono}; }
+  .logs { min-height: 0; overflow: auto; padding: 6px 10px; background: #0b0f16; color: #9aa5b8; font: 9.5px ${fontMono}; scrollbar-width: thin; }
+  .log-line { flex: 0 0 auto; }
   .log-line { display: flex; gap: 7px; align-items: flex-start; padding: 2px 0; border-bottom: 1px solid rgba(42,53,80,.25); }
   .log-type { min-width: 46px; padding: 1px 4px; border-radius: 3px; text-align: center; color: ${escapeAttribute(values.accentColor || "#c8a84b")}; background: rgba(200,168,75,.14); font-size: 8px; font-weight: 900; text-transform: uppercase; }
   .log-type.info { background: rgba(91,124,250,.15); color: #5b7cfa; }
@@ -654,7 +793,8 @@ function buildDemoBuilderLivePreviewHtml(values) {
   </header>
   <main class="main">
     <section class="chat">
-      ${previewMessages}
+      <div class="preview-messages">${previewMessages}</div>
+      <div class="preview-input"><input readonly placeholder="Write your message here..." /><button type="button">Send</button></div>
     </section>
     <section class="right">
       <div class="right-tabs">
@@ -778,7 +918,7 @@ function createDefaultSizingContent(scenarios) {
   }));
 }
 
-function createDefaultGlossaryContent() {
+function createDefaultGlossaryCategories() {
   return [
     {
       category: "Systems & Data",
@@ -807,6 +947,14 @@ function createDefaultGlossaryContent() {
       ],
     },
   ];
+}
+
+function createDefaultGlossaryContent(scenarios) {
+  return scenarios.map((scenario) => ({
+    scenarioId: scenario.id,
+    title: `${scenario.label} Glossary`,
+    categories: createDefaultGlossaryCategories(),
+  }));
 }
 
 function parseDemoContentJson(contentJson) {
@@ -867,7 +1015,7 @@ function parseDemoSizingJson(sizingJson, scenarios) {
   }
 }
 
-function parseDemoGlossaryJson(glossaryJson) {
+function parseDemoGlossaryJson(glossaryJson, scenarios) {
   try {
     const parsed = JSON.parse(glossaryJson || "[]");
     const glossary = Array.isArray(parsed) ? parsed : parsed.glossary;
@@ -875,25 +1023,50 @@ function parseDemoGlossaryJson(glossaryJson) {
       return { error: "Glossary JSON must be an array or an object with a glossary array." };
     }
 
+    if (glossary.some((item) => Array.isArray(item.categories))) {
+      return {
+        glossary: scenarios.map((scenario, index) => {
+          const entry = glossary.find((item) => String(item.scenarioId || "") === scenario.id) || glossary[index] || {};
+          return {
+            scenarioId: scenario.id,
+            title: String(entry.title || `${scenario.label} Glossary`),
+            categories: normalizePreviewGlossaryCategories(entry.categories),
+          };
+        }),
+      };
+    }
+
     return {
-      glossary: glossary.map((category) => ({
-        category: String(category.category || "Glossary"),
-        entries: Array.isArray(category.entries)
-          ? category.entries.map((entry) => ({
-              term: String(entry.term || "Term"),
-              definition: String(entry.definition || "Definition"),
-            }))
-          : [],
-      })),
+      glossary: [
+        {
+          scenarioId: "*",
+          title: "Glossary",
+          categories: normalizePreviewGlossaryCategories(glossary),
+        },
+      ],
     };
   } catch {
     return { error: "Glossary JSON is not valid JSON." };
   }
 }
 
+function normalizePreviewGlossaryCategories(categories) {
+  const source = Array.isArray(categories) && categories.length ? categories : createDefaultGlossaryCategories();
+  return source.map((category) => ({
+    category: String(category.category || "Glossary"),
+    entries: Array.isArray(category.entries)
+      ? category.entries.map((entry) => ({
+          term: String(entry.term || "Term"),
+          definition: String(entry.definition || "Definition"),
+        }))
+      : [],
+  }));
+}
+
 function renderPreviewMessage(message) {
   const role = message.role === "user" ? "user" : "agent";
-  return `<div class="bubble ${role}">${sanitizePreviewHtml(message.text || "Placeholder message")}</div>`;
+  const avatar = role === "user" ? "👤" : "🤖";
+  return `<div class="preview-msg ${role}">${role === "agent" ? `<div class="preview-avatar agent">${avatar}</div>` : "<div></div>"}<div class="bubble">${sanitizePreviewHtml(message.text || "Placeholder message")}</div>${role === "user" ? `<div class="preview-avatar user">${avatar}</div>` : "<div></div>"}</div>`;
 }
 
 function renderPreviewDoc(doc) {
@@ -919,14 +1092,15 @@ function renderPreviewPrerequisitesDoc(sizing) {
   return `<article class="doc"><div class="doc-head">⚙️ ${escapeHtml(sizing.title || "Deployment Prerequisites")}</div><div class="doc-body">${escapeHtml(sizing.subtitle || "Scenario prerequisites")}<br>${items}</div></article>`;
 }
 
-function renderPreviewGlossary(glossary) {
-  const entries = (glossary || [])
+function renderPreviewGlossary(glossary, scenarioId) {
+  const scenarioGlossary = (glossary || []).find((entry) => entry.scenarioId === scenarioId) || (glossary || []).find((entry) => entry.scenarioId === "*") || (glossary || [])[0] || { categories: [] };
+  const entries = (scenarioGlossary.categories || [])
     .flatMap((category) => category.entries || [])
     .slice(0, 3)
     .map((entry) => `<strong>${escapeHtml(entry.term)}</strong>: ${escapeHtml(entry.definition)}`)
     .join("<br>");
 
-  return `<div class="glossary-popover"><h2>Glossary</h2><div class="glossary-popover-body">${entries}</div></div>`;
+  return `<div class="glossary-popover"><h2>${escapeHtml(scenarioGlossary.title || "Glossary")}</h2><div class="glossary-popover-body">${entries}</div></div>`;
 }
 
 function buildDemoBuilderPreviewErrorHtml(message) {

@@ -40,6 +40,7 @@
   --font-mono: JetBrains Mono, monospace;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; }
 body { min-width: 320px; height: 100vh; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-primary); color: var(--text-primary); font: 13px var(--font-ui); }
 button, select { font: inherit; }
 .header { height: 58px; flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--brand); border-bottom: 2px solid var(--accent); }
@@ -54,18 +55,26 @@ button, select { font: inherit; }
 .scenario-picker select { min-width: min(320px, 42vw); height: 32px; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 0 10px; background: rgba(255,255,255,.1); color: #fff; outline: none; }
 .scenario-title { display: flex; align-items: center; gap: 8px; min-height: 32px; color: #fff; font-size: 11px; font-weight: 800; }
 .glossary-button { border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 7px 10px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-weight: 800; }
-.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 42%) minmax(0, 1fr); }
-.chat { min-width: 0; display: flex; flex-direction: column; background: var(--chat-bg); color: var(--chat-text); border-right: 1px solid var(--border); }
+.main { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: minmax(320px, 42%) minmax(0, 1fr); }
+.chat { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--chat-bg); color: var(--chat-text); border-right: 1px solid var(--border); }
 .chat-head { flex: 0 0 auto; padding: 12px 14px; border-bottom: 1px solid #d8dde8; background: #fff; }
 .chat-head strong { display: block; font-size: 12px; }
 .chat-head span { color: #64748b; font-size: 11px; }
-.messages { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; }
-.msg { display: flex; max-width: 92%; }
-.msg.user { align-self: flex-end; }
-.msg.agent { align-self: flex-start; }
-.bubble { padding: 10px 12px; border-radius: 12px; line-height: 1.55; background: #fff; border: 1px solid #d8dde8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-.msg.user .bubble { background: var(--brand); color: #fff; border-color: var(--brand); }
-.right { min-width: 0; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; }
+.messages { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.messages > *, .logs > * { flex: 0 0 auto; }
+.msg { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; align-items: start; gap: 8px; max-width: 100%; }
+.msg.user { align-self: stretch; }
+.msg.agent { align-self: stretch; }
+.avatar { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--brand); color: #fff; font-size: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.16); }
+.avatar.user { grid-column: 3; background: #475569; }
+.avatar.agent { grid-column: 1; }
+.bubble { grid-column: 2; width: fit-content; max-width: min(680px, 100%); padding: 10px 12px; border-radius: 12px; line-height: 1.55; background: #fff; border: 1px solid #d8dde8; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.msg.agent .bubble { border-top-left-radius: 4px; }
+.msg.user .bubble { justify-self: end; background: var(--brand); color: #fff; border-color: var(--brand); border-top-right-radius: 4px; }
+.chat-input-area { flex: 0 0 auto; display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid #d8dde8; background: #fff; }
+.chat-input-area input { flex: 1; min-width: 0; height: 34px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 10px; background: #f8fafc; color: #64748b; outline: none; }
+.chat-input-area button { flex: 0 0 auto; border: 0; border-radius: 6px; padding: 8px 13px; background: color-mix(in srgb, var(--brand) 58%, white); color: #fff; font-weight: 800; cursor: default; }
+.right { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-secondary); overflow: hidden; }
 .right-tabs { height: 40px; flex: 0 0 auto; display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--bg-card); }
 .right-tab { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; padding: 0 14px; background: transparent; color: var(--text-muted); cursor: pointer; font-weight: 800; font-size: 11px; }
 .right-tab.active { color: var(--text-primary); border-bottom-color: var(--brand); background: var(--bg-secondary); }
@@ -82,7 +91,10 @@ button, select { font: inherit; }
 .doc-tabs { flex: 0 0 auto; display: flex; min-height: 32px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--bg-card); }
 .doc-tab { flex: 0 0 auto; border: 0; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; padding: 7px 11px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 10px; }
 .doc-tab.active { color: var(--text-primary); border-bottom-color: var(--brand); background: var(--bg-secondary); }
-.docs, .logs { min-height: 0; overflow: auto; }
+.docs, .logs { min-height: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.messages::-webkit-scrollbar, .docs::-webkit-scrollbar, .logs::-webkit-scrollbar { width: 6px; }
+.messages::-webkit-scrollbar-thumb, .docs::-webkit-scrollbar-thumb, .logs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+.messages::-webkit-scrollbar-track, .docs::-webkit-scrollbar-track, .logs::-webkit-scrollbar-track { background: transparent; }
 .docs { flex: 1; padding: 14px; }
 .doc-card { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-card); }
 .doc-head { display: flex; gap: 10px; align-items: center; padding: 11px 13px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.03); }
@@ -165,6 +177,10 @@ button, select { font: inherit; }
       <span id="agentStatus">Ready</span>
     </div>
     <div class="messages" id="messages"></div>
+    <div class="chat-input-area">
+      <input readonly placeholder="Write your message here..." />
+      <button type="button">Send</button>
+    </div>
   </section>
   <section class="right">
     <div class="right-tabs">
@@ -234,7 +250,7 @@ button, select { font: inherit; }
 
   Glossary placeholders:
   - glossary belongs to the shell, not the scenario content JSON.
-  - Edit categories and entries to control the top-right glossary modal.
+  - Use one object per scenario: { scenarioId, title, categories: [{ category, entries: [{ term, definition }] }] }.
 
   Scenario placeholders:
   - Add/remove objects in scenarios to control the number showcased.
@@ -362,114 +378,190 @@ const TEMPLATE_CONFIG = {
   ],
   "glossary": [
     {
-      "category": "Systems & Data",
-      "entries": [
+      "scenarioId": "scenario-1",
+      "title": "Scenario 1 — Underwriting Copilot (New Submission) Glossary",
+      "categories": [
         {
-          "term": "PolicyCore",
-          "definition": "The core policy administration system holding active submissions, policy records, TSI breakdowns, and renewal data."
+          "category": "Systems & Data",
+          "entries": [
+            {
+              "term": "PolicyCore",
+              "definition": "Core policy administration system holding active submissions, TSI breakdowns, and account history."
+            },
+            {
+              "term": "ClaimsLedger",
+              "definition": "Enterprise claims system containing incurred loss history, recovery amounts, and subrogation status per account."
+            },
+            {
+              "term": "RAG",
+              "definition": "Retrieval-augmented generation: the agent searches trusted documents (guidelines, rate tables) before composing an answer."
+            },
+            {
+              "term": "EML",
+              "definition": "Estimated Maximum Loss: the largest loss expected from a single event, expressed as a percentage of TSI."
+            },
+            {
+              "term": "TSI",
+              "definition": "Total Sum Insured: the aggregate maximum liability across all coverage lines for a given risk."
+            }
+          ]
         },
         {
-          "term": "ClaimsLedger",
-          "definition": "Enterprise claims management system containing 5-year incurred loss history, recovery amounts, and subrogation status per account."
+          "category": "Underwriting Terms",
+          "entries": [
+            {
+              "term": "SA",
+              "definition": "Special Acceptance: a formal workflow permitting a risk that breaches a standard appetite condition to be written subject to enhanced conditions."
+            },
+            {
+              "term": "UW",
+              "definition": "Underwriting — the process of evaluating, pricing, and accepting insurance risk."
+            },
+            {
+              "term": "GWP",
+              "definition": "Gross Written Premium: total premium income before any reinsurance costs are deducted."
+            },
+            {
+              "term": "LR",
+              "definition": "Loss Ratio: incurred claims as a percentage of earned premium — a primary measure of underwriting profitability."
+            },
+            {
+              "term": "NatCat",
+              "definition": "Natural Catastrophe: large-scale hazard events (earthquake, flood, windstorm) modelled separately from attritional losses."
+            },
+            {
+              "term": "PGA",
+              "definition": "Peak Ground Acceleration: a seismic intensity metric used to classify earthquake risk zones and set minimum pricing floors."
+            },
+            {
+              "term": "AAL",
+              "definition": "Average Annual Loss: expected annual loss from natural catastrophe events, expressed as a percentage of sum insured."
+            }
+          ]
         },
         {
-          "term": "RAG",
-          "definition": "Retrieval-augmented generation: the agent searches trusted document sources (guidelines, wording, bulletins) before composing an answer."
+          "category": "Reinsurance",
+          "entries": [
+            {
+              "term": "Treaty A",
+              "definition": "Surplus reinsurance treaty under which risks above the retained line are ceded proportionally to reinsurers up to treaty capacity."
+            },
+            {
+              "term": "Fac",
+              "definition": "Facultative reinsurance: risk-by-risk placement required when a risk exceeds treaty capacity or falls outside treaty scope."
+            },
+            {
+              "term": "Cession",
+              "definition": "The portion of a risk or premium transferred from the insurer to a reinsurer under a treaty or facultative arrangement."
+            }
+          ]
         },
         {
-          "term": "EML",
-          "definition": "Estimated Maximum Loss: the largest loss expected from a single event at a given risk, expressed as a percentage of TSI."
-        },
-        {
-          "term": "TSI",
-          "definition": "Total Sum Insured: the maximum amount an insurer is liable to pay across all coverage lines for a given risk."
+          "category": "Regulatory & Delivery",
+          "entries": [
+            {
+              "term": "EIOPA",
+              "definition": "European Insurance and Occupational Pensions Authority: issues supervisory guidance on pricing, risk management, and capital."
+            },
+            {
+              "term": "IDD",
+              "definition": "Insurance Distribution Directive Article 20: requires written notification of material coverage changes at or before renewal inception."
+            },
+            {
+              "term": "SOLO",
+              "definition": "Agent capability level: reads live systems and recommends actions, but a human must approve before any change is executed."
+            },
+            {
+              "term": "HITL",
+              "definition": "Human-in-the-loop: a governance gate where the agent pauses and requires explicit human approval before proceeding."
+            }
+          ]
         }
       ]
     },
     {
-      "category": "Underwriting Terms",
-      "entries": [
+      "scenarioId": "scenario-2",
+      "title": "Scenario 2 — Renewal Orchestration (End-to-End Agentic) Glossary",
+      "categories": [
         {
-          "term": "UW",
-          "definition": "Underwriting — the process of evaluating, pricing, and accepting insurance risk."
+          "category": "Systems & Data",
+          "entries": [
+            {
+              "term": "PolicyCore",
+              "definition": "Core policy administration system — in this scenario the agent reads and writes policy records, renewal terms, and conditional flags."
+            },
+            {
+              "term": "ClaimsLedger",
+              "definition": "Enterprise claims system providing 5-year loss history, frequency/severity breakdown, and recovery status for risk re-scoring."
+            },
+            {
+              "term": "Notif. Gateway",
+              "definition": "Notification dispatch system used by the agent to send renewal packs to brokers and trigger Risk Engineering survey requests."
+            },
+            {
+              "term": "RAG",
+              "definition": "Retrieval-augmented generation: the agent searches policy wording, appetite bulletins, and guidelines before acting."
+            },
+            {
+              "term": "EML",
+              "definition": "Estimated Maximum Loss: the largest loss expected from a single event across a multi-site account, used to size reinsurance structure."
+            },
+            {
+              "term": "TSI",
+              "definition": "Total Sum Insured: the aggregate maximum liability across all coverage lines and sites for the TCC account."
+            }
+          ]
         },
         {
-          "term": "GWP",
-          "definition": "Gross Written Premium: total premium income before any reinsurance costs are deducted."
+          "category": "Underwriting & Renewal",
+          "entries": [
+            {
+              "term": "ICA",
+              "definition": "Interim Coverage Authority: a policy clause allowing provisional coverage to be maintained during a Risk Engineering survey period."
+            },
+            {
+              "term": "LR",
+              "definition": "Loss Ratio: 5-year incurred claims as a percentage of earned premium — TCC at 38.2% vs cold storage book average 44.7%."
+            },
+            {
+              "term": "GWP",
+              "definition": "Gross Written Premium: total renewal premium income before reinsurance costs — TCC renewal at €28,896."
+            },
+            {
+              "term": "NH₃",
+              "definition": "Ammonia: refrigerant used in cold chain facilities; charge volume per site triggers appetite surcharges and enhanced survey requirements above 5,000kg."
+            },
+            {
+              "term": "Treaty B",
+              "definition": "Multi-risk surplus treaty covering the TCC account — retention €6.0M, 5× surplus capacity, combined limit €36M."
+            }
+          ]
         },
         {
-          "term": "LR",
-          "definition": "Loss Ratio: incurred claims expressed as a percentage of earned premium — a primary measure of underwriting profitability."
+          "category": "Regulatory",
+          "entries": [
+            {
+              "term": "IDD",
+              "definition": "Insurance Distribution Directive Article 20: requires written notification of material coverage changes at or before renewal inception."
+            },
+            {
+              "term": "DORA",
+              "definition": "Digital Operational Resilience Act: applies to ICT third-party risk — confirmed non-applicable to this physical property renewal."
+            }
+          ]
         },
         {
-          "term": "SA",
-          "definition": "Special Acceptance: a formal workflow permitting a risk that breaches a standard appetite condition to be written subject to enhanced conditions."
-        },
-        {
-          "term": "ICA",
-          "definition": "Interim Coverage Authority: a clause allowing provisional insurance coverage to be maintained during a specified review or survey period."
-        },
-        {
-          "term": "NatCat",
-          "definition": "Natural Catastrophe: large-scale natural hazard events (earthquake, flood, windstorm) modelled separately from attritional property losses."
-        },
-        {
-          "term": "PGA",
-          "definition": "Peak Ground Acceleration: a seismic intensity metric used to classify earthquake risk zones and set minimum property pricing floors."
-        },
-        {
-          "term": "AAL",
-          "definition": "Average Annual Loss: the expected loss per year from natural catastrophe events, expressed as a percentage of sum insured."
-        }
-      ]
-    },
-    {
-      "category": "Reinsurance",
-      "entries": [
-        {
-          "term": "Treaty A / B",
-          "definition": "Surplus reinsurance treaty arrangements under which the insurer cedes proportional shares of individual risks beyond its retained line."
-        },
-        {
-          "term": "Fac",
-          "definition": "Facultative reinsurance: risk-by-risk reinsurance placement required when a risk exceeds treaty capacity or falls outside treaty scope."
-        },
-        {
-          "term": "Retention",
-          "definition": "The maximum amount the insurer keeps on its own account for a single risk before ceding the balance to reinsurers."
-        },
-        {
-          "term": "Cession",
-          "definition": "The portion of a risk or premium transferred from the insurer to a reinsurer under treaty or facultative arrangement."
-        }
-      ]
-    },
-    {
-      "category": "Regulatory & Delivery Terms",
-      "entries": [
-        {
-          "term": "EIOPA",
-          "definition": "European Insurance and Occupational Pensions Authority: the EU regulatory body issuing supervisory guidance on insurance pricing, risk management, and capital requirements."
-        },
-        {
-          "term": "IDD",
-          "definition": "Insurance Distribution Directive: EU regulation governing how insurance products are sold and disclosed to customers, including material change notification obligations."
-        },
-        {
-          "term": "DORA",
-          "definition": "Digital Operational Resilience Act: EU regulation on ICT risk management for financial entities — applies to digital/ICT arrangements, not physical property policies."
-        },
-        {
-          "term": "SOLO",
-          "definition": "Superbo capability level: the agent reads live systems and recommends actions, but a human must approve before any change is executed."
-        },
-        {
-          "term": "AEON",
-          "definition": "Superbo capability level: the agent autonomously executes multi-step workflows end-to-end, including system writes, with policy enforcement and audit logging."
-        },
-        {
-          "term": "HITL",
-          "definition": "Human-in-the-loop: a governance pattern where the agent pauses at a defined decision point and requires human approval before proceeding."
+          "category": "Delivery Terms",
+          "entries": [
+            {
+              "term": "AEON",
+              "definition": "Agent capability level: autonomously executes multi-step workflows end-to-end, including system writes, with audit logging."
+            },
+            {
+              "term": "HITL",
+              "definition": "Human-in-the-loop: a governance gate where the agent holds execution pending explicit human approval — not triggered in this scenario (within authority limits)."
+            }
+          ]
         }
       ]
     }
@@ -1541,8 +1633,14 @@ function renderSizingInfo() {
 }
 
 function renderGlossary() {
-  const categories = Array.isArray(TEMPLATE_CONFIG.glossary) ? TEMPLATE_CONFIG.glossary : [];
-  glossaryBody.innerHTML = categories.map((category) => '<div class="glossary-category">' + escapeHtml(category.category) + '</div>' + (category.entries || []).map((entry) => '<div class="glossary-entry"><div class="glossary-term">' + escapeHtml(entry.term) + '</div><div class="glossary-definition">' + escapeHtml(entry.definition) + '</div></div>').join("")).join("");
+  const glossary = glossaryForScenario(currentScenario()?.id);
+  const categories = Array.isArray(glossary.categories) ? glossary.categories : [];
+  glossaryBody.innerHTML = '<div class="glossary-category">' + escapeHtml(glossary.title || "Glossary") + '</div>' + categories.map((category) => '<div class="glossary-category">' + escapeHtml(category.category) + '</div>' + (category.entries || []).map((entry) => '<div class="glossary-entry"><div class="glossary-term">' + escapeHtml(entry.term) + '</div><div class="glossary-definition">' + escapeHtml(entry.definition) + '</div></div>').join("")).join("");
+}
+
+function glossaryForScenario(scenarioId) {
+  const entries = Array.isArray(TEMPLATE_CONFIG.glossary) ? TEMPLATE_CONFIG.glossary : [];
+  return entries.find((entry) => entry.scenarioId === scenarioId) || entries.find((entry) => entry.scenarioId === "*") || entries[0] || { title: "Glossary", categories: [] };
 }
 
 function toggleGlossary(force) {
@@ -1601,6 +1699,7 @@ function renderScenario() {
   logsFull.innerHTML = "";
   logClock = 0;
   renderSizingInfo();
+  renderGlossary();
 }
 
 function renderDocTabs() {
@@ -1817,7 +1916,9 @@ function clearLogs() {
 }
 
 function renderMessage(message) {
-  return '<div class="msg ' + escapeAttribute(message.role) + '"><div class="bubble">' + message.text + '</div></div>';
+  const role = message.role === "user" ? "user" : "agent";
+  const avatar = role === "user" ? "👤" : "🤖";
+  return '<div class="msg ' + escapeAttribute(role) + '">' + (role === "agent" ? '<div class="avatar agent">' + avatar + '</div>' : '<div></div>') + '<div class="bubble">' + message.text + '</div>' + (role === "user" ? '<div class="avatar user">' + avatar + '</div>' : '<div></div>') + '</div>';
 }
 
 function renderDoc(doc) {
