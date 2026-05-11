@@ -571,9 +571,9 @@ function buildDemoBuilderLivePreviewHtml(values) {
   const fontUi = safePreviewCssFont(values.fontUi, "Inter, system-ui, sans-serif");
   const fontMono = safePreviewCssFont(values.fontMono, "JetBrains Mono, monospace");
   const scenarioOptions = scenarios.map((item) => `<option>${escapeHtml(item.label)}</option>`).join("");
-  const scenarioPicker = scenarios.length > 1
+  const scenarioHeaderControl = scenarios.length > 1
     ? `<label class="scenario-picker"><span>Scenario</span><select>${scenarioOptions}</select></label>`
-    : "";
+    : `<div class="scenario-title"><span>Scenario</span><strong>${escapeHtml(scenario.label)}</strong></div>`;
   const glossaryPreview = renderPreviewGlossary(glossaryContent.glossary);
   const previewMessages = messages.slice(0, 4).map(renderPreviewMessage).join("");
   const previewDoc = renderPreviewPrerequisitesDoc(sizing);
@@ -581,7 +581,7 @@ function buildDemoBuilderLivePreviewHtml(values) {
     .slice(0, 5)
     .map((log) => {
       const type = normalizePreviewLogType(log.type);
-      return `<div class="log-line"><span class="log-type ${escapeAttribute(type)}">${escapeHtml(type)}</span><span>${escapeHtml(log.text)}</span></div>`;
+      return `<div class="log-line"><span class="log-type ${escapeAttribute(type)}">${escapeHtml(type)}</span><span>${escapeHtml(groupedPreviewLogText(log, logs))}</span></div>`;
     })
     .join("");
   const sizingMeta = `${sizing.capabilityTier} · ${sizing.connectedDataSources} data sources · ${sizing.connectedEnterpriseSystems} enterprise systems • ${sizing.commercialTier}`;
@@ -599,6 +599,8 @@ function buildDemoBuilderLivePreviewHtml(values) {
   p { margin: 3px 0 0; color: rgba(255,255,255,.68); font-size: 11px; }
   .scenario-picker { margin-left: auto; display: flex; align-items: center; gap: 7px; }
   .scenario-picker span { color: rgba(255,255,255,.62); font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
+  .scenario-title { margin-left: auto; display: flex; align-items: center; gap: 7px; color: #fff; font-size: 10px; font-weight: 800; }
+  .scenario-title span { color: rgba(255,255,255,.62); font: 9px ${fontMono}; text-transform: uppercase; letter-spacing: 1px; }
   select { max-width: 190px; height: 30px; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 0 8px; background: rgba(255,255,255,.12); color: #fff; font: inherit; }
   .glossary-button { border: 1px solid rgba(255,255,255,.22); border-radius: 6px; padding: 7px 9px; background: rgba(255,255,255,.12); color: #fff; font: 700 10px ${fontUi}; }
   .glossary-popover { position: absolute; right: 16px; top: 58px; width: 260px; max-height: 190px; overflow: hidden; border: 1px solid #2a3550; border-radius: 8px; background: #1e2638; box-shadow: 0 14px 36px rgba(0,0,0,.35); }
@@ -613,7 +615,7 @@ function buildDemoBuilderLivePreviewHtml(values) {
   .right-tabs { height: 30px; display: flex; border-bottom: 1px solid #2a3550; background: #1e2638; }
   .right-tab { display: flex; align-items: center; padding: 0 10px; border-bottom: 2px solid transparent; color: #64748b; font-size: 9px; font-weight: 800; }
   .right-tab.active { color: #e8eaf0; border-bottom-color: ${escapeAttribute(values.brandColor || "#003a7d")}; background: #141820; }
-  .split-preview { flex: 1; min-height: 0; display: grid; grid-template-rows: 1fr 114px; }
+  .split-preview { flex: 1; min-height: 0; display: grid; grid-template-rows: 1fr 126px; }
   .doc-tabs { display: flex; min-height: 28px; border-bottom: 1px solid #2a3550; background: #1e2638; }
   .doc-tab { padding: 7px 9px; border-right: 1px solid #2a3550; color: #64748b; font-size: 9px; }
   .doc-tab.active { color: #e8eaf0; border-bottom: 2px solid ${escapeAttribute(values.brandColor || "#003a7d")}; background: #141820; }
@@ -646,7 +648,7 @@ function buildDemoBuilderLivePreviewHtml(values) {
   <header class="header">
     <div class="logo">${escapeHtml(values.logoText || "LOGO")}</div>
     <div><h1>${escapeHtml(values.title || "Use-case Demo")}</h1><p>${escapeHtml(values.subtitle || "Configurable agent simulation template")}</p></div>
-    ${scenarioPicker}
+    ${scenarioHeaderControl}
     <button type="button" class="glossary-button">ⓘ Glossary</button>
     ${glossaryPreview}
   </header>
@@ -733,9 +735,9 @@ function createDefaultDemoContent(count) {
       },
     ],
     logs: [
-      { type: "info", text: "Intent detected - replace with scenario-specific processing step.", delayMs: 320 },
-      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference.", delayMs: 420 },
-      { type: "success", text: "Scenario output prepared.", delayMs: 520 },
+      { type: "info", group: "Scenario processing", text: "Intent detected - replace with scenario-specific processing step.", delayMs: 320 },
+      { type: "data", group: "Scenario processing", text: "Data source checked - replace with CRM, docs, API, or file reference.", delayMs: 420 },
+      { type: "success", group: "Scenario processing", text: "Scenario output prepared.", delayMs: 520 },
     ],
   }));
 }
@@ -1048,6 +1050,26 @@ function escapeAttribute(value) {
 
 function normalizePreviewLogType(type) {
   return String(type || "info").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "info";
+}
+
+function groupedPreviewLogText(log, logs) {
+  const text = String(log.text || "");
+  if (/^(┌|│|└|━━━)/.test(text)) {
+    return text;
+  }
+  const group = String(log.group || "").trim();
+  if (!group) {
+    return text;
+  }
+  const groupEntries = logs.filter((item) => String(item.group || "").trim() === group);
+  const index = groupEntries.indexOf(log);
+  if (index === 0) {
+    return `┌─ ${group} · ${text}`;
+  }
+  if (index === groupEntries.length - 1) {
+    return `└─ ${text}`;
+  }
+  return `│  ${text}`;
 }
 
 loadSession();

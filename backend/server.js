@@ -270,9 +270,9 @@ function defaultDemoScenarios(count) {
       },
     ],
     logs: [
-      { type: "info", text: "Intent detected - replace with scenario-specific processing step.", delayMs: 320 },
-      { type: "data", text: "Data source checked - replace with CRM, docs, API, or file reference.", delayMs: 420 },
-      { type: "success", text: "Scenario output prepared.", delayMs: 520 },
+      { type: "info", group: "Scenario processing", text: "Intent detected - replace with scenario-specific processing step.", delayMs: 320 },
+      { type: "data", group: "Scenario processing", text: "Data source checked - replace with CRM, docs, API, or file reference.", delayMs: 420 },
+      { type: "success", group: "Scenario processing", text: "Scenario output prepared.", delayMs: 520 },
     ],
   }));
 }
@@ -531,6 +531,7 @@ function normalizeLogs(logs) {
   const safeLogs = Array.isArray(logs) && logs.length ? logs : defaultDemoScenarios(1)[0].logs;
   return safeLogs.slice(0, 40).map((log) => ({
     type: cleanText(log.type, "info", 24).toLowerCase(),
+    group: cleanText(log.group, "", 80),
     text: cleanText(log.text, "Placeholder log entry", 300),
     delayMs: cleanDelay(log.delayMs, 420),
   }));
@@ -702,9 +703,12 @@ button, select { font: inherit; }
 .logo-image { max-width: 116px; max-height: 34px; object-fit: contain; }
 .title h1 { font-size: 14px; line-height: 1.2; }
 .title p { margin-top: 2px; color: rgba(255,255,255,.68); font-size: 11px; }
-.scenario-picker { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.scenario-picker span { color: rgba(255,255,255,.62); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
+.scenario-area { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.scenario-picker { display: flex; align-items: center; gap: 8px; }
+.scenario-picker[hidden], .scenario-title[hidden] { display: none; }
+.scenario-picker span, .scenario-title span { color: rgba(255,255,255,.62); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
 .scenario-picker select { min-width: min(320px, 42vw); height: 32px; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 0 10px; background: rgba(255,255,255,.1); color: #fff; outline: none; }
+.scenario-title { display: flex; align-items: center; gap: 8px; min-height: 32px; color: #fff; font-size: 11px; font-weight: 800; }
 .glossary-button { border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 7px 10px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-weight: 800; }
 .main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 42%) minmax(0, 1fr); }
 .chat { min-width: 0; display: flex; flex-direction: column; background: var(--chat-bg); color: var(--chat-text); border-right: 1px solid var(--border); }
@@ -726,7 +730,7 @@ button, select { font: inherit; }
 .split-view { display: none; }
 .split-view.active { display: flex; }
 .split-docs { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-bottom: 2px solid var(--accent); }
-.split-log { height: 170px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); }
+.split-log { height: 210px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); }
 .split-log-head { flex: 0 0 auto; padding: 5px 12px; border-bottom: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); display: flex; align-items: center; gap: 8px; font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
 .live-dot.active { background: var(--accent-green); animation: pulse 1.5s infinite; }
@@ -800,10 +804,13 @@ button, select { font: inherit; }
     <h1 id="demoTitle"></h1>
     <p id="demoSubtitle"></p>
   </div>
-  <label class="scenario-picker" id="scenarioPicker" hidden>
-    <span>Scenario</span>
-    <select id="scenarioSelect"></select>
-  </label>
+  <div class="scenario-area">
+    <div class="scenario-title" id="scenarioTitle"><span>Scenario</span><strong id="scenarioTitleText"></strong></div>
+    <label class="scenario-picker" id="scenarioPicker" hidden>
+      <span>Scenario</span>
+      <select id="scenarioSelect"></select>
+    </label>
+  </div>
   <button type="button" class="glossary-button" id="glossaryButton">ⓘ Glossary</button>
 </header>
 
@@ -905,7 +912,7 @@ button, select { font: inherit; }
   }
 
   Log entry template:
-  { type: "info|data|api|decision|warn|success|error", text: "Processing detail", delayMs: 420 }
+  { type: "info|data|api|decision|warn|success|error", group: "Optional run group", text: "Processing detail", delayMs: 420 }
 */
 const TEMPLATE_CONFIG = ${scriptJson(
     {
@@ -950,6 +957,8 @@ const logo = document.getElementById("brandLogo");
 const title = document.getElementById("demoTitle");
 const subtitle = document.getElementById("demoSubtitle");
 const agentName = document.getElementById("agentName");
+const scenarioTitle = document.getElementById("scenarioTitle");
+const scenarioTitleText = document.getElementById("scenarioTitleText");
 const scenarioPicker = document.getElementById("scenarioPicker");
 const scenarioSelect = document.getElementById("scenarioSelect");
 const messages = document.getElementById("messages");
@@ -1012,8 +1021,10 @@ function sizingForScenario(scenarioId) {
 function populateScenarios() {
   const hasMultipleScenarios = TEMPLATE_CONFIG.scenarios.length > 1;
   scenarioPicker.hidden = !hasMultipleScenarios;
+  scenarioTitle.hidden = hasMultipleScenarios;
   if (!hasMultipleScenarios) {
     scenarioSelect.innerHTML = "";
+    scenarioTitleText.textContent = currentScenario()?.label || "";
     return;
   }
   scenarioSelect.innerHTML = TEMPLATE_CONFIG.scenarios
@@ -1290,11 +1301,25 @@ function addLog(entry) {
   const seconds = Math.floor(logClock / 1000);
   const millis = String(logClock % 1000).padStart(3, "0");
   const type = normalizeLogType(entry.type);
-  const html = '<div class="log-entry"><span class="log-time">' + seconds + "." + millis + 's</span><span class="log-type ' + escapeAttribute(type) + '">' + escapeHtml(type) + '</span><span class="log-text">' + escapeHtml(entry.text) + '</span></div>';
+  const text = groupedLogText(entry);
+  const html = '<div class="log-entry"><span class="log-time">' + seconds + "." + millis + 's</span><span class="log-type ' + escapeAttribute(type) + '">' + escapeHtml(type) + '</span><span class="log-text">' + escapeHtml(text) + '</span></div>';
   [logsSplit, logsFull].forEach((container) => {
     container.insertAdjacentHTML("beforeend", html);
     container.scrollTop = container.scrollHeight;
   });
+}
+
+function groupedLogText(entry) {
+  const text = String(entry.text || "");
+  if (/^(┌|│|└|━━━)/.test(text)) return text;
+  const group = String(entry.group || "").trim();
+  if (!group) return text;
+  const groupEntries = currentScenario().logs.filter((item) => String(item.group || "").trim() === group);
+  const index = groupEntries.indexOf(entry);
+  if (index === 0 && groupEntries.length === 1) return "┌─ " + group + " · " + text;
+  if (index === 0) return "┌─ " + group + " · " + text;
+  if (index === groupEntries.length - 1) return "└─ " + text;
+  return "│  " + text;
 }
 
 function normalizeLogType(type) {

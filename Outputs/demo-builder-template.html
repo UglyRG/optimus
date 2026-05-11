@@ -47,9 +47,12 @@ button, select { font: inherit; }
 .logo-image { max-width: 116px; max-height: 34px; object-fit: contain; }
 .title h1 { font-size: 14px; line-height: 1.2; }
 .title p { margin-top: 2px; color: rgba(255,255,255,.68); font-size: 11px; }
-.scenario-picker { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.scenario-picker span { color: rgba(255,255,255,.62); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
+.scenario-area { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.scenario-picker { display: flex; align-items: center; gap: 8px; }
+.scenario-picker[hidden], .scenario-title[hidden] { display: none; }
+.scenario-picker span, .scenario-title span { color: rgba(255,255,255,.62); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
 .scenario-picker select { min-width: min(320px, 42vw); height: 32px; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 0 10px; background: rgba(255,255,255,.1); color: #fff; outline: none; }
+.scenario-title { display: flex; align-items: center; gap: 8px; min-height: 32px; color: #fff; font-size: 11px; font-weight: 800; }
 .glossary-button { border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 7px 10px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-weight: 800; }
 .main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 42%) minmax(0, 1fr); }
 .chat { min-width: 0; display: flex; flex-direction: column; background: var(--chat-bg); color: var(--chat-text); border-right: 1px solid var(--border); }
@@ -71,7 +74,7 @@ button, select { font: inherit; }
 .split-view { display: none; }
 .split-view.active { display: flex; }
 .split-docs { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-bottom: 2px solid var(--accent); }
-.split-log { height: 170px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); }
+.split-log { height: 210px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); }
 .split-log-head { flex: 0 0 auto; padding: 5px 12px; border-bottom: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); display: flex; align-items: center; gap: 8px; font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: 1px; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
 .live-dot.active { background: var(--accent-green); animation: pulse 1.5s infinite; }
@@ -145,10 +148,13 @@ button, select { font: inherit; }
     <h1 id="demoTitle"></h1>
     <p id="demoSubtitle"></p>
   </div>
-  <label class="scenario-picker" id="scenarioPicker" hidden>
-    <span>Scenario</span>
-    <select id="scenarioSelect"></select>
-  </label>
+  <div class="scenario-area">
+    <div class="scenario-title" id="scenarioTitle"><span>Scenario</span><strong id="scenarioTitleText"></strong></div>
+    <label class="scenario-picker" id="scenarioPicker" hidden>
+      <span>Scenario</span>
+      <select id="scenarioSelect"></select>
+    </label>
+  </div>
   <button type="button" class="glossary-button" id="glossaryButton">ⓘ Glossary</button>
 </header>
 
@@ -250,7 +256,7 @@ button, select { font: inherit; }
   }
 
   Log entry template:
-  { type: "info|data|api|decision|warn|success|error", text: "Processing detail", delayMs: 420 }
+  { type: "info|data|api|decision|warn|success|error", group: "Optional run group", text: "Processing detail", delayMs: 420 }
 */
 const TEMPLATE_CONFIG = {
   "brand": {
@@ -272,38 +278,85 @@ const TEMPLATE_CONFIG = {
     {
       "scenarioId": "scenario-1",
       "title": "Deployment Prerequisites",
-      "subtitle": "Scenario 1 - Customer Support Copilot · SOLO",
+      "subtitle": "Underwriting Copilot (New Submission) · SOLO",
       "capabilityTier": "SOLO",
-      "commercialTier": "Tier 1 - Starter",
+      "commercialTier": "Tier 1 — Starter",
       "connectedDataSources": 4,
       "connectedEnterpriseSystems": 2,
-      "implementationSize": "Small to Medium (45-75 man-days)",
+      "implementationSize": "Medium (75-120 man-days)",
       "knowledgeDataSources": [
-        "Ingested: Support playbooks and escalation guidelines",
-        "Ingested: Product documentation for Optimus Analytics Dashboard",
-        "Structured: Historical support tickets and resolution labels",
-        "Live structured: Dashboard configuration metadata"
+        "Ingested (unstructured): Underwriting Guidelines library — all sections incl. §4.2.1 (PDF)",
+        "Ingested (unstructured): Claims Experience Rating Policy — §7.3 subrogation rules (PDF)",
+        "Ingested (structured): Cat Zone base rate tables by postcode and construction class (JSON)",
+        "Live structured: Reinsurance Treaty repository — Treaty A/B parameters and capacity (REST API, read-only)"
       ],
       "enterpriseSystemConnections": [
-        "Support Desk - Read access: ticket details, customer notes, status, priority",
-        "Reporting Service - Read access: dashboard filters, export presets, job history"
+        "PolicyCore — Read access: submission data, account history, TSI breakdown, prior claims reference",
+        "ClaimsLedger — Read access: 5-year incurred loss history, recovery and subrogation status"
       ],
       "regulatoryFrameworks": [
-        "Customer data handling policy",
-        "Internal support quality and response-time standards",
-        "GDPR-aware handling of customer account metadata"
+        "EIOPA NatCat Q3 guidance — seismic zone pricing floors and PGA/AAL thresholds",
+        "IDD Article 20 — material coverage change disclosure requirements",
+        "Internal Underwriting Authority Matrix — referral triggers and UW Committee thresholds"
       ],
       "clientSidePrerequisites": [
-        "API credentials for Support Desk and Reporting Service",
-        "Current product documentation and support playbooks",
-        "Defined escalation rules for unresolved export issues",
-        "Named support operations owner for validation"
+        "API credentials for PolicyCore (read scope) and ClaimsLedger (read scope)",
+        "Digitised and indexed Underwriting Guidelines library (PDF, current version)",
+        "Reinsurance Treaty API endpoint with treaty parameters in structured format",
+        "Named senior underwriter as human-in-the-loop for UW Committee referral approval",
+        "Cat Zone postcode mapping table (JSON) validated against current seismic model"
       ],
       "keySizingDrivers": [
-        "2 enterprise system connectors",
-        "4 knowledge/data sources",
-        "Filter comparison logic between dashboard and export configuration",
-        "Human review before customer-facing response is sent"
+        "2 enterprise system connectors (PolicyCore + ClaimsLedger) with live read access",
+        "4 knowledge sources spanning guidelines, claims policy, rate tables, and treaty data",
+        "Human approval gate for UW Committee referrals — HITL workflow required",
+        "Regulatory compliance layer (EIOPA NatCat) embedded in knowledge base",
+        "Rate model integration requiring structured Cat Zone and modifier data"
+      ]
+    },
+    {
+      "scenarioId": "scenario-2",
+      "title": "Deployment Prerequisites",
+      "subtitle": "Renewal Orchestration (End-to-End Agentic) · AEON",
+      "capabilityTier": "AEON",
+      "commercialTier": "Tier 2 — Growth",
+      "connectedDataSources": 5,
+      "connectedEnterpriseSystems": 3,
+      "implementationSize": "Large (150-250 man-days)",
+      "knowledgeDataSources": [
+        "Ingested (unstructured): Underwriting Guidelines library — all sections (PDF)",
+        "Ingested (unstructured): Commercial Property Wording v2023.2 — ICA Clause 14 and related (PDF)",
+        "Ingested (structured): Appetite Bulletins — AB-2025-02 cold chain ammonia limits (JSON/XML)",
+        "Live structured: Reinsurance Treaty repository — Treaty A/B parameters and capacity (REST API, read-only)",
+        "Live structured: Cat Zone and EML model — per-site exposure scoring endpoint (REST API, read-only)"
+      ],
+      "enterpriseSystemConnections": [
+        "PolicyCore — Read + Write access: policy records, renewal terms, conditional flags, expiry management",
+        "ClaimsLedger — Read access: 5-year loss history, frequency/severity breakdown, recovery status",
+        "Notification Gateway — Write access: broker email dispatch, Risk Engineering survey triggers, alert scheduling"
+      ],
+      "regulatoryFrameworks": [
+        "IDD Article 20 — material coverage change disclosure and written notification requirements",
+        "DORA Article 30 — scope assessment for third-party risk (confirmed non-applicable for physical property)",
+        "Internal Renewal Authority Matrix — premium movement thresholds and referral triggers",
+        "Risk Engineering Survey Protocol — mandatory conditions for ammonia refrigerant sites"
+      ],
+      "clientSidePrerequisites": [
+        "API credentials for PolicyCore (read + write scope) and ClaimsLedger (read scope)",
+        "Notification Gateway credentials with broker contact directory integrated",
+        "Digitised Underwriting Guidelines and CP Wording v2023.2 (PDF, current versions)",
+        "Appetite Bulletin data feed in structured format (JSON/XML) for appetite re-scoring",
+        "Named Risk Engineering team contact for survey assignment and escalation routing",
+        "Legal sign-off on automated policy record writes within defined authority limits",
+        "Audit log configuration for all WRITE operations (mandatory for regulatory traceability)"
+      ],
+      "keySizingDrivers": [
+        "3 enterprise system connectors — including write access to PolicyCore and Notification Gateway",
+        "5 knowledge and data sources — multi-domain: guidelines, wording, appetite, reinsurance, EML model",
+        "End-to-end autonomous workflow: risk re-score → offer generation → system update → broker dispatch",
+        "Compliance verification layer (IDD, DORA scope) executed pre-write — critical path dependency",
+        "Audit trail and alert scheduling components required for regulatory and operational governance",
+        "Multi-site, multi-treaty exposure modelling increases orchestration complexity significantly"
       ]
     }
   ],
@@ -312,25 +365,111 @@ const TEMPLATE_CONFIG = {
       "category": "Systems & Data",
       "entries": [
         {
-          "term": "CRM",
-          "definition": "Customer relationship management system containing profile, history, and account data."
+          "term": "PolicyCore",
+          "definition": "The core policy administration system holding active submissions, policy records, TSI breakdowns, and renewal data."
+        },
+        {
+          "term": "ClaimsLedger",
+          "definition": "Enterprise claims management system containing 5-year incurred loss history, recovery amounts, and subrogation status per account."
         },
         {
           "term": "RAG",
-          "definition": "Retrieval-augmented generation: the agent searches trusted sources before composing an answer."
+          "definition": "Retrieval-augmented generation: the agent searches trusted document sources (guidelines, wording, bulletins) before composing an answer."
+        },
+        {
+          "term": "EML",
+          "definition": "Estimated Maximum Loss: the largest loss expected from a single event at a given risk, expressed as a percentage of TSI."
+        },
+        {
+          "term": "TSI",
+          "definition": "Total Sum Insured: the maximum amount an insurer is liable to pay across all coverage lines for a given risk."
         }
       ]
     },
     {
-      "category": "Delivery Terms",
+      "category": "Underwriting Terms",
       "entries": [
         {
-          "term": "Capability Tier",
-          "definition": "Operational complexity level for the use case, such as SOLO or AEON."
+          "term": "UW",
+          "definition": "Underwriting — the process of evaluating, pricing, and accepting insurance risk."
         },
         {
-          "term": "Commercial Tier",
-          "definition": "Commercial packaging level used for sizing, pricing, or rollout planning."
+          "term": "GWP",
+          "definition": "Gross Written Premium: total premium income before any reinsurance costs are deducted."
+        },
+        {
+          "term": "LR",
+          "definition": "Loss Ratio: incurred claims expressed as a percentage of earned premium — a primary measure of underwriting profitability."
+        },
+        {
+          "term": "SA",
+          "definition": "Special Acceptance: a formal workflow permitting a risk that breaches a standard appetite condition to be written subject to enhanced conditions."
+        },
+        {
+          "term": "ICA",
+          "definition": "Interim Coverage Authority: a clause allowing provisional insurance coverage to be maintained during a specified review or survey period."
+        },
+        {
+          "term": "NatCat",
+          "definition": "Natural Catastrophe: large-scale natural hazard events (earthquake, flood, windstorm) modelled separately from attritional property losses."
+        },
+        {
+          "term": "PGA",
+          "definition": "Peak Ground Acceleration: a seismic intensity metric used to classify earthquake risk zones and set minimum property pricing floors."
+        },
+        {
+          "term": "AAL",
+          "definition": "Average Annual Loss: the expected loss per year from natural catastrophe events, expressed as a percentage of sum insured."
+        }
+      ]
+    },
+    {
+      "category": "Reinsurance",
+      "entries": [
+        {
+          "term": "Treaty A / B",
+          "definition": "Surplus reinsurance treaty arrangements under which the insurer cedes proportional shares of individual risks beyond its retained line."
+        },
+        {
+          "term": "Fac",
+          "definition": "Facultative reinsurance: risk-by-risk reinsurance placement required when a risk exceeds treaty capacity or falls outside treaty scope."
+        },
+        {
+          "term": "Retention",
+          "definition": "The maximum amount the insurer keeps on its own account for a single risk before ceding the balance to reinsurers."
+        },
+        {
+          "term": "Cession",
+          "definition": "The portion of a risk or premium transferred from the insurer to a reinsurer under treaty or facultative arrangement."
+        }
+      ]
+    },
+    {
+      "category": "Regulatory & Delivery Terms",
+      "entries": [
+        {
+          "term": "EIOPA",
+          "definition": "European Insurance and Occupational Pensions Authority: the EU regulatory body issuing supervisory guidance on insurance pricing, risk management, and capital requirements."
+        },
+        {
+          "term": "IDD",
+          "definition": "Insurance Distribution Directive: EU regulation governing how insurance products are sold and disclosed to customers, including material change notification obligations."
+        },
+        {
+          "term": "DORA",
+          "definition": "Digital Operational Resilience Act: EU regulation on ICT risk management for financial entities — applies to digital/ICT arrangements, not physical property policies."
+        },
+        {
+          "term": "SOLO",
+          "definition": "Superbo capability level: the agent reads live systems and recommends actions, but a human must approve before any change is executed."
+        },
+        {
+          "term": "AEON",
+          "definition": "Superbo capability level: the agent autonomously executes multi-step workflows end-to-end, including system writes, with policy enforcement and audit logging."
+        },
+        {
+          "term": "HITL",
+          "definition": "Human-in-the-loop: a governance pattern where the agent pauses at a defined decision point and requires human approval before proceeding."
         }
       ]
     }
@@ -338,158 +477,333 @@ const TEMPLATE_CONFIG = {
   "scenarios": [
     {
       "id": "scenario-1",
-      "label": "Scenario 1 - Customer Support Copilot",
+      "label": "Scenario 1 — Underwriting Copilot (New Submission)",
       "messages": [
         {
           "role": "agent",
-          "text": "Hello. I am ready to help triage the customer support case.",
+          "text": "Good morning. I'm your Underwriting Copilot — I've loaded the active submission queue and connected to PolicyCore and the Reinsurance Treaty repository. How can I assist you today?",
           "delayMs": 0
         },
         {
           "role": "user",
-          "text": "Which product is the customer asking about, and what is the issue?",
-          "delayMs": 900
-        },
-        {
-          "role": "agent",
-          "text": "The customer is asking about the <strong>Optimus Analytics Dashboard<\/strong>. The issue is that exported CSV files are missing the latest billing-period rows.",
-          "delayMs": 1200
-        },
-        {
-          "role": "user",
-          "text": "Is this likely a product bug or a configuration problem?",
+          "text": "I have a new commercial property submission from Aegean Logistics S.A. — warehouse complex in Piraeus, mixed use, €28M TSI. Pull what we have and give me an initial risk read.",
           "delayMs": 1000
         },
         {
           "role": "agent",
-          "text": "It looks like a <strong>configuration problem<\/strong>. The export job is using the default reporting window, while the dashboard view is using a custom billing-period filter.",
-          "delayMs": 1300
+          "text": "Pulling the Aegean Logistics submission from PolicyCore now.<br><br><strong>Submission snapshot:<\/strong> Aegean Logistics S.A., insured since 2019 under broker Interfinance. The Piraeus warehouse complex (Asset ID: WH-PIR-042) covers 18,400 m² across three bonded storage units. TSI declared at <strong>€28.2M<\/strong>, breakdown: building €12.4M, stock €9.8M, machinery €6.0M.<br><br><strong>Initial risk signals:<\/strong> Construction class is reinforced concrete (RC2) — favourable. Sprinkler coverage is partial (Units 1 &amp; 2 only; Unit 3 flagged unprotected). Occupancy includes chemical intermediate storage in Unit 3, which activates our <strong>Hazardous Goods Loading Factor<\/strong> under UW Guideline §4.2.1. Loss history shows one attritional fire claim in 2021 (€38K, subrogated). No catastrophe losses on record.",
+          "delayMs": 1800
         },
         {
           "role": "user",
-          "text": "What should the support team do next?",
+          "text": "What does §4.2.1 actually impose on this risk? Does the unprotected Unit 3 push us outside appetite?",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Retrieving §4.2.1 from the Underwriting Guidelines knowledge base and cross-referencing current appetite limits.<br><br><strong>§4.2.1 — Hazardous Goods Loading Factor:<\/strong> For occupancies storing Class 3 flammable liquids or Class 8 corrosives, a minimum <strong>+15% rate surcharge<\/strong> applies and full sprinkler coverage is a prerequisite for lines above €10M per risk. Where sprinkler coverage is partial, the underwriter may proceed under a <strong>Special Acceptance (SA) workflow<\/strong> if: (a) the unprotected area represents &lt;35% of TSI and (b) a fire suppression improvement plan is submitted within 60 days of inception.<br><br><strong>Appetite check:<\/strong> Unit 3's TSI contribution is ~21% of total (€6.0M stock + €0.3M attributed building value = €6.3M / €28.2M). <strong>Within the 35% threshold<\/strong> — Special Acceptance workflow is available. I'd recommend attaching the SA form and requesting the improvement plan as a policy condition. I'll flag this as a <strong>condition precedent<\/strong> in the quote.",
+          "delayMs": 2000
+        },
+        {
+          "role": "user",
+          "text": "Good. What's the applicable EML for this account, and how does it sit against our per-risk retention under Treaty A?",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Querying EML tables and pulling Treaty A retention parameters from the Reinsurance Treaty repository.<br><br><strong>EML assessment:<\/strong> For RC2 construction with partial sprinklers and hazardous occupancy, the applicable EML factor per our Property Cat model is <strong>65% of TSI<\/strong> — giving an EML of <strong>€18.3M<\/strong>.<br><br><strong>Treaty A position:<\/strong> Retained line per risk: <strong>€5.0M<\/strong>. Surplus cession available up to 4× line = €20M. EML of €18.3M sits comfortably within the combined €25M treaty capacity. <strong>Recommended structure:<\/strong> Retain €5.0M, cede €13.3M surplus to Treaty A. No facultative reinsurance required at current TSI — but any upward revision of the stock value above €11.5M would push the EML past Treaty A capacity and trigger mandatory fac placement.",
+          "delayMs": 2000
+        },
+        {
+          "role": "user",
+          "text": "Let's talk pricing. Run the base rate calculation including the §4.2.1 surcharge and the Special Acceptance adjustment.",
           "delayMs": 1000
         },
         {
           "role": "agent",
-          "text": "The support team should update the export preset to inherit the dashboard billing-period filter, rerun the export, and send the customer the corrected file with a short explanation.",
-          "delayMs": 1300
+          "text": "Running the rate model against the Piraeus warehouse risk profile.<br><br><strong>Base rate calculation:<\/strong><br>— Zone: Piraeus industrial, Cat Zone 2 (seismic) → base rate <strong>0.048%<\/strong> of TSI<br>— Construction modifier: RC2 → <strong>–8%<\/strong><br>— Sprinkler credit (partial): <strong>–5%<\/strong> (full credit withheld pending Unit 3 upgrade)<br>— Hazardous goods loading §4.2.1: <strong>+15%<\/strong><br>— SA workflow adjustment: <strong>+4%<\/strong> (unprotected area surcharge)<br>— 2021 loss adjustment (attritional, subrogated): <strong>+2%<\/strong><br><br><strong>Indicated net rate: 0.0582% of TSI<\/strong><br><strong>Indicated annual premium: €16,420<\/strong><br><br>This is within our technical pricing corridor (floor: €14,200 / ceiling: €21,800). I can generate a formal Quote Sheet for senior underwriter review — approval is required before this goes to the broker.",
+          "delayMs": 2200
+        },
+        {
+          "role": "user",
+          "text": "The broker will push back on the SA surcharge — they'll say the 2021 fire was subrogated and shouldn't attract any adjustment. How should I respond?",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Retrieving the claims subrogation policy and the rate adjustment rationale from the knowledge base.<br><br><strong>On the subrogation argument:<\/strong> The broker's position has partial merit. Under our <strong>Claims Experience Rating Policy §7.3<\/strong>, fully subrogated claims with 100% recovery are excluded from the frequency component of the loss adjustment — but they are <strong>not excluded from the severity modifier<\/strong> if the event indicates an unmitigated exposure pathway. In this case, the 2021 fire originated in a storage area adjacent to Unit 3, which is the same unprotected zone now at issue. The <strong>+2% adjustment is therefore defensible<\/strong> as a severity signal, not a frequency charge.<br><br><strong>Recommended broker response:<\/strong> Acknowledge the subrogation, confirm we've excluded it from frequency scoring, but hold the +2% as a risk quality indicator linked directly to the Unit 3 exposure. Offer to revisit it to zero upon receipt of the fire suppression improvement plan — which incentivises prompt compliance. I can draft the broker negotiation note if useful.",
+          "delayMs": 2000
+        },
+        {
+          "role": "user",
+          "text": "Yes — draft that note. And flag anything that needs to go to the Underwriting Committee before we can bind.",
+          "delayMs": 1000
+        },
+        {
+          "role": "agent",
+          "text": "Drafting the broker negotiation note and running a bindability check against UW Committee referral thresholds.<br><br><strong>Broker negotiation note (draft):<\/strong><br><em>\"Thank you for raising the subrogation point on the 2021 claim. We confirm this has been excluded from our frequency scoring per §7.3. The residual +2% adjustment reflects a severity signal specific to the unprotected Unit 3 zone, independent of loss history. We are prepared to remove this adjustment upon receipt of a fire suppression improvement plan for Unit 3, which we would welcome as a policy condition at inception.\"<\/em><br><br><strong>UW Committee referral check:<\/strong> Three criteria apply to this risk:<br>— TSI &gt; €25M: <strong>✓ triggered<\/strong> (€28.2M)<br>— Hazardous occupancy with SA workflow: <strong>✓ triggered<\/strong><br>— Reinsurance cession &gt; 50% of TSI: <strong>✓ triggered<\/strong><br><br><strong>UW Committee referral is mandatory<\/strong> before binding. I've prepared the referral pack — it requires your sign-off and the completed SA form before submission. Shall I queue it for your approval?",
+          "delayMs": 2200
+        },
+        {
+          "role": "user",
+          "text": "Hold the queue — first, re-check whether a €30M TSI revision (which the broker hinted at) changes our reinsurance structure materially.",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Re-running the EML and treaty capacity model at revised TSI of €30.0M.<br><br><strong>Revised EML at €30.0M TSI:<\/strong> EML factor 65% → <strong>€19.5M<\/strong>. Still within Treaty A combined capacity of €25M — so no mandatory fac placement yet.<br><br><strong>Pricing impact:<\/strong> Indicated premium scales to approximately <strong>€17,460<\/strong> at current net rate (0.0582% × €30.0M). Rate itself is unchanged — the hazardous goods and SA adjustments are percentage-based.<br><br><strong>Key threshold alert:<\/strong> If the broker revises stock value above €11.5M beyond the current €9.8M (i.e., total TSI above ~€31.7M), Treaty A capacity is breached and fac placement becomes mandatory, adding 4–6 weeks to the bind timeline. I'd recommend locking the TSI at €30.0M as a binding condition pending a formal stock valuation survey.",
+          "delayMs": 2100
+        },
+        {
+          "role": "user",
+          "text": "Agreed. One last thing — is there a conflict between our Cat Zone 2 seismic base rate and the EIOPA NatCat guidance issued in Q3 last year?",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Checking EIOPA NatCat guidance against our Cat Zone rating methodology.<br><br><strong>EIOPA NatCat Q3 guidance review:<\/strong> The Q3 EIOPA opinion on NatCat risk assessment recommends that (re)insurers operating in seismic zones with PGA &gt;0.16g apply a minimum risk margin of <strong>+12% on property base rates<\/strong> for zones where modelled AAL exceeds 0.04% of SI. Piraeus (Zone 2 per our model) has a mapped PGA of 0.18g and our AAL estimate sits at 0.051% of SI.<br><br><strong>⚠ Potential gap identified:<\/strong> Our current Cat Zone 2 base rate of 0.048% does not embed the EIOPA-recommended margin, which would indicate a floor closer to <strong>0.054%<\/strong>. The 0.0582% indicated net rate — once adjustments are applied — actually sits above this floor, so <strong>the final premium is compliant<\/strong>. However, the base rate itself may need recalibration at the next pricing cycle. I'm flagging this for the Actuarial team as a model review item — not a blocker for this submission, but worth documenting in the referral pack.",
+          "delayMs": 2300
         }
       ],
       "docs": [
         {
-          "title": "Customer Case Summary",
-          "subtitle": "Support ticket intake and classification",
-          "icon": "CASE",
-          "revealAfterMessageIndex": null,
+          "title": "Submission Snapshot — Aegean Logistics S.A.",
+          "subtitle": "PolicyCore live pull · WH-PIR-042",
+          "icon": "SUB",
+          "revealAfterMessageIndex": 2,
           "revealAfterLogIndex": null,
           "revealAtMs": null,
-          "delayMs": 250,
+          "delayMs": 300,
           "sections": [
             {
-              "heading": "Ticket Details",
+              "heading": "INSURED PROFILE",
               "rows": [
                 {
-                  "label": "Customer",
-                  "value": "Acme Manufacturing",
+                  "label": "Account",
+                  "value": "Aegean Logistics S.A.",
                   "tone": "neutral"
                 },
                 {
-                  "label": "Product",
-                  "value": "Optimus Analytics Dashboard",
+                  "label": "Broker",
+                  "value": "Interfinance Ltd.",
                   "tone": "neutral"
                 },
                 {
-                  "label": "Issue",
-                  "value": "CSV export missing current billing-period rows",
-                  "tone": "warn"
+                  "label": "Asset ID",
+                  "value": "WH-PIR-042 — Piraeus Industrial Zone",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Policy Since",
+                  "value": "2019 (6th year)",
+                  "tone": "ok"
                 }
               ]
             },
             {
-              "heading": "Initial Assessment",
+              "heading": "COVERAGE STRUCTURE",
               "rows": [
                 {
-                  "label": "Priority",
-                  "value": "Medium",
+                  "label": "TSI Declared",
+                  "value": "€28.2M",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Building",
+                  "value": "€12.4M — RC2 construction",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Stock",
+                  "value": "€9.8M — includes Class 3 chemicals",
                   "tone": "warn"
                 },
                 {
-                  "label": "Likely Cause",
-                  "value": "Export preset filter mismatch",
-                  "tone": "ok"
+                  "label": "Machinery",
+                  "value": "€6.0M",
+                  "tone": "neutral"
+                }
+              ]
+            },
+            {
+              "heading": "RISK FLAGS",
+              "rows": [
+                {
+                  "label": "Sprinklers",
+                  "value": "Partial — Unit 3 unprotected",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Hazardous Occ.",
+                  "value": "§4.2.1 loading applies",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Loss History",
+                  "value": "1 attritional 2021 (€38K, subrogated)",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Cat Zone",
+                  "value": "Zone 2 — Seismic",
+                  "tone": "warn"
                 }
               ]
             }
           ]
         },
         {
-          "title": "Export Configuration",
-          "subtitle": "Relevant system settings",
-          "icon": "CFG",
-          "revealAfterMessageIndex": null,
+          "title": "Rate Calculation Sheet",
+          "subtitle": "Indicated premium · §4.2.1 + SA adjustments applied",
+          "icon": "RATE",
+          "revealAfterMessageIndex": 8,
           "revealAfterLogIndex": null,
           "revealAtMs": null,
-          "delayMs": 250,
+          "delayMs": 350,
           "sections": [
             {
-              "heading": "Dashboard Filters",
+              "heading": "RATE BUILD-UP",
               "rows": [
                 {
-                  "label": "Billing Period",
-                  "value": "Custom rolling period",
+                  "label": "Base rate",
+                  "value": "0.0480% of TSI",
                   "tone": "neutral"
                 },
                 {
-                  "label": "Region",
-                  "value": "EU",
+                  "label": "RC2 modifier",
+                  "value": "–8%",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Sprinkler credit",
+                  "value": "–5% (partial)",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Haz. goods §4.2.1",
+                  "value": "+15%",
+                  "tone": "warn"
+                },
+                {
+                  "label": "SA workflow",
+                  "value": "+4%",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Loss adj.",
+                  "value": "+2% (severity signal)",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Net rate",
+                  "value": "0.0582% of TSI",
                   "tone": "neutral"
                 }
               ]
             },
             {
-              "heading": "Export Preset",
+              "heading": "PREMIUM INDICATION",
               "rows": [
                 {
-                  "label": "Filter Source",
-                  "value": "Default reporting window",
+                  "label": "TSI",
+                  "value": "€28.2M",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Indicated premium",
+                  "value": "€16,420",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Pricing floor",
+                  "value": "€14,200",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Pricing ceiling",
+                  "value": "€21,800",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Status",
+                  "value": "Within corridor — COMPLIANT",
+                  "tone": "ok"
+                }
+              ]
+            },
+            {
+              "heading": "UW COMMITTEE REFERRAL",
+              "rows": [
+                {
+                  "label": "TSI >€25M",
+                  "value": "✓ Triggered",
                   "tone": "warn"
                 },
                 {
-                  "label": "Recommended Change",
-                  "value": "Inherit active dashboard filter",
-                  "tone": "ok"
+                  "label": "SA workflow",
+                  "value": "✓ Triggered",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Rei. cession >50%",
+                  "value": "✓ Triggered",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Bind status",
+                  "value": "BLOCKED — Committee approval required",
+                  "tone": "danger"
                 }
               ]
             }
           ]
         },
         {
-          "title": "Recommended Response",
-          "subtitle": "Draft reply for the support agent",
-          "icon": "MSG",
-          "revealAfterMessageIndex": null,
+          "title": "EIOPA NatCat Compliance Review",
+          "subtitle": "Q3 NatCat guidance gap analysis · Piraeus Zone 2",
+          "icon": "REG",
+          "revealAfterMessageIndex": 16,
           "revealAfterLogIndex": null,
           "revealAtMs": null,
-          "delayMs": 250,
+          "delayMs": 400,
           "sections": [
             {
-              "heading": "Customer Reply",
+              "heading": "EIOPA Q3 GUIDANCE CHECK",
               "rows": [
                 {
-                  "label": "Tone",
-                  "value": "Clear, accountable, concise",
+                  "label": "Zone PGA",
+                  "value": "0.18g — above 0.16g threshold",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Modelled AAL",
+                  "value": "0.051% of SI — above 0.04% floor",
+                  "tone": "warn"
+                },
+                {
+                  "label": "EIOPA floor rate",
+                  "value": "~0.054% of TSI (implied)",
                   "tone": "neutral"
                 },
                 {
-                  "label": "Explanation",
-                  "value": "The export used a different reporting window than the dashboard view.",
-                  "tone": "neutral"
+                  "label": "Our base rate",
+                  "value": "0.0480% — below EIOPA floor",
+                  "tone": "warn"
                 },
                 {
-                  "label": "Resolution",
-                  "value": "Corrected export attached after updating the preset.",
+                  "label": "Net indicated rate",
+                  "value": "0.0582% — ABOVE floor",
                   "tone": "ok"
+                },
+                {
+                  "label": "This submission",
+                  "value": "COMPLIANT at indicated premium",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Base rate model",
+                  "value": "FLAGGED for actuarial recalibration",
+                  "tone": "warn"
                 }
               ]
             }
@@ -499,33 +813,673 @@ const TEMPLATE_CONFIG = {
       "logs": [
         {
           "type": "info",
-          "text": "Loaded support ticket and customer account context.",
-          "delayMs": 300
-        },
-        {
-          "type": "data",
-          "text": "Checked dashboard filter state for billing period and region.",
-          "delayMs": 500
+          "group": "Submission load",
+          "text": "Session initialised — PolicyCore connection established",
+          "delayMs": 320
         },
         {
           "type": "api",
-          "text": "Queried export preset configuration from reporting service.",
-          "delayMs": 600
+          "group": "Submission load",
+          "text": "GET /policycore/submissions?account=AegeanLogistics&status=active → 200 OK",
+          "delayMs": 380
         },
         {
-          "type": "decision",
-          "text": "Compared dashboard filters with export preset filters.",
-          "delayMs": 700
-        },
-        {
-          "type": "warn",
-          "text": "Detected mismatch: export preset does not inherit active billing-period filter.",
-          "delayMs": 700
+          "type": "data",
+          "group": "Submission load",
+          "text": "Parsed submission WH-PIR-042 — TSI €28.2M, 3 coverage lines, 1 prior claim",
+          "delayMs": 320
         },
         {
           "type": "success",
-          "text": "Prepared recommended support action and customer response draft.",
-          "delayMs": 800
+          "group": "Submission load",
+          "text": "Submission snapshot ready",
+          "delayMs": 300
+        },
+        {
+          "type": "rag",
+          "group": "Guideline retrieval §4.2.1",
+          "text": "Vector search: 'hazardous goods loading factor commercial property'",
+          "delayMs": 420
+        },
+        {
+          "type": "rag",
+          "group": "Guideline retrieval §4.2.1",
+          "text": "Top match: UW Guidelines §4.2.1 — score 0.97 — chunk retrieved",
+          "delayMs": 350
+        },
+        {
+          "type": "process",
+          "group": "Guideline retrieval §4.2.1",
+          "text": "Parsed sprinkler coverage threshold (35% TSI rule) and SA workflow eligibility criteria",
+          "delayMs": 380
+        },
+        {
+          "type": "ml",
+          "group": "Appetite check",
+          "text": "Unit 3 TSI attribution: €6.3M / €28.2M = 22.3% — below 35% SA threshold",
+          "delayMs": 400
+        },
+        {
+          "type": "decision",
+          "group": "Appetite check",
+          "text": "Decision: Special Acceptance workflow AVAILABLE — condition precedent recommended",
+          "delayMs": 350
+        },
+        {
+          "type": "api",
+          "group": "Treaty A query",
+          "text": "GET /reinsurance/treaties?id=TREATY-A&type=surplus → 200 OK",
+          "delayMs": 420
+        },
+        {
+          "type": "data",
+          "group": "Treaty A query",
+          "text": "Treaty A: retention €5.0M, 4× surplus capacity = €20M, combined limit €25M",
+          "delayMs": 350
+        },
+        {
+          "type": "ml",
+          "group": "EML calculation",
+          "text": "EML factor: RC2 + partial sprinklers + hazardous occ → 65% of TSI = €18.3M",
+          "delayMs": 380
+        },
+        {
+          "type": "process",
+          "group": "EML calculation",
+          "text": "Treaty structure: retain €5.0M, cede €13.3M surplus — within Treaty A envelope",
+          "delayMs": 340
+        },
+        {
+          "type": "success",
+          "group": "EML calculation",
+          "text": "No facultative placement required at current TSI",
+          "delayMs": 300
+        },
+        {
+          "type": "process",
+          "group": "Rate model",
+          "text": "Loading Cat Zone 2 base rate (Piraeus seismic), RC2 modifier, sprinkler credit",
+          "delayMs": 420
+        },
+        {
+          "type": "ml",
+          "group": "Rate model",
+          "text": "Applied §4.2.1 surcharge +15%, SA workflow +4%, loss adjustment +2%",
+          "delayMs": 380
+        },
+        {
+          "type": "data",
+          "group": "Rate model",
+          "text": "Net rate 0.0582% × €28.2M TSI → indicated premium €16,420",
+          "delayMs": 350
+        },
+        {
+          "type": "process",
+          "group": "Rate model",
+          "text": "Pricing corridor check: €16,420 vs floor €14,200 / ceiling €21,800 → WITHIN RANGE",
+          "delayMs": 340
+        },
+        {
+          "type": "rag",
+          "group": "Claims policy §7.3",
+          "text": "Vector search: 'subrogated claim loss adjustment exclusion criteria'",
+          "delayMs": 420
+        },
+        {
+          "type": "rag",
+          "group": "Claims policy §7.3",
+          "text": "Match: Claims Experience Rating Policy §7.3 — subrogation exclusion scope — score 0.94",
+          "delayMs": 360
+        },
+        {
+          "type": "process",
+          "group": "Claims policy §7.3",
+          "text": "Parsed: frequency component excluded, severity modifier retained for unmitigated exposure",
+          "delayMs": 350
+        },
+        {
+          "type": "process",
+          "group": "UW Committee referral check",
+          "text": "Evaluating referral thresholds: TSI, SA workflow, reinsurance cession ratio",
+          "delayMs": 420
+        },
+        {
+          "type": "decision",
+          "group": "UW Committee referral check",
+          "text": "All 3 referral triggers active — UW Committee approval mandatory before bind",
+          "delayMs": 380
+        },
+        {
+          "type": "action",
+          "group": "UW Committee referral check",
+          "text": "Referral pack staged — AWAITING underwriter sign-off to submit",
+          "delayMs": 350
+        },
+        {
+          "type": "api",
+          "group": "TSI sensitivity — €30M",
+          "text": "Re-querying Treaty A at revised TSI €30.0M",
+          "delayMs": 400
+        },
+        {
+          "type": "ml",
+          "group": "TSI sensitivity — €30M",
+          "text": "Revised EML: 65% × €30.0M = €19.5M — within Treaty A €25M capacity",
+          "delayMs": 360
+        },
+        {
+          "type": "decision",
+          "group": "TSI sensitivity — €30M",
+          "text": "Threshold alert: fac mandatory if TSI exceeds ~€31.7M (stock revision trigger)",
+          "delayMs": 350
+        },
+        {
+          "type": "rag",
+          "group": "EIOPA NatCat review",
+          "text": "Vector search: 'EIOPA NatCat Q3 property seismic zone pricing guidance'",
+          "delayMs": 420
+        },
+        {
+          "type": "rag",
+          "group": "EIOPA NatCat review",
+          "text": "Match: EIOPA Opinion NatCat Q3 — PGA threshold 0.16g, AAL floor 0.04% — score 0.96",
+          "delayMs": 360
+        },
+        {
+          "type": "ml",
+          "group": "EIOPA NatCat review",
+          "text": "Piraeus Zone 2 PGA 0.18g / AAL 0.051% — both above EIOPA thresholds",
+          "delayMs": 350
+        },
+        {
+          "type": "process",
+          "group": "EIOPA NatCat review",
+          "text": "Base rate 0.0480% < EIOPA implied floor 0.054% — gap identified in base rate model",
+          "delayMs": 350
+        },
+        {
+          "type": "success",
+          "group": "EIOPA NatCat review",
+          "text": "Net rate 0.0582% exceeds EIOPA floor — this submission COMPLIANT",
+          "delayMs": 320
+        },
+        {
+          "type": "action",
+          "group": "EIOPA NatCat review",
+          "text": "Actuarial flag raised: base rate recalibration item queued for next pricing cycle",
+          "delayMs": 340
+        }
+      ]
+    },
+    {
+      "id": "scenario-2",
+      "label": "Scenario 2 — Renewal Orchestration (End-to-End Agentic)",
+      "messages": [
+        {
+          "role": "agent",
+          "text": "Good morning. I've identified <strong>14 commercial property policies<\/strong> entering the renewal window in the next 45 days. I'm running automated risk re-scoring and appetite checks in the background. Which account do you want me to prioritise?",
+          "delayMs": 0
+        },
+        {
+          "role": "user",
+          "text": "Start with Thessaloniki Cold Chain Group — policy CP-2019-TCC-004, €42M TSI across four refrigerated distribution centres. I need a full renewal package ready for broker dispatch by end of week.",
+          "delayMs": 1000
+        },
+        {
+          "role": "agent",
+          "text": "Initiating the full renewal orchestration for Thessaloniki Cold Chain Group, policy CP-2019-TCC-004.<br><br>I'm running the following in parallel: pulling the expiring policy from PolicyCore, retrieving the 5-year loss history from ClaimsLedger, re-scoring the risk against current appetite parameters, and checking the applicable Cat Zone against our updated seismic model. I'll have a consolidated risk report and draft renewal terms ready shortly.",
+          "delayMs": 1400
+        },
+        {
+          "role": "user",
+          "text": "What's the 5-year loss ratio on this account, and how does it compare to our cold storage book average?",
+          "delayMs": 1000
+        },
+        {
+          "role": "agent",
+          "text": "Loss history retrieved from ClaimsLedger and benchmarked against the cold storage portfolio.<br><br><strong>TCC-004 — 5-year loss summary:<\/strong><br>— 2020: €0 (no claims)<br>— 2021: €214K — compressor failure, machinery breakdown (partially excluded under Clause 7b)<br>— 2022: €0<br>— 2023: €89K — roof water ingress, Site D, subrogated 60%<br>— 2024: €0<br><br><strong>5-year incurred loss ratio: 38.2%<\/strong> (net of reinsurance recoveries). Cold storage book average: <strong>44.7%<\/strong>. TCC is performing <strong>6.5 points below book average<\/strong> — a positive underwriting signal that supports renewal on favourable terms.<br><br><strong>Frequency note:<\/strong> 2 claims in 5 years, both attritional, no single event above €250K. No catastrophe exposure in the loss record.",
+          "delayMs": 1900
+        },
+        {
+          "role": "user",
+          "text": "Good. Has the re-scoring flagged any appetite changes? We updated the cold chain risk appetite in February to tighten ammonia refrigerant limits.",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Pulling the February appetite update and running TCC against the revised parameters.<br><br><strong>February appetite revision — cold chain:<\/strong> Maximum TSI for accounts using ammonia-based refrigeration systems reduced from €50M to <strong>€35M per risk location<\/strong>. Ammonia charge threshold triggering Enhanced Risk Engineering survey: &gt;5,000kg per site.<br><br><strong>TCC re-score result:<\/strong><br>— Site A (Sindos): TSI €11.2M, ammonia charge 3,200kg — <strong>within appetite<\/strong><br>— Site B (Kalochori): TSI €9.8M, ammonia charge 4,100kg — <strong>within appetite<\/strong><br>— Site C (Thessaloniki Port): TSI €13.5M, ammonia charge 6,800kg — <strong>⚠ EXCEEDS 5,000kg threshold<\/strong><br>— Site D (Larissa): TSI €7.5M, ammonia charge 2,900kg — <strong>within appetite<\/strong><br><br><strong>Action required:<\/strong> Site C triggers the Enhanced Risk Engineering survey requirement before we can renew on standard terms. I'm proposing to renew Sites A, B, D immediately and place Site C under a 30-day conditional renewal pending the survey outcome.",
+          "delayMs": 2100
+        },
+        {
+          "role": "user",
+          "text": "Does the Site C conditional renewal create a coverage gap issue for the client? And what's the treaty exposure if we write Sites A–D as a single risk?",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Analysing the coverage continuity position and querying treaty exposure for the full account.<br><br><strong>Coverage gap analysis:<\/strong> The conditional renewal for Site C can be structured as a <strong>provisional binder<\/strong> under our interim coverage authority (ICA Clause 14), which maintains uninterrupted coverage during the survey period. The binder limits our liability at Site C to <strong>€10.0M<\/strong> (vs declared TSI of €13.5M) for the 30-day window. The client must be informed of the €3.5M gap — I'll include a clear disclosure note in the renewal pack.<br><br><strong>Treaty exposure — combined account:<\/strong> Total TSI €42.0M. EML calculation for cold chain, mixed refrigerant, multi-site: <strong>55% of TSI = €23.1M<\/strong>. Against Treaty B (multi-risk surplus, retention €6.0M, 5× = €30M capacity, combined €36M): <strong>retain €6.0M, cede €17.1M<\/strong>. No fac required. Treaty B headroom remaining: €12.9M — sufficient to absorb any TSI revision at Site C post-survey.",
+          "delayMs": 2200
+        },
+        {
+          "role": "user",
+          "text": "What renewal premium are you generating, and how does it move from the expiring?",
+          "delayMs": 1000
+        },
+        {
+          "role": "agent",
+          "text": "Running the renewal rate model with portfolio experience credit and the Site C conditional adjustment.<br><br><strong>Expiring premium:<\/strong> €31,450 (all four sites, full TSI €42M)<br><br><strong>Renewal rate build:<\/strong><br>— Base rate cold chain, multi-site: 0.072% of TSI<br>— Portfolio experience credit (LR 38.2% vs 44.7% book): <strong>–7%<\/strong><br>— Site C conditional renewal TSI reduction (–€3.5M for 30 days): <strong>–1.2% pro-rata<\/strong><br>— February appetite surcharge (ammonia Site C provisional): <strong>+3%<\/strong><br>— No-claims frequency credit (2 claims in 5yrs): <strong>–4%<\/strong><br><br><strong>Renewal net rate: 0.0688% of TSI<\/strong><br><strong>Renewal premium: €28,896<\/strong> — a <strong>–8.1% reduction<\/strong> on the expiring premium.<br><br>This is within the renewal authority (±15% of expiring without referral). I'm generating the formal Renewal Offer document and updating PolicyCore now.",
+          "delayMs": 2200
+        },
+        {
+          "role": "user",
+          "text": "Before you update PolicyCore — confirm the Site C provisional binder terms are legally consistent with our standard wording and that the disclosure note meets the DORA notification requirements for material coverage changes.",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Running a wording compliance check and DORA notification assessment before any system writes.<br><br><strong>Policy wording check — ICA Clause 14:<\/strong> The provisional binder mechanism is explicitly permitted under our standard Commercial Property Wording v2023.2, Clause 14.3 (Interim Coverage Authority). The €10.0M liability cap during the survey period is within the clause's prescribed limit of 75% of declared TSI (75% × €13.5M = €10.1M — our cap of €10.0M is <strong>compliant<\/strong>).<br><br><strong>DORA compliance — material coverage change notification:<\/strong> The €3.5M temporary reduction at Site C constitutes a material coverage change under DORA Article 30 (third-party risk arrangements) only if the site is a critical or important function for the insured. DORA applies to ICT third-party risk — <strong>this is a physical property policy, not an ICT arrangement<\/strong>. Standard consumer information disclosure under IDD Article 20 applies instead: written notification of the coverage reduction, delivered at or before renewal inception.<br><br><strong>✓ All compliance checks passed.<\/strong> Proceeding to generate the Renewal Offer document and execute the PolicyCore update.",
+          "delayMs": 2300
+        },
+        {
+          "role": "user",
+          "text": "Go ahead — generate the offer, update PolicyCore, and trigger the broker notification.",
+          "delayMs": 1000
+        },
+        {
+          "role": "agent",
+          "text": "Executing the full renewal workflow now.<br><br><strong>Step 1 — Renewal Offer document generated:<\/strong> ✓ CP-2019-TCC-004-RENEW-2025.pdf created, including Site C provisional binder terms, IDD disclosure note, and treaty structure summary.<br><br><strong>Step 2 — PolicyCore update:<\/strong> ✓ Policy record CP-2019-TCC-004 updated. Renewal premium €28,896 posted. Site C flagged as conditional pending Risk Engineering survey reference RE-TCC-C-2025-01. Expiry date extended 30 days for Site C under ICA Clause 14.<br><br><strong>Step 3 — Broker notification dispatched:<\/strong> ✓ Renewal pack emailed to Interfinance Ltd. (contact: k.papadopoulos@interfinance.gr) with the Renewal Offer PDF, Site C conditional binder notice, and survey appointment request.<br><br><strong>Renewal workflow complete.<\/strong> The Risk Engineering team has been notified to schedule the Site C survey within 15 days. I'll set an alert to flag if the survey report isn't received within 25 days.",
+          "delayMs": 2200
+        },
+        {
+          "role": "user",
+          "text": "Good. What's the P&L impact if the Site C survey comes back negative and we decline to renew that location?",
+          "delayMs": 1100
+        },
+        {
+          "role": "agent",
+          "text": "Modelling the P&L impact of a Site C non-renewal outcome.<br><br><strong>Site C contribution to account premium:<\/strong> At the renewal rate, Site C (TSI €13.5M) represents approximately <strong>€9,288 GWP<\/strong> (0.0688% × €13.5M) — <strong>32% of total account premium<\/strong>.<br><br><strong>P&L scenario — Site C declined:<\/strong><br>— Lost GWP: €9,288<br>— Released reinsurance cession (Treaty B): €5,112 net premium saving<br>— Net P&L impact: <strong>–€4,176 GWP<\/strong> retained after reinsurance offset<br><br><strong>Retention risk:<\/strong> There is a meaningful probability the client moves the remaining three sites to a competitor if Site C is declined, given the account is managed as a block by Interfinance. I'd recommend we model an alternative: accepting Site C at a materially higher rate with an enhanced risk engineering condition (quarterly inspection) rather than outright decline. I can build that alternate quote if you'd like before the survey result arrives.",
+          "delayMs": 2100
+        }
+      ],
+      "docs": [
+        {
+          "title": "TCC Risk Re-Score — CP-2019-TCC-004",
+          "subtitle": "Appetite check · February 2025 cold chain parameters",
+          "icon": "SCORE",
+          "revealAfterMessageIndex": 4,
+          "revealAfterLogIndex": null,
+          "revealAtMs": null,
+          "delayMs": 300,
+          "sections": [
+            {
+              "heading": "SITE-LEVEL APPETITE STATUS",
+              "rows": [
+                {
+                  "label": "Site A — Sindos",
+                  "value": "€11.2M TSI · 3,200kg NH₃ — WITHIN APPETITE",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Site B — Kalochori",
+                  "value": "€9.8M TSI · 4,100kg NH₃ — WITHIN APPETITE",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Site C — Thess. Port",
+                  "value": "€13.5M TSI · 6,800kg NH₃ — SURVEY REQUIRED",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Site D — Larissa",
+                  "value": "€7.5M TSI · 2,900kg NH₃ — WITHIN APPETITE",
+                  "tone": "ok"
+                }
+              ]
+            },
+            {
+              "heading": "LOSS PERFORMANCE",
+              "rows": [
+                {
+                  "label": "5-yr loss ratio",
+                  "value": "38.2% (net of recoveries)",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Book average",
+                  "value": "44.7%",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Outperformance",
+                  "value": "6.5 pts below book — positive signal",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Claim frequency",
+                  "value": "2 events in 5 years — both attritional",
+                  "tone": "ok"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Renewal Offer — CP-2019-TCC-004-RENEW-2025",
+          "subtitle": "Generated document · ready for broker dispatch",
+          "icon": "✓",
+          "revealAfterMessageIndex": 12,
+          "revealAfterLogIndex": null,
+          "revealAtMs": null,
+          "delayMs": 400,
+          "sections": [
+            {
+              "heading": "RENEWAL PREMIUM",
+              "rows": [
+                {
+                  "label": "Expiring premium",
+                  "value": "€31,450",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Renewal premium",
+                  "value": "€28,896 (–8.1%)",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Net rate",
+                  "value": "0.0688% of TSI",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Authority used",
+                  "value": "Within ±15% — no referral required",
+                  "tone": "ok"
+                }
+              ]
+            },
+            {
+              "heading": "SITE C — CONDITIONAL TERMS",
+              "rows": [
+                {
+                  "label": "Mechanism",
+                  "value": "ICA Clause 14.3 — Provisional Binder",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "Provisional TSI cap",
+                  "value": "€10.0M (75% of declared)",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Coverage gap",
+                  "value": "€3.5M — IDD disclosure included",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Condition",
+                  "value": "Risk Engineering survey within 30 days",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Wording check",
+                  "value": "✓ Compliant with CP Wording v2023.2",
+                  "tone": "ok"
+                }
+              ]
+            },
+            {
+              "heading": "WORKFLOW STATUS",
+              "rows": [
+                {
+                  "label": "Offer document",
+                  "value": "✓ Generated and filed",
+                  "tone": "ok"
+                },
+                {
+                  "label": "PolicyCore update",
+                  "value": "✓ Record updated — ref RE-TCC-C-2025-01",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Broker notification",
+                  "value": "✓ Dispatched to Interfinance Ltd.",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Survey alert",
+                  "value": "✓ Set — escalates at Day 25 if no report",
+                  "tone": "ok"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Site C Non-Renewal — P&L Scenario",
+          "subtitle": "Sensitivity model · if survey result negative",
+          "icon": "P&L",
+          "revealAfterMessageIndex": 16,
+          "revealAfterLogIndex": null,
+          "revealAtMs": null,
+          "delayMs": 350,
+          "sections": [
+            {
+              "heading": "FINANCIAL IMPACT",
+              "rows": [
+                {
+                  "label": "Site C GWP",
+                  "value": "€9,288 (32% of account)",
+                  "tone": "neutral"
+                },
+                {
+                  "label": "RI cession saved",
+                  "value": "–€5,112 Treaty B net premium",
+                  "tone": "ok"
+                },
+                {
+                  "label": "Net GWP lost",
+                  "value": "–€4,176 retained premium",
+                  "tone": "danger"
+                }
+              ]
+            },
+            {
+              "heading": "RETENTION RISK",
+              "rows": [
+                {
+                  "label": "Block broker",
+                  "value": "Interfinance manages all 4 sites",
+                  "tone": "warn"
+                },
+                {
+                  "label": "Churn risk",
+                  "value": "HIGH — whole account may move",
+                  "tone": "danger"
+                },
+                {
+                  "label": "Recommendation",
+                  "value": "Model enhanced-rate alternative before decline",
+                  "tone": "warn"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "logs": [
+        {
+          "type": "process",
+          "group": "Renewal orchestration — TCC-004",
+          "text": "Initiating parallel data pulls: PolicyCore, ClaimsLedger, Appetite DB, Cat Zone model",
+          "delayMs": 320
+        },
+        {
+          "type": "api",
+          "group": "Renewal orchestration — TCC-004",
+          "text": "GET /policycore/policies/CP-2019-TCC-004 → expiring policy record loaded",
+          "delayMs": 380
+        },
+        {
+          "type": "api",
+          "group": "Renewal orchestration — TCC-004",
+          "text": "GET /claimsledger/account/TCC?years=5 → 2 claims, total incurred €303K",
+          "delayMs": 360
+        },
+        {
+          "type": "ml",
+          "group": "Renewal orchestration — TCC-004",
+          "text": "Loss ratio: 38.2% net — benchmarked vs cold storage book average 44.7%",
+          "delayMs": 340
+        },
+        {
+          "type": "success",
+          "group": "Renewal orchestration — TCC-004",
+          "text": "Parallel data pull complete — risk re-scoring initialised",
+          "delayMs": 300
+        },
+        {
+          "type": "rag",
+          "group": "Appetite re-score",
+          "text": "Vector search: 'cold chain appetite update ammonia February 2025'",
+          "delayMs": 420
+        },
+        {
+          "type": "rag",
+          "group": "Appetite re-score",
+          "text": "Match: Appetite Bulletin AB-2025-02 — cold storage ammonia limits — score 0.98",
+          "delayMs": 360
+        },
+        {
+          "type": "process",
+          "group": "Appetite re-score",
+          "text": "Parsed: per-site TSI limit €35M, enhanced survey trigger >5,000kg NH₃",
+          "delayMs": 350
+        },
+        {
+          "type": "data",
+          "group": "Appetite re-score",
+          "text": "Site C ammonia charge 6,800kg > 5,000kg threshold — survey flag raised",
+          "delayMs": 370
+        },
+        {
+          "type": "decision",
+          "group": "Appetite re-score",
+          "text": "Decision: Sites A/B/D → standard renewal | Site C → conditional renewal (survey required)",
+          "delayMs": 380
+        },
+        {
+          "type": "api",
+          "group": "Treaty B exposure",
+          "text": "GET /reinsurance/treaties?id=TREATY-B&account=TCC-004 → 200 OK",
+          "delayMs": 400
+        },
+        {
+          "type": "ml",
+          "group": "Treaty B exposure",
+          "text": "EML cold chain multi-site: 55% × €42.0M = €23.1M — within Treaty B €36M capacity",
+          "delayMs": 360
+        },
+        {
+          "type": "process",
+          "group": "Treaty B exposure",
+          "text": "Structure: retain €6.0M, cede €17.1M surplus — Treaty B headroom €12.9M",
+          "delayMs": 340
+        },
+        {
+          "type": "ml",
+          "group": "Renewal rate model",
+          "text": "Base rate 0.072%, experience credit –7%, Site C adjustment –1.2%, NH₃ surcharge +3%, frequency credit –4%",
+          "delayMs": 420
+        },
+        {
+          "type": "data",
+          "group": "Renewal rate model",
+          "text": "Net rate 0.0688% × €42.0M TSI → renewal premium €28,896 (–8.1% vs expiring)",
+          "delayMs": 370
+        },
+        {
+          "type": "process",
+          "group": "Renewal rate model",
+          "text": "Authority check: –8.1% within ±15% renewal authority — no referral required",
+          "delayMs": 340
+        },
+        {
+          "type": "rag",
+          "group": "Compliance check — wording + DORA",
+          "text": "Vector search: 'ICA Clause 14 provisional binder conditions TSI cap'",
+          "delayMs": 420
+        },
+        {
+          "type": "rag",
+          "group": "Compliance check — wording + DORA",
+          "text": "Match: CP Wording v2023.2 Clause 14.3 — 75% TSI cap rule confirmed — score 0.97",
+          "delayMs": 360
+        },
+        {
+          "type": "process",
+          "group": "Compliance check — wording + DORA",
+          "text": "DORA Article 30 scope check: physical property policy — IDD Article 20 applies, not DORA",
+          "delayMs": 380
+        },
+        {
+          "type": "decision",
+          "group": "Compliance check — wording + DORA",
+          "text": "All compliance checks PASSED — proceeding to execute renewal workflow",
+          "delayMs": 350
+        },
+        {
+          "type": "action",
+          "group": "Renewal execution",
+          "text": "Generating Renewal Offer document: CP-2019-TCC-004-RENEW-2025.pdf",
+          "delayMs": 420
+        },
+        {
+          "type": "action",
+          "group": "Renewal execution",
+          "text": "WRITE /policycore/policies/CP-2019-TCC-004 — premium, Site C conditional flag, ICA ref",
+          "delayMs": 400
+        },
+        {
+          "type": "action",
+          "group": "Renewal execution",
+          "text": "POST /notifications/broker — renewal pack dispatched to k.papadopoulos@interfinance.gr",
+          "delayMs": 380
+        },
+        {
+          "type": "action",
+          "group": "Renewal execution",
+          "text": "POST /alerts — Day 25 survey escalation alert created for RE-TCC-C-2025-01",
+          "delayMs": 360
+        },
+        {
+          "type": "success",
+          "group": "Renewal execution",
+          "text": "Renewal workflow complete — 4 actions executed, 0 exceptions",
+          "delayMs": 320
+        },
+        {
+          "type": "ml",
+          "group": "P&L sensitivity — Site C decline",
+          "text": "Site C GWP: 0.0688% × €13.5M = €9,288 (32% of account premium)",
+          "delayMs": 420
+        },
+        {
+          "type": "data",
+          "group": "P&L sensitivity — Site C decline",
+          "text": "Treaty B net premium offset: –€5,112 | Net GWP impact: –€4,176",
+          "delayMs": 370
+        },
+        {
+          "type": "process",
+          "group": "P&L sensitivity — Site C decline",
+          "text": "Broker concentration risk: Interfinance manages full TCC block — churn probability HIGH",
+          "delayMs": 360
+        },
+        {
+          "type": "decision",
+          "group": "P&L sensitivity — Site C decline",
+          "text": "Recommendation flagged: model enhanced-rate alternative before survey outcome received",
+          "delayMs": 350
         }
       ]
     }
@@ -552,6 +1506,8 @@ const logo = document.getElementById("brandLogo");
 const title = document.getElementById("demoTitle");
 const subtitle = document.getElementById("demoSubtitle");
 const agentName = document.getElementById("agentName");
+const scenarioTitle = document.getElementById("scenarioTitle");
+const scenarioTitleText = document.getElementById("scenarioTitleText");
 const scenarioPicker = document.getElementById("scenarioPicker");
 const scenarioSelect = document.getElementById("scenarioSelect");
 const messages = document.getElementById("messages");
@@ -614,8 +1570,10 @@ function sizingForScenario(scenarioId) {
 function populateScenarios() {
   const hasMultipleScenarios = TEMPLATE_CONFIG.scenarios.length > 1;
   scenarioPicker.hidden = !hasMultipleScenarios;
+  scenarioTitle.hidden = hasMultipleScenarios;
   if (!hasMultipleScenarios) {
     scenarioSelect.innerHTML = "";
+    scenarioTitleText.textContent = currentScenario()?.label || "";
     return;
   }
   scenarioSelect.innerHTML = TEMPLATE_CONFIG.scenarios
@@ -892,11 +1850,25 @@ function addLog(entry) {
   const seconds = Math.floor(logClock / 1000);
   const millis = String(logClock % 1000).padStart(3, "0");
   const type = normalizeLogType(entry.type);
-  const html = '<div class="log-entry"><span class="log-time">' + seconds + "." + millis + 's</span><span class="log-type ' + escapeAttribute(type) + '">' + escapeHtml(type) + '</span><span class="log-text">' + escapeHtml(entry.text) + '</span></div>';
+  const text = groupedLogText(entry);
+  const html = '<div class="log-entry"><span class="log-time">' + seconds + "." + millis + 's</span><span class="log-type ' + escapeAttribute(type) + '">' + escapeHtml(type) + '</span><span class="log-text">' + escapeHtml(text) + '</span></div>';
   [logsSplit, logsFull].forEach((container) => {
     container.insertAdjacentHTML("beforeend", html);
     container.scrollTop = container.scrollHeight;
   });
+}
+
+function groupedLogText(entry) {
+  const text = String(entry.text || "");
+  if (/^(┌|│|└|━━━)/.test(text)) return text;
+  const group = String(entry.group || "").trim();
+  if (!group) return text;
+  const groupEntries = currentScenario().logs.filter((item) => String(item.group || "").trim() === group);
+  const index = groupEntries.indexOf(entry);
+  if (index === 0 && groupEntries.length === 1) return "┌─ " + group + " · " + text;
+  if (index === 0) return "┌─ " + group + " · " + text;
+  if (index === groupEntries.length - 1) return "└─ " + text;
+  return "│  " + text;
 }
 
 function normalizeLogType(type) {
