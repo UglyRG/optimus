@@ -848,6 +848,16 @@ const server = http.createServer((request, response) => {
   });
 });
 
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Optimus API could not start because http://${HOST}:${PORT} is already in use.`);
+    console.error(`Stop the existing process or start this service with PORT=<other-port>.`);
+    process.exit(1);
+  }
+
+  throw error;
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`Optimus API listening on http://${HOST}:${PORT}`);
 });

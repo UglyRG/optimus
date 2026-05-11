@@ -58,6 +58,16 @@ server.listen(PORT, HOST, () => {
   console.log(`Optimus frontend listening on http://${HOST}:${PORT}`);
 });
 
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Optimus frontend could not start because http://${HOST}:${PORT} is already in use.`);
+    console.error(`Stop the existing process or start this service with FRONTEND_PORT=<other-port>.`);
+    process.exit(1);
+  }
+
+  throw error;
+});
+
 function shutdown(signal) {
   console.log(`\n${signal} received. Shutting down frontend.`);
   server.close(() => {
