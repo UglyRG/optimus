@@ -1,0 +1,34 @@
+{
+  "groups": [
+    {
+      "id": "builders",
+      "name": "Builders",
+      "displayOrder": 1
+    },
+    {
+      "id": "utilities",
+      "name": "Personal",
+      "displayOrder": 2
+    }
+  ],
+  "tools": [
+    {
+      "id": "demo-builder",
+      "groupId": "builders",
+      "displayOrder": 1,
+      "enabled": true
+    },
+    {
+      "id": "presentation-suite",
+      "groupId": "builders",
+      "displayOrder": 3,
+      "enabled": true
+    },
+    {
+      "id": "html-base64",
+      "groupId": "builders",
+      "displayOrder": 2,
+      "enabled": true
+    }
+  ]
+}

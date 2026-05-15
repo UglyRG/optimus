@@ -14,15 +14,21 @@ Create a local `.env` file for private values. It is ignored by Git.
 
 ```env
 OPTIMUS_ACCESS_KEY=your-login-password
+ANTHROPIC_API_KEY=your-anthropic-api-key
+OPENAI_API_KEY=your-openai-api-key
+SPORTMONKS_API_KEY=your-sportmonks-api-key
 ```
 
 If `OPTIMUS_ACCESS_KEY` is not set, the local development key is `optimus`.
+The API provider keys are optional until a tool or integration needs them.
 
 ## Assets
 
 Branding and favicon files live in `frontend/assets/`. A root `frontend/favicon.ico` is also present so browsers can resolve `/favicon.ico` without a 404.
 
 ## Tools
+
+The backend exposes the tool catalog at `GET /api/tools`. Tool group, visibility, and display order are managed from the frontend "Manage tools" dashboard and persisted in `data/tool-catalog.json`. The frontend renders the index from this metadata and maps each hosted tool `id` to its local UI.
 
 ### Demo Builder
 

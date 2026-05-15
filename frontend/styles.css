@@ -341,7 +341,18 @@ button {
   font-size: 0.9rem;
 }
 
-.error.is-visible {
+.success {
+  display: none;
+  border: 1px solid rgba(0, 122, 78, 0.22);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #eefbf5;
+  color: #006f49;
+  font-size: 0.9rem;
+}
+
+.error.is-visible,
+.success.is-visible {
   display: block;
 }
 
@@ -381,12 +392,44 @@ button {
   margin-bottom: 28px;
 }
 
-.tool-list {
+.tool-groups {
+  display: grid;
+  gap: 24px;
+}
+
+.tool-group {
+  display: grid;
+  gap: 10px;
+}
+
+.tool-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.tool-group-head h2 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.tool-list,
+.tool-list-state {
   display: grid;
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
   background: var(--panel);
+}
+
+.tool-list-state {
+  padding: 18px 20px;
+  color: var(--muted);
 }
 
 .tool-row {
@@ -405,7 +448,7 @@ button {
   background: #f8fbff;
 }
 
-.tool-row h2 {
+.tool-row h3 {
   margin: 0 0 6px;
   font-size: 1rem;
 }
@@ -414,6 +457,83 @@ button {
   margin: 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.admin-panel {
+  gap: 22px;
+}
+
+.admin-section {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-section-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.admin-section-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
+.admin-group-list,
+.admin-tool-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-group-row,
+.admin-tool-row {
+  display: grid;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.admin-group-row {
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 140px) auto;
+}
+
+.admin-tool-row {
+  grid-template-columns: minmax(240px, 1fr) minmax(95px, auto) minmax(160px, 220px) minmax(90px, 120px);
+}
+
+.admin-tool-copy h3 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+}
+
+.admin-tool-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.toggle-field input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
 }
 
 .badge {
@@ -509,6 +629,9 @@ iframe {
   .topbar,
   .page-head,
   .tool-row,
+  .admin-section-head,
+  .admin-group-row,
+  .admin-tool-row,
   .form-grid,
   .color-grid,
   .label-row,
@@ -519,12 +642,14 @@ iframe {
 
   .topbar,
   .page-head,
+  .admin-section-head,
   .result-head {
     flex-direction: column;
   }
 
   .topbar .button,
   .page-head .button,
+  .admin-section-head .button,
   .tool-panel .button,
   .result-head .button {
     width: 100%;

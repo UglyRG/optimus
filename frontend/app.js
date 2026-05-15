@@ -6,6 +6,11 @@ let suiteSourceFiles = [];
 let demoContentJsonDirty = false;
 let demoSizingJsonDirty = false;
 let demoGlossaryJsonDirty = false;
+const TOOL_RENDERERS = {
+  "demo-builder": renderDemoBuilderTool,
+  "presentation-suite": renderPresentationSuiteTool,
+  "html-base64": renderHtmlBase64Tool,
+};
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -78,7 +83,7 @@ async function handleLogin(event) {
   }
 }
 
-function renderIndex({ user, expiresAt }) {
+async function renderIndex({ user, expiresAt }) {
   activeUser = user;
   activeExpiresAt = expiresAt;
 
@@ -91,40 +96,351 @@ function renderIndex({ user, expiresAt }) {
           <h1>Index</h1>
           <p>Signed in as ${escapeHtml(user.name)}. Session expires in ${hoursLeft(expiresAt)}h.</p>
         </div>
+        <button class="button button-secondary" id="manage-tools-button" type="button">Manage tools</button>
       </div>
 
-      <div class="tool-list" aria-label="Available tools">
-        <article class="tool-row">
-          <div>
-            <h2>Demo Builder</h2>
-            <p>Create a branded, configurable agent demo template with scenarios, messages, docs, and logs.</p>
-          </div>
-          <button class="button button-secondary" id="open-demo-builder-tool" type="button">Open</button>
-        </article>
-        <article class="tool-row">
-          <div>
-            <h2>Presentation Suite Builder</h2>
-            <p>Create a tabbed presentation suite HTML file with a deck tab and demo tabs.</p>
-          </div>
-          <button class="button button-secondary" id="open-presentation-suite-tool" type="button">Open</button>
-        </article>
-        <article class="tool-row">
-          <div>
-            <h2>HTML to iframe Base64</h2>
-            <p>Convert an HTML file into an iframe-ready Base64 data string and save it to Outputs.</p>
-          </div>
-          <button class="button button-secondary" id="open-html-tool" type="button">Open</button>
-        </article>
+      <div class="tool-groups" id="tool-groups" aria-label="Available tools">
+        <div class="tool-list-state">Loading tools...</div>
       </div>
     </section>
   `;
 
   document.querySelector("#logout-button").addEventListener("click", handleLogout);
-  document.querySelector("#open-html-tool").addEventListener("click", renderHtmlBase64Tool);
-  document
-    .querySelector("#open-presentation-suite-tool")
-    .addEventListener("click", renderPresentationSuiteTool);
-  document.querySelector("#open-demo-builder-tool").addEventListener("click", renderDemoBuilderTool);
+  document.querySelector("#manage-tools-button").addEventListener("click", renderToolAdminDashboard);
+
+  try {
+    const payload = await request("/tools");
+    renderToolCatalog(payload.tools || []);
+  } catch (error) {
+    const toolGroups = document.querySelector("#tool-groups");
+    if (toolGroups) {
+      toolGroups.innerHTML = `<p class="error is-visible">Could not load tools: ${escapeHtml(error.message)}</p>`;
+    }
+  }
+}
+
+function renderToolCatalog(tools) {
+  const toolGroups = document.querySelector("#tool-groups");
+  if (!toolGroups) {
+    return;
+  }
+
+  const visibleTools = tools
+    .filter((tool) => TOOL_RENDERERS[tool.id])
+    .sort(compareCatalogTools);
+  const groups = groupCatalogTools(visibleTools);
+
+  if (!groups.length) {
+    toolGroups.innerHTML = '<div class="tool-list-state">No tools are available.</div>';
+    return;
+  }
+
+  toolGroups.innerHTML = groups.map(renderToolGroup).join("");
+  toolGroups.querySelectorAll("[data-tool-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      TOOL_RENDERERS[button.dataset.toolId]();
+    });
+  });
+}
+
+function groupCatalogTools(tools) {
+  const groups = new Map();
+
+  for (const tool of tools) {
+    const groupName = String(tool.group || "Tools").trim() || "Tools";
+    if (!groups.has(groupName)) {
+      groups.set(groupName, {
+        name: groupName,
+        order: Number.isFinite(tool.groupOrder) ? tool.groupOrder : Number.MAX_SAFE_INTEGER,
+        tools: [],
+      });
+    }
+
+    groups.get(groupName).tools.push(tool);
+  }
+
+  return Array.from(groups.values()).sort(
+    (left, right) => left.order - right.order || left.name.localeCompare(right.name),
+  );
+}
+
+function renderToolGroup(group) {
+  return `
+    <section class="tool-group">
+      <div class="tool-group-head">
+        <h2>${escapeHtml(group.name)}</h2>
+      </div>
+      <div class="tool-list">
+        ${group.tools.map(renderToolRow).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderToolRow(tool) {
+  return `
+    <article class="tool-row">
+      <div>
+        <h3>${escapeHtml(tool.title)}</h3>
+        <p>${escapeHtml(tool.description)}</p>
+      </div>
+      <button class="button button-secondary" data-tool-id="${escapeAttribute(tool.id)}" type="button">Open</button>
+    </article>
+  `;
+}
+
+function compareCatalogTools(left, right) {
+  const leftGroupOrder = Number.isFinite(left.groupOrder) ? left.groupOrder : Number.MAX_SAFE_INTEGER;
+  const rightGroupOrder = Number.isFinite(right.groupOrder) ? right.groupOrder : Number.MAX_SAFE_INTEGER;
+  const leftDisplayOrder = Number.isFinite(left.displayOrder) ? left.displayOrder : Number.MAX_SAFE_INTEGER;
+  const rightDisplayOrder = Number.isFinite(right.displayOrder) ? right.displayOrder : Number.MAX_SAFE_INTEGER;
+
+  return (
+    leftGroupOrder - rightGroupOrder ||
+    String(left.group || "").localeCompare(String(right.group || "")) ||
+    leftDisplayOrder - rightDisplayOrder ||
+    String(left.title || "").localeCompare(String(right.title || ""))
+  );
+}
+
+async function renderToolAdminDashboard() {
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>Manage tools</h1>
+          <p>Create groups, place hosted tools, and control their display order.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <div class="tool-list-state">Loading tool settings...</div>
+    </section>
+  `;
+
+  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+
+  try {
+    renderToolAdminForm(await request("/admin/tool-catalog"));
+  } catch (error) {
+    const page = document.querySelector(".index-page");
+    page.insertAdjacentHTML(
+      "beforeend",
+      `<p class="error is-visible">Could not load tool settings: ${escapeHtml(error.message)}</p>`,
+    );
+  }
+}
+
+function renderToolAdminForm(catalog) {
+  const groups = [...(catalog.groups || [])].sort(
+    (left, right) => left.displayOrder - right.displayOrder || left.name.localeCompare(right.name),
+  );
+  const tools = [...(catalog.tools || [])].sort((left, right) => {
+    const leftGroup = groups.find((group) => group.id === left.groupId);
+    const rightGroup = groups.find((group) => group.id === right.groupId);
+    return (
+      (leftGroup?.displayOrder || Number.MAX_SAFE_INTEGER) -
+        (rightGroup?.displayOrder || Number.MAX_SAFE_INTEGER) ||
+      left.displayOrder - right.displayOrder ||
+      left.title.localeCompare(right.title)
+    );
+  });
+  const page = document.querySelector(".index-page");
+
+  page.querySelector(".tool-list-state")?.remove();
+  page.querySelector("#tool-admin-form")?.remove();
+  page.insertAdjacentHTML(
+    "beforeend",
+    `
+      <form class="tool-panel admin-panel" id="tool-admin-form">
+        <section class="admin-section">
+          <div class="admin-section-head">
+            <div>
+              <h2>Groups</h2>
+              <p>Lower numbers appear first.</p>
+            </div>
+            <button class="button button-secondary" id="add-tool-group" type="button">Add group</button>
+          </div>
+          <div class="admin-group-list" id="admin-group-list">
+            ${groups.map(renderAdminGroupRow).join("")}
+          </div>
+        </section>
+
+        <section class="admin-section">
+          <div class="admin-section-head">
+            <div>
+              <h2>Hosted tools</h2>
+              <p>Disable a tool to remove it from the index.</p>
+            </div>
+          </div>
+          <div class="admin-tool-list" id="admin-tool-list">
+            ${tools.map((tool) => renderAdminToolRow(tool, groups)).join("")}
+          </div>
+        </section>
+
+        <p class="success" id="admin-success"></p>
+        <p class="error" id="admin-error"></p>
+        <button class="button button-primary" type="submit">Save tool layout</button>
+      </form>
+    `,
+  );
+
+  document.querySelector("#add-tool-group").addEventListener("click", handleAddToolGroup);
+  document.querySelector("#admin-group-list").addEventListener("click", handleAdminGroupListClick);
+  document.querySelector("#tool-admin-form").addEventListener("submit", handleToolAdminSubmit);
+}
+
+function renderAdminGroupRow(group) {
+  return `
+    <div class="admin-group-row" data-group-id="${escapeAttribute(group.id)}">
+      <input name="groupId" type="hidden" value="${escapeAttribute(group.id)}" />
+      <div class="field">
+        <label for="group-name-${escapeAttribute(group.id)}">Group name</label>
+        <input id="group-name-${escapeAttribute(group.id)}" name="groupName" value="${escapeAttribute(group.name)}" required />
+      </div>
+      <div class="field">
+        <label for="group-order-${escapeAttribute(group.id)}">Order</label>
+        <input id="group-order-${escapeAttribute(group.id)}" name="groupOrder" type="number" min="1" value="${escapeAttribute(group.displayOrder)}" required />
+      </div>
+      <button class="button button-secondary" data-remove-group="${escapeAttribute(group.id)}" type="button">Remove</button>
+    </div>
+  `;
+}
+
+function renderAdminToolRow(tool, groups) {
+  return `
+    <article class="admin-tool-row">
+      <div class="admin-tool-copy">
+        <h3>${escapeHtml(tool.title)}</h3>
+        <p>${escapeHtml(tool.description)}</p>
+        <input name="toolId" type="hidden" value="${escapeAttribute(tool.id)}" />
+      </div>
+      <label class="toggle-field">
+        <input class="admin-tool-enabled" name="toolEnabled-${escapeAttribute(tool.id)}" type="checkbox"${tool.enabled ? " checked" : ""} />
+        <span>Visible</span>
+      </label>
+      <div class="field">
+        <label for="tool-group-${escapeAttribute(tool.id)}">Group</label>
+        <select class="admin-tool-group" id="tool-group-${escapeAttribute(tool.id)}" name="toolGroup-${escapeAttribute(tool.id)}">
+          ${groups
+            .map((group) => {
+              const selected = group.id === tool.groupId ? " selected" : "";
+              return `<option value="${escapeAttribute(group.id)}"${selected}>${escapeHtml(group.name)}</option>`;
+            })
+            .join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="tool-order-${escapeAttribute(tool.id)}">Order</label>
+        <input class="admin-tool-order" id="tool-order-${escapeAttribute(tool.id)}" name="toolOrder-${escapeAttribute(tool.id)}" type="number" min="1" value="${escapeAttribute(tool.displayOrder)}" required />
+      </div>
+    </article>
+  `;
+}
+
+function handleAddToolGroup() {
+  const catalog = readToolAdminFormValues();
+  const nextOrder = catalog.groups.reduce((max, group) => Math.max(max, group.displayOrder), 0) + 1;
+  const id = uniqueFrontendGroupId("new-group", catalog.groups);
+  catalog.groups.push({ id, name: "New group", displayOrder: nextOrder });
+  renderToolAdminForm(catalog);
+}
+
+function handleAdminGroupListClick(event) {
+  const button = event.target.closest("[data-remove-group]");
+  if (!button) {
+    return;
+  }
+
+  const groupId = button.dataset.removeGroup;
+  const catalog = readToolAdminFormValues();
+  if (catalog.tools.some((tool) => tool.groupId === groupId && tool.enabled)) {
+    showAdminError("Move or hide tools in this group before removing it.");
+    return;
+  }
+
+  catalog.groups = catalog.groups.filter((group) => group.id !== groupId);
+  if (!catalog.groups.length) {
+    showAdminError("At least one group is required.");
+    return;
+  }
+
+  renderToolAdminForm(catalog);
+}
+
+async function handleToolAdminSubmit(event) {
+  event.preventDefault();
+
+  try {
+    const catalog = readToolAdminFormValues();
+    const result = await request("/admin/tool-catalog", {
+      method: "POST",
+      body: JSON.stringify(catalog),
+    });
+    renderToolAdminForm(result);
+    showAdminSuccess("Tool layout saved.");
+  } catch (error) {
+    showAdminError(error.message);
+  }
+}
+
+function readToolAdminFormValues() {
+  const form = document.querySelector("#tool-admin-form");
+  const groupRows = Array.from(form.querySelectorAll(".admin-group-row"));
+  const groups = groupRows.map((row, index) => ({
+    id: row.querySelector('input[name="groupId"]').value,
+    name: row.querySelector('input[name="groupName"]').value.trim(),
+    displayOrder: Math.max(1, Number(row.querySelector('input[name="groupOrder"]').value) || index + 1),
+  }));
+
+  const toolRows = Array.from(form.querySelectorAll(".admin-tool-row"));
+  const tools = toolRows.map((row, index) => {
+    const id = row.querySelector('input[name="toolId"]').value;
+    return {
+      id,
+      groupId: row.querySelector(".admin-tool-group").value,
+      displayOrder: Math.max(1, Number(row.querySelector(".admin-tool-order").value) || index + 1),
+      enabled: row.querySelector(".admin-tool-enabled").checked,
+    };
+  });
+
+  return { groups, tools };
+}
+
+function uniqueFrontendGroupId(value, groups) {
+  const existingIds = new Set(groups.map((group) => group.id));
+  const baseId = String(value || "group")
+    .toLowerCase()
+    .replace(/[^\w-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "group";
+  let id = baseId;
+  let suffix = 2;
+
+  while (existingIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return id;
+}
+
+function showAdminSuccess(message) {
+  const success = document.querySelector("#admin-success");
+  if (!success) return;
+  success.textContent = message;
+  success.classList.add("is-visible");
+}
+
+function showAdminError(message) {
+  const error = document.querySelector("#admin-error");
+  if (!error) return;
+  error.textContent = message;
+  error.classList.add("is-visible");
 }
 
 function renderHtmlBase64Tool() {

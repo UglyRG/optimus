@@ -12,6 +12,36 @@ const ACCESS_KEY = process.env.OPTIMUS_ACCESS_KEY || "optimus";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const MAX_JSON_BODY_BYTES = 10 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
+const DATA_DIR = path.join(__dirname, "..", "data");
+const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
+const HOSTED_TOOLS = [
+  {
+    id: "demo-builder",
+    title: "Demo Builder",
+    description: "Create a branded, configurable agent demo template with scenarios, messages, docs, and logs.",
+  },
+  {
+    id: "presentation-suite",
+    title: "Presentation Suite Builder",
+    description: "Create a tabbed presentation suite HTML file with a deck tab and demo tabs.",
+  },
+  {
+    id: "html-base64",
+    title: "HTML to iframe Base64",
+    description: "Convert an HTML file into an iframe-ready Base64 data string and save it to Outputs.",
+  },
+];
+const DEFAULT_TOOL_CATALOG_CONFIG = {
+  groups: [
+    { id: "builders", name: "Builders", displayOrder: 1 },
+    { id: "utilities", name: "Utilities", displayOrder: 2 },
+  ],
+  tools: [
+    { id: "demo-builder", groupId: "builders", displayOrder: 1, enabled: true },
+    { id: "presentation-suite", groupId: "builders", displayOrder: 2, enabled: true },
+    { id: "html-base64", groupId: "utilities", displayOrder: 1, enabled: true },
+  ],
+};
 
 const sessions = new Map();
 
@@ -158,6 +188,148 @@ function cleanExpiredSessions() {
       sessions.delete(token);
     }
   }
+}
+
+async function sortedToolCatalog() {
+  const catalog = await loadToolCatalogConfig();
+  const groupsById = new Map(catalog.groups.map((group) => [group.id, group]));
+  const tools = catalog.tools
+    .filter((tool) => tool.enabled)
+    .map((tool) => {
+      const hostedTool = hostedToolById(tool.id);
+      const group = groupsById.get(tool.groupId) || catalog.groups[0];
+      return {
+        ...hostedTool,
+        group: group.name,
+        groupId: group.id,
+        groupOrder: group.displayOrder,
+        displayOrder: tool.displayOrder,
+        enabled: tool.enabled,
+      };
+    });
+
+  return tools.sort(compareCatalogTools);
+}
+
+async function adminToolCatalog() {
+  const catalog = await loadToolCatalogConfig();
+  const toolConfigById = new Map(catalog.tools.map((tool) => [tool.id, tool]));
+  return {
+    groups: catalog.groups,
+    tools: HOSTED_TOOLS.map((tool) => ({
+      ...tool,
+      ...toolConfigById.get(tool.id),
+    })),
+  };
+}
+
+async function loadToolCatalogConfig() {
+  try {
+    const contents = await fs.readFile(TOOL_CATALOG_PATH, "utf8");
+    return normalizeToolCatalogConfig(JSON.parse(contents));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return normalizeToolCatalogConfig(DEFAULT_TOOL_CATALOG_CONFIG);
+    }
+    throw error;
+  }
+}
+
+async function saveToolCatalogConfig(payload) {
+  const catalog = normalizeToolCatalogConfig(payload, { strict: true });
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(TOOL_CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+  return adminToolCatalog();
+}
+
+function normalizeToolCatalogConfig(config, options = {}) {
+  const groups = normalizeToolGroups(config?.groups);
+  const groupIds = new Set(groups.map((group) => group.id));
+  const defaultGroupId = groups[0].id;
+  const toolConfigById = new Map(
+    (Array.isArray(config?.tools) ? config.tools : []).map((tool) => [String(tool.id || ""), tool]),
+  );
+
+  return {
+    groups,
+    tools: HOSTED_TOOLS.map((hostedTool, index) => {
+      const fallback = DEFAULT_TOOL_CATALOG_CONFIG.tools.find((tool) => tool.id === hostedTool.id) || {};
+      const tool = toolConfigById.get(hostedTool.id) || fallback;
+      const groupId = String(tool.groupId || fallback.groupId || defaultGroupId);
+
+      if (options.strict && !groupIds.has(groupId)) {
+        throw new Error(`${hostedTool.title} must belong to an existing group`);
+      }
+
+      return {
+        id: hostedTool.id,
+        groupId: groupIds.has(groupId) ? groupId : defaultGroupId,
+        displayOrder: cleanPositiveInteger(tool.displayOrder, index + 1),
+        enabled: tool.enabled !== false,
+      };
+    }),
+  };
+}
+
+function normalizeToolGroups(groups) {
+  const source = Array.isArray(groups) && groups.length ? groups : DEFAULT_TOOL_CATALOG_CONFIG.groups;
+  const seenIds = new Set();
+
+  return source.slice(0, 20).map((rawGroup, index) => {
+    const group = rawGroup || {};
+    const id = uniqueCatalogId(group.id || group.name || `group-${index + 1}`, seenIds);
+    return {
+      id,
+      name: cleanText(group.name, `Group ${index + 1}`, 80),
+      displayOrder: cleanPositiveInteger(group.displayOrder, index + 1),
+    };
+  });
+}
+
+function uniqueCatalogId(value, seenIds) {
+  const baseId = String(value || "group")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^\w-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "group";
+  let id = baseId;
+  let suffix = 2;
+
+  while (seenIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  seenIds.add(id);
+  return id;
+}
+
+function cleanPositiveInteger(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1) {
+    return fallback;
+  }
+
+  return Math.round(number);
+}
+
+function hostedToolById(id) {
+  const tool = HOSTED_TOOLS.find((item) => item.id === id);
+  if (!tool) {
+    throw new Error(`Unknown hosted tool: ${id}`);
+  }
+
+  return tool;
+}
+
+function compareCatalogTools(left, right) {
+  return (
+    left.groupOrder - right.groupOrder ||
+    left.group.localeCompare(right.group) ||
+    left.displayOrder - right.displayOrder ||
+    left.title.localeCompare(right.title)
+  );
 }
 
 function outputFileName(fileName) {
@@ -1536,6 +1708,37 @@ async function handleRequest(request, response) {
       user: { name: session.name },
       expiresAt: session.expiresAt,
     });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, { tools: await sortedToolCatalog() });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/tool-catalog") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, await adminToolCatalog());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/tool-catalog") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const payload = await readJson(request);
+    sendJson(response, 200, await saveToolCatalogConfig(payload));
     return;
   }
 
