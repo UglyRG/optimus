@@ -38,6 +38,10 @@ Build a branded, configurable agent demo from uploaded or pasted JSON files for 
 
 Upload an `.html` file from the UI to create an iframe-ready `data:text/html;base64,...` string. Outputs are saved locally in `Outputs/` as `base62-initialfilename.txt`.
 
+### PDF to iframe Base64
+
+Upload a `.pdf` file from the UI to create an iframe-ready `data:application/pdf;base64,...` string. Outputs are saved locally in `Outputs/` as `base64-pdf-initialfilename.txt`.
+
 ### Presentation Suite Builder
 
-Specify an output filename, number of tabs, tab labels, and optional iframe sources to generate a tabbed presentation suite HTML template. The first tab is always the deck, remaining tabs are demos, and the date badge uses `Month YY` format. Iframe sources are selected from `.txt` files in `Outputs/` and embedded directly into the generated HTML, so the final file does not reference the source `.txt` files. Outputs are saved locally in `Outputs/` as the requested `.html` file.
+Specify an output filename, number of tabs, tab labels, and optional iframe sources to generate a tabbed presentation suite HTML template. The first tab is always the deck, remaining tabs are demos, and the date badge uses `Month YY` format. Iframe sources are selected from `.txt` files in `Outputs/`, including HTML and PDF Base64 outputs, and embedded directly into the generated HTML, so the final file does not reference the source `.txt` files. Outputs are saved locally in `Outputs/` as the requested `.html` file.

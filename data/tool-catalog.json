@@ -2,7 +2,7 @@
   "groups": [
     {
       "id": "builders",
-      "name": "Builders",
+      "name": "Superbo",
       "displayOrder": 1
     },
     {
@@ -21,13 +21,19 @@
     {
       "id": "presentation-suite",
       "groupId": "builders",
-      "displayOrder": 3,
+      "displayOrder": 4,
       "enabled": true
     },
     {
       "id": "html-base64",
       "groupId": "builders",
       "displayOrder": 2,
+      "enabled": true
+    },
+    {
+      "id": "pdf-base64",
+      "groupId": "builders",
+      "displayOrder": 3,
       "enabled": true
     }
   ]

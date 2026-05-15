@@ -10,6 +10,7 @@ const TOOL_RENDERERS = {
   "demo-builder": renderDemoBuilderTool,
   "presentation-suite": renderPresentationSuiteTool,
   "html-base64": renderHtmlBase64Tool,
+  "pdf-base64": renderPdfBase64Tool,
 };
 
 async function request(path, options = {}) {
@@ -486,6 +487,49 @@ function renderHtmlBase64Tool() {
   document.querySelector("#html-base64-form").addEventListener("submit", handleHtmlBase64Submit);
 }
 
+function renderPdfBase64Tool() {
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>PDF to iframe Base64</h1>
+          <p>Select a PDF file and save the generated string to Outputs.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <form class="tool-panel" id="pdf-base64-form">
+        <div class="field">
+          <label for="pdf-file">PDF file</label>
+          <input id="pdf-file" name="pdfFile" type="file" accept=".pdf,application/pdf" required />
+        </div>
+        <p class="error" id="tool-error"></p>
+        <button class="button button-primary" type="submit">Create TXT output</button>
+      </form>
+
+      <section class="result-panel" id="result-panel" hidden>
+        <div class="result-head">
+          <div>
+            <h2>Output</h2>
+            <p id="saved-path"></p>
+          </div>
+          <button class="button button-secondary" id="copy-output" type="button">Copy</button>
+        </div>
+        <textarea id="base64-output" readonly spellcheck="false"></textarea>
+        <iframe id="iframe-preview" title="PDF preview"></iframe>
+      </section>
+    </section>
+  `;
+
+  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#pdf-base64-form").addEventListener("submit", handlePdfBase64Submit);
+}
+
 async function renderPresentationSuiteTool() {
   suiteSourceFiles = [];
   try {
@@ -781,6 +825,32 @@ async function handleHtmlBase64Submit(event) {
   }
 }
 
+async function handlePdfBase64Submit(event) {
+  event.preventDefault();
+
+  const fileInput = document.querySelector("#pdf-file");
+  const [file] = fileInput.files;
+  if (!file) {
+    showToolError("Choose a PDF file first.");
+    return;
+  }
+
+  try {
+    const base64 = await fileToBase64(file);
+    const result = await request("/tools/pdf-base64", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.name,
+        base64,
+      }),
+    });
+
+    showToolResult(result);
+  } catch (error) {
+    showToolError(error.message);
+  }
+}
+
 async function handlePresentationSuiteSubmit(event) {
   event.preventDefault();
 
@@ -821,6 +891,20 @@ async function handleDemoBuilderSubmit(event) {
   } catch (error) {
     showToolError(error.message);
   }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const result = String(reader.result || "");
+      resolve(result.includes(",") ? result.split(",").pop() : result);
+    });
+    reader.addEventListener("error", () => {
+      reject(reader.error || new Error("Could not read file"));
+    });
+    reader.readAsDataURL(file);
+  });
 }
 
 function readDemoBuilderFormValues(form = document.querySelector("#demo-builder-form")) {

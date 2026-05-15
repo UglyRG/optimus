@@ -10,7 +10,7 @@ const HOST = process.env.HOST || "localhost";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:4173";
 const ACCESS_KEY = process.env.OPTIMUS_ACCESS_KEY || "optimus";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
-const MAX_JSON_BODY_BYTES = 10 * 1024 * 1024;
+const MAX_JSON_BODY_BYTES = 50 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
 const DATA_DIR = path.join(__dirname, "..", "data");
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
@@ -30,6 +30,11 @@ const HOSTED_TOOLS = [
     title: "HTML to iframe Base64",
     description: "Convert an HTML file into an iframe-ready Base64 data string and save it to Outputs.",
   },
+  {
+    id: "pdf-base64",
+    title: "PDF to iframe Base64",
+    description: "Convert a PDF file into an iframe-ready Base64 data string and save it to Outputs.",
+  },
 ];
 const DEFAULT_TOOL_CATALOG_CONFIG = {
   groups: [
@@ -40,6 +45,7 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
     { id: "demo-builder", groupId: "builders", displayOrder: 1, enabled: true },
     { id: "presentation-suite", groupId: "builders", displayOrder: 2, enabled: true },
     { id: "html-base64", groupId: "utilities", displayOrder: 1, enabled: true },
+    { id: "pdf-base64", groupId: "utilities", displayOrder: 2, enabled: true },
   ],
 };
 
@@ -342,6 +348,18 @@ function outputFileName(fileName) {
     .slice(0, 120);
 
   return `base62-${safeBaseName || "page"}.txt`;
+}
+
+function outputPdfFileName(fileName) {
+  const parsed = path.parse(fileName || "document.pdf");
+  const baseName = parsed.name || "document";
+  const safeBaseName = baseName
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+
+  return `base64-pdf-${safeBaseName || "document"}.txt`;
 }
 
 function outputHtmlFileName(fileName, fallback = "output") {
@@ -765,7 +783,10 @@ async function readIframeSourceFile(fileName) {
   const contents = await fs.readFile(path.join(OUTPUTS_DIR, safeFileName), "utf8");
   const iframeSource = contents.trim();
 
-  if (!iframeSource.startsWith("data:text/html;base64,")) {
+  if (
+    !iframeSource.startsWith("data:text/html;base64,") &&
+    !iframeSource.startsWith("data:application/pdf;base64,")
+  ) {
     throw new Error(`${safeFileName} is not an iframe-ready Base64 data string`);
   }
 
@@ -1617,6 +1638,35 @@ async function saveIframeSource({ fileName, html }) {
   };
 }
 
+async function savePdfIframeSource({ fileName, base64 }) {
+  if (!fileName || typeof base64 !== "string") {
+    throw new Error("A PDF file is required");
+  }
+
+  const compactBase64 = base64.trim();
+  if (!compactBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(compactBase64)) {
+    throw new Error("PDF content must be a Base64 string");
+  }
+
+  const pdfBuffer = Buffer.from(compactBase64, "base64");
+  if (pdfBuffer.length < 5 || pdfBuffer.subarray(0, 5).toString("ascii") !== "%PDF-") {
+    throw new Error("Choose a valid PDF file");
+  }
+
+  const iframeSource = `data:application/pdf;base64,${compactBase64}`;
+  const savedFileName = outputPdfFileName(fileName);
+  const outputPath = path.join(OUTPUTS_DIR, savedFileName);
+
+  await fs.mkdir(OUTPUTS_DIR, { recursive: true });
+  await fs.writeFile(outputPath, iframeSource, "utf8");
+
+  return {
+    fileName: savedFileName,
+    outputPath,
+    iframeSource,
+  };
+}
+
 async function savePresentationSuite({ fileName, tabCount, labels, sourceFiles = [] }) {
   const count = Number(tabCount);
   if (!Number.isInteger(count) || count < 1 || count > 12) {
@@ -1761,6 +1811,18 @@ async function handleRequest(request, response) {
 
     const payload = await readJson(request);
     const result = await saveIframeSource(payload);
+    sendJson(response, 200, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/pdf-base64") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const payload = await readJson(request);
+    const result = await savePdfIframeSource(payload);
     sendJson(response, 200, result);
     return;
   }
