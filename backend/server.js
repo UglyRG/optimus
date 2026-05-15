@@ -14,7 +14,13 @@ const MAX_JSON_BODY_BYTES = 50 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
 const DATA_DIR = path.join(__dirname, "..", "data");
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
+const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
 const HOSTED_TOOLS = [
+  {
+    id: "padelog",
+    title: "Padelog",
+    description: "Track padel match results, import CSV batches, and review month, year, or custom-period performance.",
+  },
   {
     id: "demo-builder",
     title: "Demo Builder",
@@ -42,10 +48,11 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
     { id: "utilities", name: "Utilities", displayOrder: 2 },
   ],
   tools: [
+    { id: "padelog", groupId: "utilities", displayOrder: 1, enabled: true },
     { id: "demo-builder", groupId: "builders", displayOrder: 1, enabled: true },
     { id: "presentation-suite", groupId: "builders", displayOrder: 2, enabled: true },
-    { id: "html-base64", groupId: "utilities", displayOrder: 1, enabled: true },
-    { id: "pdf-base64", groupId: "utilities", displayOrder: 2, enabled: true },
+    { id: "html-base64", groupId: "utilities", displayOrder: 2, enabled: true },
+    { id: "pdf-base64", groupId: "utilities", displayOrder: 3, enabled: true },
   ],
 };
 
@@ -699,6 +706,97 @@ function cleanOptionalNumber(value) {
   }
 
   return Math.round(number);
+}
+
+function normalizePadelogMatch(rawMatch = {}) {
+  const date = String(rawMatch.date || rawMatch.Date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
+    throw new Error("Match date must use YYYY-MM-DD");
+  }
+
+  const resultInput = cleanText(rawMatch.result || rawMatch.Result, "", 12).toLowerCase();
+  const result = resultInput ? resultInput.charAt(0).toUpperCase() + resultInput.slice(1) : "";
+  if (!["Won", "Lost", "Draw"].includes(result)) {
+    throw new Error("Result must be Won, Lost, or Draw");
+  }
+
+  return {
+    id: cleanText(rawMatch.id, crypto.randomUUID(), 80),
+    club: cleanText(rawMatch.club || rawMatch.padelClub || rawMatch["Padel Club"], "Padel Club", 120),
+    date,
+    teammate: cleanText(rawMatch.teammate || rawMatch.teamate || rawMatch.Teamate || rawMatch.Teammate, "Teammate", 120),
+    opponents: cleanText(rawMatch.opponents || rawMatch.Opponents, "Opponents", 200),
+    result,
+    sets: cleanText(rawMatch.sets || rawMatch.Sets, "-", 120),
+    createdAt: cleanText(rawMatch.createdAt, new Date().toISOString(), 40),
+  };
+}
+
+function sortPadelogMatches(matches) {
+  return [...matches].sort((left, right) => {
+    const dateOrder = right.date.localeCompare(left.date);
+    if (dateOrder) {
+      return dateOrder;
+    }
+
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+  });
+}
+
+async function loadPadelogMatches() {
+  try {
+    const contents = await fs.readFile(PADELOG_MATCHES_PATH, "utf8");
+    const parsed = JSON.parse(contents);
+    const matches = Array.isArray(parsed?.matches) ? parsed.matches : Array.isArray(parsed) ? parsed : [];
+    return sortPadelogMatches(matches.map(normalizePadelogMatch));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function savePadelogMatches(matches) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    PADELOG_MATCHES_PATH,
+    `${JSON.stringify({ matches: sortPadelogMatches(matches) }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function addPadelogMatches(payload) {
+  const incoming = Array.isArray(payload?.matches) ? payload.matches : [payload?.match || payload];
+  if (!incoming.length) {
+    throw new Error("Add at least one match");
+  }
+
+  const existingMatches = await loadPadelogMatches();
+  const normalizedMatches = incoming.map(normalizePadelogMatch);
+  const matches = sortPadelogMatches([...normalizedMatches, ...existingMatches]);
+  await savePadelogMatches(matches);
+
+  return {
+    imported: normalizedMatches.length,
+    matches,
+  };
+}
+
+async function deletePadelogMatch(matchId) {
+  const id = String(matchId || "").trim();
+  if (!id) {
+    throw new Error("Choose a match to delete");
+  }
+
+  const matches = await loadPadelogMatches();
+  const nextMatches = matches.filter((match) => match.id !== id);
+  if (nextMatches.length === matches.length) {
+    throw new Error("Match not found");
+  }
+
+  await savePadelogMatches(nextMatches);
+  return { matches: nextMatches };
 }
 
 function normalizeStringList(items, fallback) {
@@ -1800,6 +1898,38 @@ async function handleRequest(request, response) {
 
     const files = await listIframeSourceFiles();
     sendJson(response, 200, { files });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/padelog/matches") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, { matches: await loadPadelogMatches() });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/padelog/matches") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const payload = await readJson(request);
+    sendJson(response, 200, await addPadelogMatches(payload));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/padelog/delete") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    const payload = await readJson(request);
+    sendJson(response, 200, await deletePadelogMatch(payload.id));
     return;
   }
 

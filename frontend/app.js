@@ -6,7 +6,9 @@ let suiteSourceFiles = [];
 let demoContentJsonDirty = false;
 let demoSizingJsonDirty = false;
 let demoGlossaryJsonDirty = false;
+let padelogMatches = [];
 const TOOL_RENDERERS = {
+  padelog: renderPadelogTool,
   "demo-builder": renderDemoBuilderTool,
   "presentation-suite": renderPresentationSuiteTool,
   "html-base64": renderHtmlBase64Tool,
@@ -442,6 +444,466 @@ function showAdminError(message) {
   if (!error) return;
   error.textContent = message;
   error.classList.add("is-visible");
+}
+
+async function renderPadelogTool() {
+  padelogMatches = [];
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>Padelog</h1>
+          <p>Store padel match results and track performance across month-to-date, year-to-date, or custom periods.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <section class="tool-panel padelog-stats-panel">
+        <div class="padelog-stats-head">
+          <div class="panel-title">
+            <h2>Statistics</h2>
+            <p id="padelog-stats-caption">No matches saved yet.</p>
+          </div>
+          <div class="padelog-range-controls" aria-label="Statistics range">
+            <button class="button button-secondary is-active" data-padelog-range="month" type="button">Month to date</button>
+            <button class="button button-secondary" data-padelog-range="year" type="button">Year to date</button>
+            <button class="button button-secondary" data-padelog-range="custom" type="button">Custom</button>
+          </div>
+        </div>
+        <div class="padelog-custom-range" id="padelog-custom-range" hidden>
+          <div class="field">
+            <label for="padelog-from">From</label>
+            <input id="padelog-from" type="date" />
+          </div>
+          <div class="field">
+            <label for="padelog-to">To</label>
+            <input id="padelog-to" type="date" />
+          </div>
+        </div>
+        <div class="padelog-metrics" id="padelog-metrics"></div>
+      </section>
+
+      <section class="padelog-layout">
+        <form class="tool-panel" id="padelog-match-form">
+          <div class="panel-title">
+            <h2>Manual entry</h2>
+            <p>Add one match at a time.</p>
+          </div>
+          <div class="form-grid padelog-form-grid">
+            <div class="field">
+              <label for="padelog-club">Padel Club</label>
+              <input id="padelog-club" name="club" required />
+            </div>
+            <div class="field">
+              <label for="padelog-date">Date</label>
+              <input id="padelog-date" name="date" type="date" required />
+            </div>
+          </div>
+          <div class="form-grid padelog-form-grid">
+            <div class="field">
+              <label for="padelog-teammate">Teammate</label>
+              <input id="padelog-teammate" name="teammate" required />
+            </div>
+            <div class="field">
+              <label for="padelog-result">Result</label>
+              <select id="padelog-result" name="result" required>
+                <option value="Won">Won</option>
+                <option value="Lost">Lost</option>
+                <option value="Draw">Draw</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="padelog-opponents">Opponents</label>
+            <input id="padelog-opponents" name="opponents" placeholder="Player A / Player B" required />
+          </div>
+          <div class="field">
+            <label for="padelog-sets">Sets</label>
+            <input id="padelog-sets" name="sets" placeholder="6-4 3-6 10-8" required />
+          </div>
+          <p class="success" id="padelog-manual-success"></p>
+          <p class="error" id="padelog-manual-error"></p>
+          <button class="button button-primary" type="submit">Save match</button>
+        </form>
+
+        <section class="tool-panel">
+          <div class="panel-title">
+            <h2>CSV import</h2>
+            <p>Columns: Padel Club, Date, Teamate, Opponents, Result, Sets.</p>
+          </div>
+          <div class="field">
+            <label for="padelog-csv">CSV file</label>
+            <input id="padelog-csv" type="file" accept=".csv,text/csv" />
+          </div>
+          <div class="padelog-import-actions">
+            <button class="button button-secondary" id="padelog-download-template" type="button">Download template</button>
+            <button class="button button-primary" id="padelog-import" type="button">Import CSV</button>
+          </div>
+          <p class="success" id="padelog-import-success"></p>
+          <p class="error" id="padelog-import-error"></p>
+          <div class="padelog-csv-preview" id="padelog-csv-preview"></div>
+        </section>
+      </section>
+
+      <section class="result-panel">
+        <div class="result-head">
+          <div>
+            <h2>Match history</h2>
+            <p id="padelog-match-count">Loading matches...</p>
+          </div>
+        </div>
+        <div class="padelog-table-wrap">
+          <table class="padelog-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Padel Club</th>
+                <th>Teammate</th>
+                <th>Opponents</th>
+                <th>Result</th>
+                <th>Sets</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="padelog-match-table">
+              <tr><td colspan="7">Loading matches...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  `;
+
+  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#padelog-match-form").addEventListener("submit", handlePadelogManualSubmit);
+  document.querySelector("#padelog-import").addEventListener("click", handlePadelogCsvImport);
+  document.querySelector("#padelog-download-template").addEventListener("click", downloadPadelogCsvTemplate);
+  document.querySelector("#padelog-csv").addEventListener("change", previewPadelogCsvFile);
+  document.querySelector("#padelog-match-table").addEventListener("click", handlePadelogTableClick);
+  document.querySelectorAll("[data-padelog-range]").forEach((button) => {
+    button.addEventListener("click", () => setPadelogRange(button.dataset.padelogRange));
+  });
+  document.querySelector("#padelog-from").addEventListener("input", updatePadelogStats);
+  document.querySelector("#padelog-to").addEventListener("input", updatePadelogStats);
+  document.querySelector("#padelog-date").value = localDateInputValue();
+  setDefaultPadelogCustomRange();
+
+  try {
+    const payload = await request("/tools/padelog/matches");
+    padelogMatches = payload.matches || [];
+    renderPadelogMatches();
+  } catch (error) {
+    showScopedMessage("#padelog-manual-error", `Could not load matches: ${error.message}`);
+  }
+}
+
+async function handlePadelogManualSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const match = {
+    club: String(data.get("club")).trim(),
+    date: String(data.get("date")).trim(),
+    teammate: String(data.get("teammate")).trim(),
+    opponents: String(data.get("opponents")).trim(),
+    result: String(data.get("result")).trim(),
+    sets: String(data.get("sets")).trim(),
+  };
+
+  try {
+    const payload = await request("/tools/padelog/matches", {
+      method: "POST",
+      body: JSON.stringify({ match }),
+    });
+    padelogMatches = payload.matches || [];
+    form.reset();
+    document.querySelector("#padelog-date").value = localDateInputValue();
+    renderPadelogMatches();
+    showScopedMessage("#padelog-manual-success", "Match saved.");
+  } catch (error) {
+    showScopedMessage("#padelog-manual-error", error.message);
+  }
+}
+
+async function handlePadelogCsvImport() {
+  const input = document.querySelector("#padelog-csv");
+  const [file] = input.files || [];
+  if (!file) {
+    showScopedMessage("#padelog-import-error", "Choose a CSV file first.");
+    return;
+  }
+
+  try {
+    const rows = parseCsvRows(await file.text());
+    const matches = rows.map(padelogMatchFromCsvRow);
+    const payload = await request("/tools/padelog/matches", {
+      method: "POST",
+      body: JSON.stringify({ matches }),
+    });
+    padelogMatches = payload.matches || [];
+    renderPadelogMatches();
+    showScopedMessage("#padelog-import-success", `Imported ${payload.imported || matches.length} matches.`);
+  } catch (error) {
+    showScopedMessage("#padelog-import-error", error.message);
+  }
+}
+
+async function previewPadelogCsvFile(event) {
+  const [file] = event.currentTarget.files || [];
+  const preview = document.querySelector("#padelog-csv-preview");
+  preview.innerHTML = "";
+  if (!file) {
+    return;
+  }
+
+  try {
+    const rows = parseCsvRows(await file.text());
+    preview.innerHTML = `<strong>${rows.length} row${rows.length === 1 ? "" : "s"} ready</strong>`;
+  } catch (error) {
+    preview.innerHTML = `<span>${escapeHtml(error.message)}</span>`;
+  }
+}
+
+function padelogMatchFromCsvRow(row) {
+  return {
+    club: row["Padel Club"] || row.club || row.padelClub,
+    date: row.Date || row.date,
+    teammate: row.Teamate || row.Teammate || row.teammate || row.teamate,
+    opponents: row.Opponents || row.opponents,
+    result: row.Result || row.result,
+    sets: row.Sets || row.sets,
+  };
+}
+
+function parseCsvRows(csvText) {
+  const rows = parseCsvText(csvText).filter((row) => row.some((cell) => String(cell).trim()));
+  if (rows.length < 2) {
+    throw new Error("CSV needs a header row and at least one match.");
+  }
+
+  const headers = rows[0].map((header) => String(header).trim());
+  const requiredHeaders = ["Padel Club", "Date", "Opponents", "Result", "Sets"];
+  const hasTeammateHeader = headers.some((header) => ["Teamate", "Teammate"].includes(header));
+  const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
+  if (!hasTeammateHeader) {
+    missingHeaders.push("Teamate");
+  }
+  if (missingHeaders.length) {
+    throw new Error(`CSV is missing: ${missingHeaders.join(", ")}`);
+  }
+
+  return rows.slice(1).map((cells) =>
+    Object.fromEntries(headers.map((header, index) => [header, String(cells[index] || "").trim()])),
+  );
+}
+
+function parseCsvText(text) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const nextCharacter = text[index + 1];
+    if (character === '"' && inQuotes && nextCharacter === '"') {
+      value += '"';
+      index += 1;
+    } else if (character === '"') {
+      inQuotes = !inQuotes;
+    } else if (character === "," && !inQuotes) {
+      row.push(value);
+      value = "";
+    } else if ((character === "\n" || character === "\r") && !inQuotes) {
+      if (character === "\r" && nextCharacter === "\n") {
+        index += 1;
+      }
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+    } else {
+      value += character;
+    }
+  }
+
+  row.push(value);
+  rows.push(row);
+  return rows;
+}
+
+function downloadPadelogCsvTemplate() {
+  const csv = "Padel Club,Date,Teamate,Opponents,Result,Sets\nExample Club,2026-05-15,Partner Name,\"Opponent A / Opponent B\",Won,6-4 6-3\n";
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "padelog-template.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function handlePadelogTableClick(event) {
+  const button = event.target.closest("[data-delete-padelog-match]");
+  if (!button) {
+    return;
+  }
+
+  try {
+    const payload = await request("/tools/padelog/delete", {
+      method: "POST",
+      body: JSON.stringify({ id: button.dataset.deletePadelogMatch }),
+    });
+    padelogMatches = payload.matches || [];
+    renderPadelogMatches();
+  } catch (error) {
+    showScopedMessage("#padelog-manual-error", error.message);
+  }
+}
+
+function renderPadelogMatches() {
+  const table = document.querySelector("#padelog-match-table");
+  const count = document.querySelector("#padelog-match-count");
+  if (!table || !count) {
+    return;
+  }
+
+  count.textContent = `${padelogMatches.length} saved match${padelogMatches.length === 1 ? "" : "es"}.`;
+  if (!padelogMatches.length) {
+    table.innerHTML = '<tr><td colspan="7">No matches yet.</td></tr>';
+    updatePadelogStats();
+    return;
+  }
+
+  table.innerHTML = padelogMatches
+    .map(
+      (match) => `
+        <tr>
+          <td>${escapeHtml(formatDisplayDate(match.date))}</td>
+          <td>${escapeHtml(match.club)}</td>
+          <td>${escapeHtml(match.teammate)}</td>
+          <td>${escapeHtml(match.opponents)}</td>
+          <td><span class="padelog-result ${escapeAttribute(match.result.toLowerCase())}">${escapeHtml(match.result)}</span></td>
+          <td>${escapeHtml(match.sets)}</td>
+          <td><button class="button button-secondary padelog-delete" data-delete-padelog-match="${escapeAttribute(match.id)}" type="button">Delete</button></td>
+        </tr>
+      `,
+    )
+    .join("");
+  updatePadelogStats();
+}
+
+function setPadelogRange(range) {
+  document.querySelectorAll("[data-padelog-range]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.padelogRange === range);
+  });
+  document.querySelector("#padelog-custom-range").hidden = range !== "custom";
+  updatePadelogStats();
+}
+
+function setDefaultPadelogCustomRange() {
+  const today = new Date();
+  document.querySelector("#padelog-from").value = `${today.getFullYear()}-01-01`;
+  document.querySelector("#padelog-to").value = localDateInputValue(today);
+}
+
+function updatePadelogStats() {
+  const metrics = document.querySelector("#padelog-metrics");
+  const caption = document.querySelector("#padelog-stats-caption");
+  if (!metrics || !caption) {
+    return;
+  }
+
+  const { from, to, label } = activePadelogRange();
+  const scopedMatches = padelogMatches.filter((match) => match.date >= from && match.date <= to);
+  const stats = summarizePadelogMatches(scopedMatches);
+  caption.textContent = `${label}: ${scopedMatches.length} match${scopedMatches.length === 1 ? "" : "es"}.`;
+  metrics.innerHTML = [
+    ["Matches", stats.matches],
+    ["Wins", stats.wins],
+    ["Losses", stats.losses],
+    ["Draws", stats.draws],
+    ["Win rate", `${stats.winRate}%`],
+    ["Unique clubs", stats.clubs],
+    ["Teammates", stats.teammates],
+    ["Sets logged", stats.setsLogged],
+  ]
+    .map(([labelText, value]) => `<article class="padelog-metric"><span>${escapeHtml(labelText)}</span><strong>${escapeHtml(value)}</strong></article>`)
+    .join("");
+}
+
+function activePadelogRange() {
+  const activeButton = document.querySelector("[data-padelog-range].is-active");
+  const range = activeButton?.dataset.padelogRange || "month";
+  const today = new Date();
+  const todayText = localDateInputValue(today);
+
+  if (range === "year") {
+    return { from: `${today.getFullYear()}-01-01`, to: todayText, label: "Year to date" };
+  }
+  if (range === "custom") {
+    return {
+      from: document.querySelector("#padelog-from").value || "0000-01-01",
+      to: document.querySelector("#padelog-to").value || "9999-12-31",
+      label: "Custom range",
+    };
+  }
+
+  return {
+    from: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`,
+    to: todayText,
+    label: "Month to date",
+  };
+}
+
+function summarizePadelogMatches(matches) {
+  const wins = matches.filter((match) => match.result === "Won").length;
+  const losses = matches.filter((match) => match.result === "Lost").length;
+  const draws = matches.filter((match) => match.result === "Draw").length;
+  return {
+    matches: matches.length,
+    wins,
+    losses,
+    draws,
+    winRate: matches.length ? Math.round((wins / matches.length) * 100) : 0,
+    clubs: new Set(matches.map((match) => match.club)).size,
+    teammates: new Set(matches.map((match) => match.teammate)).size,
+    setsLogged: matches.filter((match) => match.sets && match.sets !== "-").length,
+  };
+}
+
+function formatDisplayDate(dateText) {
+  if (!dateText) {
+    return "";
+  }
+
+  const [year, month, day] = dateText.split("-");
+  return `${day}/${month}/${year}`;
+}
+
+function localDateInputValue(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function showScopedMessage(selector, message) {
+  const element = document.querySelector(selector);
+  if (!element) {
+    return;
+  }
+
+  element.textContent = message;
+  element.classList.add("is-visible");
+  window.setTimeout(() => {
+    element.classList.remove("is-visible");
+  }, 2600);
 }
 
 function renderHtmlBase64Tool() {

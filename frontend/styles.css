@@ -604,6 +604,162 @@ button {
   color: var(--muted);
 }
 
+.panel-title h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.panel-title p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.padelog-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  gap: 18px;
+}
+
+.padelog-form-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+}
+
+.padelog-import-actions,
+.padelog-range-controls,
+.padelog-custom-range,
+.padelog-stats-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.padelog-stats-head {
+  justify-content: space-between;
+}
+
+.padelog-range-controls .button.is-active {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
+}
+
+.padelog-custom-range {
+  align-items: end;
+  padding-top: 2px;
+}
+
+.padelog-custom-range[hidden] {
+  display: none;
+}
+
+.padelog-custom-range .field {
+  min-width: 180px;
+}
+
+.padelog-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.padelog-metric {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px;
+  background: #f8fbff;
+}
+
+.padelog-metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.padelog-metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.padelog-csv-preview {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.padelog-csv-preview strong {
+  color: #006f49;
+}
+
+.padelog-csv-preview span {
+  color: var(--danger);
+}
+
+.padelog-table-wrap {
+  overflow-x: auto;
+}
+
+.padelog-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.padelog-table th,
+.padelog-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 9px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.padelog-table th {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.padelog-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+.padelog-result {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.padelog-result.won {
+  background: #eefbf5;
+  color: #006f49;
+}
+
+.padelog-result.lost {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.padelog-result.draw {
+  background: #fff7e6;
+  color: #8a5d00;
+}
+
+.padelog-delete {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
 textarea {
   width: 100%;
   min-height: 140px;
@@ -635,6 +791,9 @@ iframe {
   .form-grid,
   .color-grid,
   .label-row,
+  .padelog-layout,
+  .padelog-form-grid,
+  .padelog-metrics,
   .result-head {
     align-items: stretch;
     grid-template-columns: 1fr;
