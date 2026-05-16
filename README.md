@@ -32,7 +32,7 @@ The backend exposes the tool catalog at `GET /api/tools`. Tool group, visibility
 
 ### Padelog
 
-Track padel match performance from the Personal tools group. Each match stores Padel Club, Date, Teammate, Opponents, Result (`Won`, `Lost`, or `Draw`), and Sets. Matches can be added manually one at a time or imported in batches from CSV using the columns `Padel Club`, `Date`, `Teamate`, `Opponents`, `Result`, and `Sets`. The UI shows month-to-date, year-to-date, and custom date-range statistics above the manual and CSV entry panels.
+Track padel match performance from the Personal tools group. Each match stores Padel Club, Date, Teammate, Opponents, Result (`Won`, `Lost`, or `Draw`), and Sets as a set score such as `1-0`, `2-1`, `1-1`, or `2-2`. Matches can be added manually one at a time or imported in batches from CSV using the columns `Padel Club`, `Date`, `Teamate`, `Opponents`, `Result`, and `Sets`. CSV dates can use `YYYY-MM-DD` or day/month formats such as `8/1/26`. The UI shows month-to-date, year-to-date, and custom date-range statistics above the manual and CSV entry panels, plus editable, paginated match history grouped by month, club, or no grouping.
 
 Padelog match data is persisted locally in `data/padelog-matches.json` when the first match is saved.
 

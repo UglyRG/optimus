@@ -700,13 +700,30 @@ button {
   color: var(--danger);
 }
 
+.padelog-history-controls,
+.padelog-pagination {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.padelog-history-controls .field {
+  min-width: 130px;
+}
+
+.padelog-history-controls select {
+  min-height: 42px;
+}
+
 .padelog-table-wrap {
   overflow-x: auto;
 }
 
 .padelog-table {
   width: 100%;
-  min-width: 820px;
+  min-width: 980px;
   border-collapse: collapse;
   font-size: 0.9rem;
 }
@@ -728,6 +745,18 @@ button {
 
 .padelog-table tbody tr:hover {
   background: #f8fbff;
+}
+
+.padelog-group-row td {
+  background: #eef4ff;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.padelog-table tbody .padelog-group-row:hover {
+  background: transparent;
 }
 
 .padelog-result {
@@ -755,9 +784,60 @@ button {
   color: #8a5d00;
 }
 
-.padelog-delete {
+.padelog-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.padelog-edit,
+.padelog-delete,
+.padelog-save,
+.padelog-cancel {
   min-height: 34px;
   padding: 6px 10px;
+}
+
+.padelog-edit-row input,
+.padelog-edit-row select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+}
+
+.padelog-edit-row input:focus,
+.padelog-edit-row select:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.padelog-pagination {
+  margin-top: 14px;
+}
+
+.padelog-pagination .button {
+  min-height: 36px;
+  padding: 7px 12px;
+}
+
+.padelog-pagination .button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.padelog-page-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 800;
 }
 
 textarea {
@@ -802,6 +882,8 @@ iframe {
   .topbar,
   .page-head,
   .admin-section-head,
+  .padelog-history-controls,
+  .padelog-pagination,
   .result-head {
     flex-direction: column;
   }
@@ -809,6 +891,8 @@ iframe {
   .topbar .button,
   .page-head .button,
   .admin-section-head .button,
+  .padelog-history-controls .field,
+  .padelog-pagination .button,
   .tool-panel .button,
   .result-head .button {
     width: 100%;

@@ -709,10 +709,7 @@ function cleanOptionalNumber(value) {
 }
 
 function normalizePadelogMatch(rawMatch = {}) {
-  const date = String(rawMatch.date || rawMatch.Date || "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
-    throw new Error("Match date must use YYYY-MM-DD");
-  }
+  const date = cleanPadelogDate(rawMatch.date || rawMatch.Date);
 
   const resultInput = cleanText(rawMatch.result || rawMatch.Result, "", 12).toLowerCase();
   const result = resultInput ? resultInput.charAt(0).toUpperCase() + resultInput.slice(1) : "";
@@ -727,9 +724,55 @@ function normalizePadelogMatch(rawMatch = {}) {
     teammate: cleanText(rawMatch.teammate || rawMatch.teamate || rawMatch.Teamate || rawMatch.Teammate, "Teammate", 120),
     opponents: cleanText(rawMatch.opponents || rawMatch.Opponents, "Opponents", 200),
     result,
-    sets: cleanText(rawMatch.sets || rawMatch.Sets, "-", 120),
+    sets: cleanPadelogSetScore(rawMatch.sets || rawMatch.Sets),
     createdAt: cleanText(rawMatch.createdAt, new Date().toISOString(), 40),
   };
+}
+
+function cleanPadelogDate(value) {
+  const date = String(value || "").trim();
+  const isoMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return validPadelogDateParts(isoMatch[1], isoMatch[2], isoMatch[3]);
+  }
+
+  const slashMatch = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (slashMatch) {
+    const [, day, month, rawYear] = slashMatch;
+    const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+    return validPadelogDateParts(year, month, day);
+  }
+
+  throw new Error("Match date must use YYYY-MM-DD or D/M/YY");
+}
+
+function validPadelogDateParts(year, month, day) {
+  const normalizedDate = [
+    String(year).padStart(4, "0"),
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0"),
+  ].join("-");
+  const parsedDate = new Date(`${normalizedDate}T00:00:00Z`);
+
+  if (
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.getUTCFullYear() !== Number(year) ||
+    parsedDate.getUTCMonth() + 1 !== Number(month) ||
+    parsedDate.getUTCDate() !== Number(day)
+  ) {
+    throw new Error("Match date is not a valid calendar date");
+  }
+
+  return normalizedDate;
+}
+
+function cleanPadelogSetScore(value) {
+  const score = String(value || "").trim().replace(/\s+/g, "");
+  if (!/^\d+-\d+$/.test(score)) {
+    throw new Error("Sets must be a set score such as 1-0, 2-1, 1-1, or 2-2");
+  }
+
+  return score.slice(0, 12);
 }
 
 function sortPadelogMatches(matches) {
@@ -781,6 +824,31 @@ async function addPadelogMatches(payload) {
     imported: normalizedMatches.length,
     matches,
   };
+}
+
+async function updatePadelogMatch(payload = {}) {
+  const id = String(payload.id || payload.match?.id || "").trim();
+  if (!id) {
+    throw new Error("Choose a match to edit");
+  }
+
+  const matches = await loadPadelogMatches();
+  const matchIndex = matches.findIndex((match) => match.id === id);
+  if (matchIndex === -1) {
+    throw new Error("Match not found");
+  }
+
+  const updatedMatch = normalizePadelogMatch({
+    ...matches[matchIndex],
+    ...(payload.match || payload),
+    id,
+    createdAt: matches[matchIndex].createdAt,
+  });
+  matches[matchIndex] = updatedMatch;
+  const sortedMatches = sortPadelogMatches(matches);
+  await savePadelogMatches(sortedMatches);
+
+  return { matches: sortedMatches };
 }
 
 async function deletePadelogMatch(matchId) {
@@ -1917,8 +1985,12 @@ async function handleRequest(request, response) {
       return;
     }
 
-    const payload = await readJson(request);
-    sendJson(response, 200, await addPadelogMatches(payload));
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await addPadelogMatches(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not save Padelog matches" });
+    }
     return;
   }
 
@@ -1928,8 +2000,27 @@ async function handleRequest(request, response) {
       return;
     }
 
-    const payload = await readJson(request);
-    sendJson(response, 200, await deletePadelogMatch(payload.id));
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await deletePadelogMatch(payload.id));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not delete Padelog match" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/padelog/update") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await updatePadelogMatch(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not update Padelog match" });
+    }
     return;
   }
 

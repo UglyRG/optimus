@@ -7,6 +7,8 @@ let demoContentJsonDirty = false;
 let demoSizingJsonDirty = false;
 let demoGlossaryJsonDirty = false;
 let padelogMatches = [];
+let padelogHistoryPage = 1;
+let editingPadelogMatchId = "";
 const TOOL_RENDERERS = {
   padelog: renderPadelogTool,
   "demo-builder": renderDemoBuilderTool,
@@ -521,7 +523,7 @@ async function renderPadelogTool() {
           </div>
           <div class="field">
             <label for="padelog-sets">Sets</label>
-            <input id="padelog-sets" name="sets" placeholder="6-4 3-6 10-8" required />
+            <input id="padelog-sets" name="sets" pattern="\\d+-\\d+" placeholder="2-1" title="Use set score format, for example 1-0, 2-1, 1-1, or 2-2" required />
           </div>
           <p class="success" id="padelog-manual-success"></p>
           <p class="error" id="padelog-manual-error"></p>
@@ -553,6 +555,25 @@ async function renderPadelogTool() {
             <h2>Match history</h2>
             <p id="padelog-match-count">Loading matches...</p>
           </div>
+          <div class="padelog-history-controls">
+            <div class="field">
+              <label for="padelog-history-group">Group by</label>
+              <select id="padelog-history-group">
+                <option value="month" selected>Month</option>
+                <option value="club">Padel Club</option>
+                <option value="none">None</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="padelog-page-size">Rows</label>
+              <select id="padelog-page-size">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="all">All</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div class="padelog-table-wrap">
           <table class="padelog-table">
@@ -572,6 +593,8 @@ async function renderPadelogTool() {
             </tbody>
           </table>
         </div>
+        <div class="padelog-pagination" id="padelog-pagination"></div>
+        <p class="error" id="padelog-history-error"></p>
       </section>
     </section>
   `;
@@ -585,6 +608,15 @@ async function renderPadelogTool() {
   document.querySelector("#padelog-download-template").addEventListener("click", downloadPadelogCsvTemplate);
   document.querySelector("#padelog-csv").addEventListener("change", previewPadelogCsvFile);
   document.querySelector("#padelog-match-table").addEventListener("click", handlePadelogTableClick);
+  document.querySelector("#padelog-history-group").addEventListener("change", () => {
+    padelogHistoryPage = 1;
+    renderPadelogMatches();
+  });
+  document.querySelector("#padelog-page-size").addEventListener("change", () => {
+    padelogHistoryPage = 1;
+    renderPadelogMatches();
+  });
+  document.querySelector("#padelog-pagination").addEventListener("click", handlePadelogPaginationClick);
   document.querySelectorAll("[data-padelog-range]").forEach((button) => {
     button.addEventListener("click", () => setPadelogRange(button.dataset.padelogRange));
   });
@@ -621,6 +653,7 @@ async function handlePadelogManualSubmit(event) {
       body: JSON.stringify({ match }),
     });
     padelogMatches = payload.matches || [];
+    padelogHistoryPage = 1;
     form.reset();
     document.querySelector("#padelog-date").value = localDateInputValue();
     renderPadelogMatches();
@@ -646,6 +679,7 @@ async function handlePadelogCsvImport() {
       body: JSON.stringify({ matches }),
     });
     padelogMatches = payload.matches || [];
+    padelogHistoryPage = 1;
     renderPadelogMatches();
     showScopedMessage("#padelog-import-success", `Imported ${payload.imported || matches.length} matches.`);
   } catch (error) {
@@ -738,7 +772,7 @@ function parseCsvText(text) {
 }
 
 function downloadPadelogCsvTemplate() {
-  const csv = "Padel Club,Date,Teamate,Opponents,Result,Sets\nExample Club,2026-05-15,Partner Name,\"Opponent A / Opponent B\",Won,6-4 6-3\n";
+  const csv = "Padel Club,Date,Teamate,Opponents,Result,Sets\nExample Club,2026-05-15,Partner Name,\"Opponent A / Opponent B\",Won,2-1\n";
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   const link = document.createElement("a");
   link.href = url;
@@ -748,53 +782,218 @@ function downloadPadelogCsvTemplate() {
 }
 
 async function handlePadelogTableClick(event) {
-  const button = event.target.closest("[data-delete-padelog-match]");
-  if (!button) {
+  const editButton = event.target.closest("[data-edit-padelog-match]");
+  if (editButton) {
+    editingPadelogMatchId = editButton.dataset.editPadelogMatch;
+    renderPadelogMatches();
+    return;
+  }
+
+  const cancelButton = event.target.closest("[data-cancel-padelog-edit]");
+  if (cancelButton) {
+    editingPadelogMatchId = "";
+    renderPadelogMatches();
+    return;
+  }
+
+  const saveButton = event.target.closest("[data-save-padelog-match]");
+  if (saveButton) {
+    await savePadelogMatchEdit(saveButton.dataset.savePadelogMatch);
+    return;
+  }
+
+  const deleteButton = event.target.closest("[data-delete-padelog-match]");
+  if (!deleteButton) {
     return;
   }
 
   try {
     const payload = await request("/tools/padelog/delete", {
       method: "POST",
-      body: JSON.stringify({ id: button.dataset.deletePadelogMatch }),
+      body: JSON.stringify({ id: deleteButton.dataset.deletePadelogMatch }),
     });
     padelogMatches = payload.matches || [];
+    if (editingPadelogMatchId === deleteButton.dataset.deletePadelogMatch) {
+      editingPadelogMatchId = "";
+    }
     renderPadelogMatches();
   } catch (error) {
-    showScopedMessage("#padelog-manual-error", error.message);
+    showScopedMessage("#padelog-history-error", error.message);
   }
+}
+
+async function savePadelogMatchEdit(matchId) {
+  const row = document.querySelector(`[data-padelog-edit-row="${CSS.escape(matchId)}"]`);
+  if (!row) {
+    return;
+  }
+
+  const match = {
+    club: row.querySelector('[name="editClub"]').value.trim(),
+    date: row.querySelector('[name="editDate"]').value.trim(),
+    teammate: row.querySelector('[name="editTeammate"]').value.trim(),
+    opponents: row.querySelector('[name="editOpponents"]').value.trim(),
+    result: row.querySelector('[name="editResult"]').value.trim(),
+    sets: row.querySelector('[name="editSets"]').value.trim(),
+  };
+
+  try {
+    const payload = await request("/tools/padelog/update", {
+      method: "POST",
+      body: JSON.stringify({ id: matchId, match }),
+    });
+    padelogMatches = payload.matches || [];
+    editingPadelogMatchId = "";
+    renderPadelogMatches();
+  } catch (error) {
+    showScopedMessage("#padelog-history-error", error.message);
+  }
+}
+
+function handlePadelogPaginationClick(event) {
+  const button = event.target.closest("[data-padelog-page]");
+  if (!button) {
+    return;
+  }
+
+  padelogHistoryPage = Number(button.dataset.padelogPage) || 1;
+  renderPadelogMatches();
 }
 
 function renderPadelogMatches() {
   const table = document.querySelector("#padelog-match-table");
   const count = document.querySelector("#padelog-match-count");
-  if (!table || !count) {
+  const pagination = document.querySelector("#padelog-pagination");
+  if (!table || !count || !pagination) {
     return;
   }
 
   count.textContent = `${padelogMatches.length} saved match${padelogMatches.length === 1 ? "" : "es"}.`;
   if (!padelogMatches.length) {
     table.innerHTML = '<tr><td colspan="7">No matches yet.</td></tr>';
+    pagination.innerHTML = "";
     updatePadelogStats();
     return;
   }
 
-  table.innerHTML = padelogMatches
+  const displayMatches = padelogHistoryMatchesForDisplay();
+  const pageSize = padelogHistoryPageSize();
+  const totalPages = pageSize === Infinity ? 1 : Math.max(1, Math.ceil(displayMatches.length / pageSize));
+  padelogHistoryPage = Math.min(Math.max(1, padelogHistoryPage), totalPages);
+  const startIndex = pageSize === Infinity ? 0 : (padelogHistoryPage - 1) * pageSize;
+  const pageMatches = pageSize === Infinity ? displayMatches : displayMatches.slice(startIndex, startIndex + pageSize);
+  const endIndex = startIndex + pageMatches.length;
+
+  count.textContent = `${padelogMatches.length} saved match${padelogMatches.length === 1 ? "" : "es"} · showing ${startIndex + 1}-${endIndex}.`;
+  table.innerHTML = renderPadelogGroupedRows(pageMatches);
+  pagination.innerHTML = renderPadelogPagination(totalPages);
+  updatePadelogStats();
+}
+
+function padelogHistoryMatchesForDisplay() {
+  const groupBy = document.querySelector("#padelog-history-group")?.value || "month";
+  if (groupBy !== "club") {
+    return padelogMatches;
+  }
+
+  return [...padelogMatches].sort(
+    (left, right) =>
+      String(left.club || "").localeCompare(String(right.club || "")) ||
+      right.date.localeCompare(left.date),
+  );
+}
+
+function renderPadelogGroupedRows(matches) {
+  const groupBy = document.querySelector("#padelog-history-group")?.value || "month";
+  let activeGroup = "";
+
+  return matches
     .map(
-      (match) => `
-        <tr>
-          <td>${escapeHtml(formatDisplayDate(match.date))}</td>
-          <td>${escapeHtml(match.club)}</td>
-          <td>${escapeHtml(match.teammate)}</td>
-          <td>${escapeHtml(match.opponents)}</td>
-          <td><span class="padelog-result ${escapeAttribute(match.result.toLowerCase())}">${escapeHtml(match.result)}</span></td>
-          <td>${escapeHtml(match.sets)}</td>
-          <td><button class="button button-secondary padelog-delete" data-delete-padelog-match="${escapeAttribute(match.id)}" type="button">Delete</button></td>
-        </tr>
-      `,
+      (match) => {
+        const group = padelogHistoryGroupLabel(match, groupBy);
+        const groupRow = group && group !== activeGroup
+          ? `<tr class="padelog-group-row"><td colspan="7">${escapeHtml(group)}</td></tr>`
+          : "";
+        activeGroup = group || activeGroup;
+        return `
+        ${groupRow}
+        ${editingPadelogMatchId === match.id ? renderPadelogEditRow(match) : renderPadelogDisplayRow(match)}
+      `;
+      },
     )
     .join("");
-  updatePadelogStats();
+}
+
+function renderPadelogDisplayRow(match) {
+  return `
+    <tr>
+      <td>${escapeHtml(formatDisplayDate(match.date))}</td>
+      <td>${escapeHtml(match.club)}</td>
+      <td>${escapeHtml(match.teammate)}</td>
+      <td>${escapeHtml(match.opponents)}</td>
+      <td><span class="padelog-result ${escapeAttribute(match.result.toLowerCase())}">${escapeHtml(match.result)}</span></td>
+      <td>${escapeHtml(match.sets)}</td>
+      <td>
+        <div class="padelog-row-actions">
+          <button class="button button-secondary padelog-edit" data-edit-padelog-match="${escapeAttribute(match.id)}" type="button">Edit</button>
+          <button class="button button-secondary padelog-delete" data-delete-padelog-match="${escapeAttribute(match.id)}" type="button">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderPadelogEditRow(match) {
+  return `
+    <tr class="padelog-edit-row" data-padelog-edit-row="${escapeAttribute(match.id)}">
+      <td><input name="editDate" type="date" value="${escapeAttribute(match.date)}" aria-label="Edit date" /></td>
+      <td><input name="editClub" value="${escapeAttribute(match.club)}" aria-label="Edit padel club" /></td>
+      <td><input name="editTeammate" value="${escapeAttribute(match.teammate)}" aria-label="Edit teammate" /></td>
+      <td><input name="editOpponents" value="${escapeAttribute(match.opponents)}" aria-label="Edit opponents" /></td>
+      <td>
+        <select name="editResult" aria-label="Edit result">
+          ${["Won", "Lost", "Draw"].map((result) => `<option value="${result}"${match.result === result ? " selected" : ""}>${result}</option>`).join("")}
+        </select>
+      </td>
+      <td><input name="editSets" pattern="\\d+-\\d+" value="${escapeAttribute(match.sets)}" aria-label="Edit sets" title="Use set score format, for example 1-0, 2-1, 1-1, or 2-2" /></td>
+      <td>
+        <div class="padelog-row-actions">
+          <button class="button button-primary padelog-save" data-save-padelog-match="${escapeAttribute(match.id)}" type="button">Save</button>
+          <button class="button button-secondary padelog-cancel" data-cancel-padelog-edit="${escapeAttribute(match.id)}" type="button">Cancel</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function padelogHistoryGroupLabel(match, groupBy) {
+  if (groupBy === "none") {
+    return "";
+  }
+  if (groupBy === "club") {
+    return match.club || "Unknown club";
+  }
+
+  return formatPadelogMonth(match.date);
+}
+
+function padelogHistoryPageSize() {
+  const value = document.querySelector("#padelog-page-size")?.value || "25";
+  return value === "all" ? Infinity : Math.max(1, Number(value) || 25);
+}
+
+function renderPadelogPagination(totalPages) {
+  if (totalPages <= 1) {
+    return '<span class="padelog-page-summary">All rows shown</span>';
+  }
+
+  const previousPage = Math.max(1, padelogHistoryPage - 1);
+  const nextPage = Math.min(totalPages, padelogHistoryPage + 1);
+  return `
+    <button class="button button-secondary" data-padelog-page="${previousPage}" type="button"${padelogHistoryPage === 1 ? " disabled" : ""}>Previous</button>
+    <span class="padelog-page-summary">Page ${padelogHistoryPage} of ${totalPages}</span>
+    <button class="button button-secondary" data-padelog-page="${nextPage}" type="button"${padelogHistoryPage === totalPages ? " disabled" : ""}>Next</button>
+  `;
 }
 
 function setPadelogRange(range) {
@@ -830,7 +1029,7 @@ function updatePadelogStats() {
     ["Win rate", `${stats.winRate}%`],
     ["Unique clubs", stats.clubs],
     ["Teammates", stats.teammates],
-    ["Sets logged", stats.setsLogged],
+    ["Set scores", stats.setsLogged],
   ]
     .map(([labelText, value]) => `<article class="padelog-metric"><span>${escapeHtml(labelText)}</span><strong>${escapeHtml(value)}</strong></article>`)
     .join("");
@@ -883,6 +1082,16 @@ function formatDisplayDate(dateText) {
 
   const [year, month, day] = dateText.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function formatPadelogMonth(dateText) {
+  const [year, month] = String(dateText || "").split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown month";
+  }
+
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(date);
 }
 
 function localDateInputValue(date = new Date()) {
