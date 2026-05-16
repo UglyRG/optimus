@@ -331,6 +331,11 @@ button {
   color: var(--accent);
 }
 
+.button:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
 .error {
   display: none;
   border: 1px solid rgba(159, 61, 52, 0.24);
@@ -625,6 +630,32 @@ button {
   grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
 }
 
+.betlog-entry-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.betlog-import-panel,
+.betlog-manual-panel {
+  width: 100%;
+}
+
+.betlog-manual-panel[hidden],
+#betlog-show-manual[hidden] {
+  display: none;
+}
+
+.betlog-import-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.betlog-import-head .button {
+  flex: 0 0 auto;
+}
+
 .padelog-import-actions,
 .padelog-range-controls,
 .padelog-custom-range,
@@ -784,6 +815,187 @@ button {
   color: #8a5d00;
 }
 
+.betlog-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.betlog-table th,
+.betlog-table td {
+  padding: 9px 7px;
+}
+
+.betlog-table th:nth-child(1) {
+  width: 72px;
+}
+
+.betlog-table th:nth-child(2) {
+  width: 170px;
+}
+
+.betlog-table th:nth-child(3) {
+  width: 118px;
+}
+
+.betlog-table th:nth-child(5) {
+  width: 70px;
+}
+
+.betlog-table th:nth-child(6) {
+  width: 74px;
+}
+
+.betlog-table th:nth-child(7) {
+  width: 86px;
+}
+
+.betlog-date-cell strong,
+.betlog-date-cell span,
+.betlog-primary,
+.betlog-muted-line,
+.betlog-money-cell span {
+  display: block;
+}
+
+.betlog-date-cell strong {
+  font-size: 0.95rem;
+}
+
+.betlog-date-cell span,
+.betlog-muted-line {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.betlog-primary {
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.betlog-money-cell {
+  white-space: nowrap;
+}
+
+.betlog-money-cell span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.betlog-money-cell b {
+  color: var(--ink);
+  font-size: 0.7rem;
+}
+
+.betlog-money-cell .is-positive {
+  color: #006f49;
+}
+
+.betlog-money-cell .is-negative {
+  color: var(--danger);
+}
+
+.betlog-status {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.betlog-status.won {
+  background: #eefbf5;
+  color: #006f49;
+}
+
+.betlog-status.lost {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.betlog-status.draw {
+  background: #fff7e6;
+  color: #8a5d00;
+}
+
+.betlog-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+}
+
+.betlog-icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.betlog-time,
+.betlog-free {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.betlog-free {
+  color: #006f49;
+  text-transform: uppercase;
+}
+
+.checkbox-field {
+  justify-content: end;
+}
+
+.checkbox-field input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+}
+
+.betlog-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.betlog-edit-grid .betlog-edit-wide {
+  grid-column: span 2;
+}
+
+.betlog-edit-free {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.betlog-edit-free input {
+  width: auto;
+  min-height: auto;
+}
+
+.betlog-edit-actions {
+  margin-top: 10px;
+}
+
 .padelog-row-actions {
   display: flex;
   align-items: center;
@@ -840,6 +1052,246 @@ button {
   font-weight: 800;
 }
 
+.token-usage-results {
+  display: grid;
+  gap: 14px;
+}
+
+.token-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.token-provider-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.token-provider-card h3,
+.token-range-card h4 {
+  margin: 0;
+}
+
+.token-provider-error {
+  align-content: start;
+  border-color: rgba(159, 61, 52, 0.24);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.token-provider-error p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.token-range-list {
+  display: grid;
+  gap: 12px;
+}
+
+.token-range-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px;
+  background: #fff;
+}
+
+.token-range-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.token-range-head span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.token-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.token-metric {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fbff;
+}
+
+.token-metric span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.token-metric strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 1.04rem;
+  line-height: 1;
+}
+
+.token-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.token-breakdown div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.token-breakdown dt,
+.token-breakdown dd {
+  margin: 0;
+}
+
+.token-breakdown dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.token-breakdown dd {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.token-model-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.token-model-table th,
+.token-model-table td {
+  border-top: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: right;
+}
+
+.token-model-table th:first-child,
+.token-model-table td:first-child {
+  max-width: 180px;
+  text-align: left;
+  word-break: break-word;
+}
+
+.token-model-table th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.info-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  border: 1px solid #b8cae8;
+  border-radius: 999px;
+  margin-left: 5px;
+  padding: 0;
+  background: #fff;
+  color: var(--brand);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: none;
+}
+
+.info-button:hover,
+.info-button:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.info-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(23, 43, 77, 0.34);
+}
+
+.info-modal[hidden] {
+  display: none;
+}
+
+.info-dialog {
+  position: relative;
+  width: min(100%, 420px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.info-dialog h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.info-dialog p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.info-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.info-close:hover,
+.info-close:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
 textarea {
   width: 100%;
   min-height: 140px;
@@ -872,8 +1324,12 @@ iframe {
   .color-grid,
   .label-row,
   .padelog-layout,
+  .betlog-entry-layout,
   .padelog-form-grid,
   .padelog-metrics,
+  .token-usage-grid,
+  .token-metrics,
+  .token-breakdown,
   .result-head {
     align-items: stretch;
     grid-template-columns: 1fr;
@@ -882,8 +1338,10 @@ iframe {
   .topbar,
   .page-head,
   .admin-section-head,
+  .betlog-import-head,
   .padelog-history-controls,
   .padelog-pagination,
+  .token-range-head,
   .result-head {
     flex-direction: column;
   }
@@ -892,9 +1350,59 @@ iframe {
   .page-head .button,
   .admin-section-head .button,
   .padelog-history-controls .field,
+  .checkbox-field,
   .padelog-pagination .button,
   .tool-panel .button,
   .result-head .button {
     width: 100%;
+  }
+
+  .betlog-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .betlog-edit-grid .betlog-edit-wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .betlog-table,
+  .betlog-table thead,
+  .betlog-table tbody,
+  .betlog-table tr,
+  .betlog-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .betlog-table thead {
+    display: none;
+  }
+
+  .betlog-table tbody tr {
+    border-bottom: 1px solid var(--line);
+    padding: 10px 0;
+  }
+
+  .betlog-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .betlog-table td {
+    border-bottom: 0;
+    padding: 5px 0;
+  }
+
+  .betlog-table .padelog-group-row {
+    padding: 0;
+  }
+
+  .betlog-table .padelog-group-row td {
+    padding: 8px 10px;
+  }
+
+  .betlog-table .padelog-row-actions {
+    justify-content: flex-start;
   }
 }

@@ -16,6 +16,9 @@ Create a local `.env` file for private values. It is ignored by Git.
 OPTIMUS_ACCESS_KEY=your-login-password
 ANTHROPIC_API_KEY=your-anthropic-api-key
 OPENAI_API_KEY=your-openai-api-key
+# Admin keys for organization usage reports:
+ANTHROPIC_ADMIN_KEY=your-anthropic-admin-api-key
+OPENAI_ADMIN_KEY=your-openai-admin-api-key
 SPORTMONKS_API_KEY=your-sportmonks-api-key
 ```
 
@@ -36,6 +39,12 @@ Track padel match performance from the Personal tools group. Each match stores P
 
 Padelog match data is persisted locally in `data/padelog-matches.json` when the first match is saved.
 
+### Betlog
+
+Track placed bets from the Personal tools group. Each saved row represents one selection, so combo bets can repeat the same `bet_id`, stake, return, and metadata across multiple rows for analysis. Bets can be added manually one at a time or imported in batches from CSV using the columns `date`, `time`, `bet_id`, `bet_type`, `stake`, `free_bet`, `status`, `return_amount`, `selection`, `odds`, `market`, `match`, `score`, `outcome_type`, and `legs`. The UI shows month-to-date, year-to-date, and custom date-range statistics, with stake and return calculated once per unique bet ID so combo rows do not double-count money.
+
+Betlog data is persisted locally in `data/betlog-bets.json` when the first bet is saved.
+
 ### Demo Builder
 
 Build a branded, configurable agent demo from uploaded or pasted JSON files for content, sizing/prerequisites, and per-scenario glossary terms. The generated demo supports scenario selection, progressive chat playback, document reveal, grouped agent logs, glossary modal, simulation speed controls, pause/resume, and a chat-style interface with avatars. Outputs are saved locally in `Outputs/` as the requested `.html` file.
@@ -47,6 +56,10 @@ Upload an `.html` file from the UI to create an iframe-ready `data:text/html;bas
 ### PDF to iframe Base64
 
 Upload a `.pdf` file from the UI to create an iframe-ready `data:application/pdf;base64,...` string. Outputs are saved locally in `Outputs/` as `base64-pdf-initialfilename.txt`.
+
+### Check My Token Usage
+
+Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom date range. Month-to-date and year-to-date are loaded automatically when the tool opens. The tool reads `OPENAI_ADMIN_KEY` and `ANTHROPIC_ADMIN_KEY` from `.env`; normal model-call keys are not used for usage reports.
 
 ### Presentation Suite Builder
 

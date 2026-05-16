@@ -9,6 +9,11 @@
       "id": "utilities",
       "name": "Personal",
       "displayOrder": 2
+    },
+    {
+      "id": "new-group",
+      "name": "Utilities",
+      "displayOrder": 3
     }
   ],
   "tools": [
@@ -16,6 +21,12 @@
       "id": "padelog",
       "groupId": "utilities",
       "displayOrder": 1,
+      "enabled": true
+    },
+    {
+      "id": "betlog",
+      "groupId": "utilities",
+      "displayOrder": 2,
       "enabled": true
     },
     {
@@ -40,6 +51,12 @@
       "id": "pdf-base64",
       "groupId": "builders",
       "displayOrder": 3,
+      "enabled": true
+    },
+    {
+      "id": "token-usage",
+      "groupId": "new-group",
+      "displayOrder": 1,
       "enabled": true
     }
   ]

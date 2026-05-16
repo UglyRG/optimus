@@ -15,11 +15,17 @@ const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
 const DATA_DIR = path.join(__dirname, "..", "data");
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
 const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
+const BETLOG_BETS_PATH = path.join(DATA_DIR, "betlog-bets.json");
 const HOSTED_TOOLS = [
   {
     id: "padelog",
     title: "Padelog",
     description: "Track padel match results, import CSV batches, and review month, year, or custom-period performance.",
+  },
+  {
+    id: "betlog",
+    title: "Betlog",
+    description: "Log placed bets, import CSV batches, and review stake, returns, profit, and hit-rate performance.",
   },
   {
     id: "demo-builder",
@@ -41,6 +47,11 @@ const HOSTED_TOOLS = [
     title: "PDF to iframe Base64",
     description: "Convert a PDF file into an iframe-ready Base64 data string and save it to Outputs.",
   },
+  {
+    id: "token-usage",
+    title: "Check My Token Usage",
+    description: "Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom range.",
+  },
 ];
 const DEFAULT_TOOL_CATALOG_CONFIG = {
   groups: [
@@ -49,10 +60,12 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
   ],
   tools: [
     { id: "padelog", groupId: "utilities", displayOrder: 1, enabled: true },
+    { id: "betlog", groupId: "utilities", displayOrder: 2, enabled: true },
     { id: "demo-builder", groupId: "builders", displayOrder: 1, enabled: true },
     { id: "presentation-suite", groupId: "builders", displayOrder: 2, enabled: true },
-    { id: "html-base64", groupId: "utilities", displayOrder: 2, enabled: true },
-    { id: "pdf-base64", groupId: "utilities", displayOrder: 3, enabled: true },
+    { id: "html-base64", groupId: "utilities", displayOrder: 3, enabled: true },
+    { id: "pdf-base64", groupId: "utilities", displayOrder: 4, enabled: true },
+    { id: "token-usage", groupId: "utilities", displayOrder: 5, enabled: true },
   ],
 };
 
@@ -708,6 +721,356 @@ function cleanOptionalNumber(value) {
   return Math.round(number);
 }
 
+function tokenUsageRanges({ from, to } = {}) {
+  const now = new Date();
+  const tomorrowStart = localDateStart(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const customRange = customTokenUsageRange(from, to);
+
+  const ranges = [
+    {
+      id: "monthToDate",
+      label: "Month to date",
+      start: localDateStart(now.getFullYear(), now.getMonth(), 1),
+      end: tomorrowStart,
+    },
+    {
+      id: "yearToDate",
+      label: "Year to date",
+      start: localDateStart(now.getFullYear(), 0, 1),
+      end: tomorrowStart,
+    },
+  ];
+
+  if (customRange) {
+    ranges.push(customRange);
+  }
+
+  return ranges.map((range) => ({
+    ...range,
+    startingAt: range.start.toISOString(),
+    endingAt: range.end.toISOString(),
+  }));
+}
+
+function customTokenUsageRange(from, to) {
+  const fromText = String(from || "").trim();
+  const toText = String(to || "").trim();
+  if (!fromText && !toText) {
+    return null;
+  }
+
+  if (!fromText || !toText) {
+    throw new Error("Choose both a start and end date for the custom range");
+  }
+
+  const start = parseDateInput(fromText);
+  const endDate = parseDateInput(toText);
+  const end = localDateStart(endDate.getFullYear(), endDate.getMonth(), endDate.getDate() + 1);
+  if (end <= start) {
+    throw new Error("Custom range end date must be on or after the start date");
+  }
+
+  return {
+    id: "customRange",
+    label: `Custom range (${formatDateInput(start)} to ${formatDateInput(endDate)})`,
+    start,
+    end,
+  };
+}
+
+function parseDateInput(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    throw new Error("Choose a valid date");
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = localDateStart(year, month, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) {
+    throw new Error("Choose a valid date");
+  }
+
+  return date;
+}
+
+function localDateStart(year, month, day) {
+  return new Date(year, month, day, 0, 0, 0, 0);
+}
+
+function formatDateInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+async function checkTokenUsage(payload = {}) {
+  const ranges = tokenUsageRanges(payload);
+  const providerResults = await Promise.all([
+    usageProviderResult("openai", "OpenAI", ranges, getOpenAiUsage),
+    usageProviderResult("anthropic", "Anthropic", ranges, getAnthropicUsage),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    ranges: ranges.map(({ id, label, startingAt, endingAt }) => ({ id, label, startingAt, endingAt })),
+    providers: providerResults,
+  };
+}
+
+async function usageProviderResult(id, name, ranges, loader) {
+  try {
+    return {
+      id,
+      name,
+      ok: true,
+      ranges: await Promise.all(ranges.map((range) => loader(range))),
+    };
+  } catch (error) {
+    return {
+      id,
+      name,
+      ok: false,
+      error: error.message || `Could not load ${name} usage`,
+      ranges: [],
+    };
+  }
+}
+
+async function getOpenAiUsage(range) {
+  const apiKey = openAiAdminKey();
+
+  const buckets = await fetchOpenAiUsageBuckets(range, apiKey);
+  const totals = emptyOpenAiTotals();
+  const byModel = new Map();
+
+  for (const bucket of buckets) {
+    for (const result of bucket.results || []) {
+      addOpenAiUsage(totals, result);
+      const model = result.model || "All models";
+      if (!byModel.has(model)) {
+        byModel.set(model, emptyOpenAiTotals(model));
+      }
+      addOpenAiUsage(byModel.get(model), result);
+    }
+  }
+
+  return {
+    rangeId: range.id,
+    label: range.label,
+    startingAt: range.startingAt,
+    endingAt: range.endingAt,
+    totals,
+    models: Array.from(byModel.values()).sort((left, right) => right.totalTokens - left.totalTokens),
+  };
+}
+
+function openAiAdminKey() {
+  const apiKey = String(process.env.OPENAI_ADMIN_KEY || "").trim();
+  if (!apiKey) {
+    if (process.env.OPENAI_API_KEY) {
+      throw new Error(
+        "OpenAI usage reports require OPENAI_ADMIN_KEY in .env. OPENAI_API_KEY is only valid for model calls.",
+      );
+    }
+
+    throw new Error("Set OPENAI_ADMIN_KEY in .env");
+  }
+
+  return apiKey;
+}
+
+async function fetchOpenAiUsageBuckets(range, apiKey) {
+  const buckets = [];
+  let page = "";
+
+  do {
+    const url = new URL("https://api.openai.com/v1/organization/usage/completions");
+    url.searchParams.set("start_time", Math.floor(range.start.getTime() / 1000));
+    url.searchParams.set("end_time", Math.floor(range.end.getTime() / 1000));
+    url.searchParams.set("bucket_width", "1d");
+    url.searchParams.set("limit", "31");
+    url.searchParams.append("group_by[]", "model");
+    if (page) {
+      url.searchParams.set("page", page);
+    }
+
+    const payload = await fetchJson(url, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+    buckets.push(...(payload.data || []));
+    page = payload.has_more ? payload.next_page : "";
+  } while (page);
+
+  return buckets;
+}
+
+function emptyOpenAiTotals(model = "") {
+  return {
+    model,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    inputAudioTokens: 0,
+    outputAudioTokens: 0,
+    requests: 0,
+    totalTokens: 0,
+  };
+}
+
+function addOpenAiUsage(target, result = {}) {
+  target.inputTokens += cleanUsageNumber(result.input_tokens);
+  target.outputTokens += cleanUsageNumber(result.output_tokens);
+  target.cachedInputTokens += cleanUsageNumber(result.input_cached_tokens);
+  target.inputAudioTokens += cleanUsageNumber(result.input_audio_tokens);
+  target.outputAudioTokens += cleanUsageNumber(result.output_audio_tokens);
+  target.requests += cleanUsageNumber(result.num_model_requests);
+  target.totalTokens =
+    target.inputTokens + target.outputTokens + target.inputAudioTokens + target.outputAudioTokens;
+}
+
+async function getAnthropicUsage(range) {
+  const apiKey = anthropicAdminKey();
+
+  const buckets = await fetchAnthropicUsageBuckets(range, apiKey);
+  const totals = emptyAnthropicTotals();
+  const byModel = new Map();
+
+  for (const bucket of buckets) {
+    for (const result of bucket.results || []) {
+      addAnthropicUsage(totals, result);
+      const model = result.model || "All models";
+      if (!byModel.has(model)) {
+        byModel.set(model, emptyAnthropicTotals(model));
+      }
+      addAnthropicUsage(byModel.get(model), result);
+    }
+  }
+
+  return {
+    rangeId: range.id,
+    label: range.label,
+    startingAt: range.startingAt,
+    endingAt: range.endingAt,
+    totals,
+    models: Array.from(byModel.values()).sort((left, right) => right.totalTokens - left.totalTokens),
+  };
+}
+
+function anthropicAdminKey() {
+  const apiKey = String(process.env.ANTHROPIC_ADMIN_KEY || "").trim();
+  if (!apiKey) {
+    if (process.env.ANTHROPIC_API_KEY) {
+      throw new Error(
+        "Anthropic usage reports require ANTHROPIC_ADMIN_KEY in .env. ANTHROPIC_API_KEY is only valid for model calls.",
+      );
+    }
+
+    throw new Error("Set ANTHROPIC_ADMIN_KEY in .env");
+  }
+
+  if (!apiKey.startsWith("sk-ant-admin")) {
+    throw new Error("ANTHROPIC_ADMIN_KEY must be an Anthropic Admin API key starting with sk-ant-admin...");
+  }
+
+  return apiKey;
+}
+
+async function fetchAnthropicUsageBuckets(range, apiKey) {
+  const buckets = [];
+  let page = "";
+
+  do {
+    const url = new URL("https://api.anthropic.com/v1/organizations/usage_report/messages");
+    url.searchParams.set("starting_at", range.startingAt);
+    url.searchParams.set("ending_at", range.endingAt);
+    url.searchParams.set("bucket_width", "1d");
+    url.searchParams.set("limit", "31");
+    url.searchParams.append("group_by[]", "model");
+    if (page) {
+      url.searchParams.set("page", page);
+    }
+
+    const payload = await fetchJson(url, {
+      headers: {
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+      },
+    });
+    buckets.push(...(payload.data || []));
+    page = payload.has_more ? payload.next_page : "";
+  } while (page);
+
+  return buckets;
+}
+
+function emptyAnthropicTotals(model = "") {
+  return {
+    model,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    requests: 0,
+    totalTokens: 0,
+  };
+}
+
+function addAnthropicUsage(target, result = {}) {
+  const cacheCreationInputTokens = Object.values(result.cache_creation || {}).reduce(
+    (sum, value) => sum + cleanUsageNumber(value),
+    0,
+  );
+  const uncachedInputTokens = cleanUsageNumber(result.uncached_input_tokens);
+  const cacheReadInputTokens = cleanUsageNumber(result.cache_read_input_tokens);
+
+  target.inputTokens += uncachedInputTokens + cacheCreationInputTokens + cacheReadInputTokens;
+  target.outputTokens += cleanUsageNumber(result.output_tokens);
+  target.cacheCreationInputTokens += cacheCreationInputTokens;
+  target.cacheReadInputTokens += cacheReadInputTokens;
+  target.requests += cleanUsageNumber(result.requests || result.num_model_requests);
+  target.totalTokens = target.inputTokens + target.outputTokens;
+}
+
+function cleanUsageNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+async function fetchJson(url, options) {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { message: text };
+  }
+
+  if (!response.ok) {
+    throw new Error(apiErrorMessage(payload, response.status));
+  }
+
+  return payload;
+}
+
+function apiErrorMessage(payload, status) {
+  const message =
+    payload?.error?.message ||
+    payload?.error?.error?.message ||
+    payload?.message ||
+    payload?.error ||
+    `Provider returned HTTP ${status}`;
+  return typeof message === "string" ? message : `Provider returned HTTP ${status}`;
+}
+
 function normalizePadelogMatch(rawMatch = {}) {
   const date = cleanPadelogDate(rawMatch.date || rawMatch.Date);
 
@@ -865,6 +1228,179 @@ async function deletePadelogMatch(matchId) {
 
   await savePadelogMatches(nextMatches);
   return { matches: nextMatches };
+}
+
+function normalizeBetlogBet(rawBet = {}) {
+  const date = cleanPadelogDate(rawBet.date || rawBet.Date);
+  const time = cleanBetlogTime(rawBet.time || rawBet.Time);
+  const stake = cleanMoney(rawBet.stake || rawBet.Stake);
+  const returnAmount = cleanMoney(
+    rawBet.return_amount ?? rawBet.returnAmount ?? rawBet.Return ?? rawBet["Return Amount"],
+    0,
+  );
+  const odds = cleanPositiveDecimal(rawBet.odds || rawBet.Odds, "Odds must be a positive number");
+  const legs = cleanPositiveInteger(rawBet.legs || rawBet.Legs, 1);
+
+  return {
+    id: cleanText(rawBet.id, crypto.randomUUID(), 80),
+    date,
+    time,
+    betId: cleanText(rawBet.bet_id || rawBet.betId || rawBet["Bet ID"], "Bet ID", 80),
+    betType: cleanText(rawBet.bet_type || rawBet.betType || rawBet["Bet Type"], "Single", 80),
+    stake,
+    freeBet: cleanBoolean(rawBet.free_bet ?? rawBet.freeBet ?? rawBet["Free Bet"]),
+    status: cleanText(rawBet.status || rawBet.Status, "Open", 80),
+    returnAmount,
+    selection: cleanText(rawBet.selection || rawBet.Selection, "Selection", 200),
+    odds,
+    market: cleanText(rawBet.market || rawBet.Market, "Market", 180),
+    match: cleanText(rawBet.match || rawBet.Match, "Match", 220),
+    score: cleanText(rawBet.score ?? rawBet.Score, "", 80),
+    outcomeType: cleanText(rawBet.outcome_type || rawBet.outcomeType || rawBet["Outcome Type"], "single", 80),
+    legs,
+    createdAt: cleanText(rawBet.createdAt, new Date().toISOString(), 40),
+  };
+}
+
+function cleanBetlogTime(value) {
+  const time = String(value || "").trim();
+  const match = time.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) {
+    throw new Error("Bet time must use HH:MM");
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) {
+    throw new Error("Bet time is not valid");
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function cleanMoney(value, fallback = null) {
+  const rawValue = value ?? fallback;
+  const number = Number(String(rawValue ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error("Stake and return amount must be non-negative numbers");
+  }
+
+  return Math.round(number * 100) / 100;
+}
+
+function cleanPositiveDecimal(value, message) {
+  const number = Number(String(value ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new Error(message);
+  }
+
+  return Math.round(number * 10000) / 10000;
+}
+
+function cleanBoolean(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return ["true", "1", "yes", "y", "free", "ναι"].includes(normalized);
+}
+
+function sortBetlogBets(bets) {
+  return [...bets].sort((left, right) => {
+    const dateOrder = right.date.localeCompare(left.date);
+    if (dateOrder) {
+      return dateOrder;
+    }
+
+    const timeOrder = right.time.localeCompare(left.time);
+    if (timeOrder) {
+      return timeOrder;
+    }
+
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+  });
+}
+
+async function loadBetlogBets() {
+  try {
+    const contents = await fs.readFile(BETLOG_BETS_PATH, "utf8");
+    const parsed = JSON.parse(contents);
+    const bets = Array.isArray(parsed?.bets) ? parsed.bets : Array.isArray(parsed) ? parsed : [];
+    return sortBetlogBets(bets.map(normalizeBetlogBet));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function saveBetlogBets(bets) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    BETLOG_BETS_PATH,
+    `${JSON.stringify({ bets: sortBetlogBets(bets) }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function addBetlogBets(payload) {
+  const incoming = Array.isArray(payload?.bets) ? payload.bets : [payload?.bet || payload];
+  if (!incoming.length) {
+    throw new Error("Add at least one bet");
+  }
+
+  const existingBets = await loadBetlogBets();
+  const normalizedBets = incoming.map(normalizeBetlogBet);
+  const bets = sortBetlogBets([...normalizedBets, ...existingBets]);
+  await saveBetlogBets(bets);
+
+  return {
+    imported: normalizedBets.length,
+    bets,
+  };
+}
+
+async function updateBetlogBet(payload = {}) {
+  const id = String(payload.id || payload.bet?.id || "").trim();
+  if (!id) {
+    throw new Error("Choose a bet to edit");
+  }
+
+  const bets = await loadBetlogBets();
+  const betIndex = bets.findIndex((bet) => bet.id === id);
+  if (betIndex === -1) {
+    throw new Error("Bet not found");
+  }
+
+  const updatedBet = normalizeBetlogBet({
+    ...bets[betIndex],
+    ...(payload.bet || payload),
+    id,
+    createdAt: bets[betIndex].createdAt,
+  });
+  bets[betIndex] = updatedBet;
+  const sortedBets = sortBetlogBets(bets);
+  await saveBetlogBets(sortedBets);
+
+  return { bets: sortedBets };
+}
+
+async function deleteBetlogBet(betRowId) {
+  const id = String(betRowId || "").trim();
+  if (!id) {
+    throw new Error("Choose a bet row to delete");
+  }
+
+  const bets = await loadBetlogBets();
+  const nextBets = bets.filter((bet) => bet.id !== id);
+  if (nextBets.length === bets.length) {
+    throw new Error("Bet not found");
+  }
+
+  await saveBetlogBets(nextBets);
+  return { bets: nextBets };
 }
 
 function normalizeStringList(items, fallback) {
@@ -2024,6 +2560,61 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/tools/betlog/bets") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, { bets: await loadBetlogBets() });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/betlog/bets") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await addBetlogBets(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not save Betlog bets" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/betlog/delete") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await deleteBetlogBet(payload.id));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not delete Betlog bet" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/betlog/update") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await updateBetlogBet(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not update Betlog bet" });
+    }
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/tools/html-base64") {
     const session = requireSession(request, response);
     if (!session) {
@@ -2045,6 +2636,21 @@ async function handleRequest(request, response) {
     const payload = await readJson(request);
     const result = await savePdfIframeSource(payload);
     sendJson(response, 200, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/token-usage") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await checkTokenUsage(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not check token usage" });
+    }
     return;
   }
 
