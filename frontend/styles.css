@@ -397,6 +397,125 @@ button {
   margin-bottom: 28px;
 }
 
+.month-summary {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.month-summary-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.month-summary h2,
+.month-summary h3 {
+  margin: 0;
+}
+
+.month-summary h2 {
+  font-size: 1.08rem;
+}
+
+.month-summary-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.month-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.month-summary-grid > .tool-list-state,
+.month-summary-grid > .error {
+  grid-column: 1 / -1;
+}
+
+.month-summary-group {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--panel);
+  background-position: center;
+  background-size: cover;
+  box-shadow: inset 0 0 0 999px rgba(10, 24, 44, 0.28);
+}
+
+.month-summary-group.is-padel {
+  background-image: url("./assets/blue-padel-turf.png");
+}
+
+.month-summary-group.is-betting {
+  background-image: url("./assets/green-grass.png");
+}
+
+.month-summary-group h3 {
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.36);
+  text-transform: uppercase;
+}
+
+.month-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.month-summary-metric {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 24px rgba(10, 24, 44, 0.1);
+}
+
+.month-summary-metric span,
+.month-summary-metric small {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.month-summary-metric span {
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.month-summary-metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.month-summary-metric small {
+  margin-top: 9px;
+  line-height: 1.25;
+}
+
+.month-summary-metric small.is-positive {
+  color: #006f49;
+}
+
+.month-summary-metric small.is-negative {
+  color: var(--danger);
+}
+
+.month-summary-metric small.is-neutral {
+  color: var(--muted);
+}
+
 .tool-groups {
   display: grid;
   gap: 24px;
@@ -1323,6 +1442,8 @@ iframe {
   .form-grid,
   .color-grid,
   .label-row,
+  .month-summary-grid,
+  .month-summary-metrics,
   .padelog-layout,
   .betlog-entry-layout,
   .padelog-form-grid,

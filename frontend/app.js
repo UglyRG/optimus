@@ -147,6 +147,18 @@ async function renderIndex({ user, expiresAt }) {
         <button class="button button-secondary" id="manage-tools-button" type="button">Manage tools</button>
       </div>
 
+      <section class="month-summary" aria-labelledby="month-summary-title">
+        <div class="month-summary-head">
+          <div>
+            <h2 id="month-summary-title">So far this month</h2>
+            <p id="month-summary-caption">Loading performance summary...</p>
+          </div>
+        </div>
+        <div class="month-summary-grid" id="month-summary-grid">
+          <div class="tool-list-state">Loading monthly performance...</div>
+        </div>
+      </section>
+
       <div class="tool-groups" id="tool-groups" aria-label="Available tools">
         <div class="tool-list-state">Loading tools...</div>
       </div>
@@ -155,6 +167,7 @@ async function renderIndex({ user, expiresAt }) {
 
   document.querySelector("#logout-button").addEventListener("click", handleLogout);
   document.querySelector("#manage-tools-button").addEventListener("click", renderToolAdminDashboard);
+  renderMonthlyPerformanceSummary();
 
   try {
     const payload = await request("/tools");
@@ -165,6 +178,121 @@ async function renderIndex({ user, expiresAt }) {
       toolGroups.innerHTML = `<p class="error is-visible">Could not load tools: ${escapeHtml(error.message)}</p>`;
     }
   }
+}
+
+async function renderMonthlyPerformanceSummary() {
+  const caption = document.querySelector("#month-summary-caption");
+  const grid = document.querySelector("#month-summary-grid");
+  if (!caption || !grid) {
+    return;
+  }
+
+  try {
+    const [padelogPayload, betlogPayload] = await Promise.all([
+      request("/tools/padelog/matches"),
+      request("/tools/betlog/bets"),
+    ]);
+    const matches = padelogPayload.matches || [];
+    const bets = betlogPayload.bets || [];
+    const currentRange = currentMonthDateRange();
+    const previousRange = previousMonthDateRange();
+    const currentPadel = summarizePadelogMatches(matches.filter((match) => isDateInRange(match.date, currentRange)));
+    const previousPadel = summarizePadelogMatches(matches.filter((match) => isDateInRange(match.date, previousRange)));
+    const currentBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, currentRange)));
+    const previousBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, previousRange)));
+
+    caption.textContent = `${formatMonthSummaryRange(currentRange)} compared with ${formatMonthSummaryRange(previousRange)}.`;
+    grid.innerHTML = [
+      renderMonthSummaryGroup("Padel performance", "padel", [
+        monthMetric("Matches", currentPadel.matches, previousPadel.matches, { suffix: "", higherIsGood: true }),
+        monthMetric("Wins", currentPadel.wins, previousPadel.wins, { suffix: "", higherIsGood: true }),
+        monthMetric("Win rate", currentPadel.winRate, previousPadel.winRate, { suffix: "%", higherIsGood: true }),
+        monthMetric("Losses", currentPadel.losses, previousPadel.losses, { suffix: "", higherIsGood: false }),
+      ]),
+      renderMonthSummaryGroup("Betting performance", "betting", [
+        monthMetric("Profit", currentBetting.profit, previousBetting.profit, {
+          formatter: formatMoney,
+          higherIsGood: true,
+        }),
+        monthMetric("ROI", currentBetting.roi, previousBetting.roi, { suffix: "%", higherIsGood: true }),
+        monthMetric("Win rate", currentBetting.winRate, previousBetting.winRate, { suffix: "%", higherIsGood: true }),
+        monthMetric("Bets", currentBetting.uniqueBets, previousBetting.uniqueBets, { suffix: "", higherIsGood: true }),
+      ]),
+    ].join("");
+  } catch (error) {
+    caption.textContent = "Could not load monthly performance.";
+    grid.innerHTML = `<p class="error is-visible">Could not load summary: ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function renderMonthSummaryGroup(title, variant, metrics) {
+  return `
+    <article class="month-summary-group ${escapeAttribute(`is-${variant}`)}">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="month-summary-metrics">
+        ${metrics.map(renderMonthSummaryMetric).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderMonthSummaryMetric(metric) {
+  return `
+    <div class="month-summary-metric">
+      <span>${escapeHtml(metric.label)}</span>
+      <strong>${escapeHtml(metric.value)}</strong>
+      <small class="${escapeAttribute(metric.tone)}">${escapeHtml(metric.deltaLabel)}</small>
+    </div>
+  `;
+}
+
+function monthMetric(label, current, previous, options = {}) {
+  const formatter = options.formatter || ((value) => `${formatSummaryNumber(value)}${options.suffix || ""}`);
+  const delta = Number(current || 0) - Number(previous || 0);
+  const higherIsGood = options.higherIsGood !== false;
+  const tone = delta === 0 ? "is-neutral" : (delta > 0) === higherIsGood ? "is-positive" : "is-negative";
+  const deltaPrefix = delta > 0 ? "+" : delta < 0 ? "-" : "";
+  const deltaFormatter = options.formatter || ((value) => `${formatSummaryNumber(value)}${options.suffix || ""}`);
+
+  return {
+    label,
+    value: formatter(current),
+    deltaLabel: `${deltaPrefix}${deltaFormatter(Math.abs(delta))} vs previous month`,
+    tone,
+  };
+}
+
+function currentMonthDateRange(date = new Date()) {
+  return {
+    from: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`,
+    to: localDateInputValue(date),
+  };
+}
+
+function previousMonthDateRange(date = new Date()) {
+  const previousMonthStart = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+  const previousMonthEnd = new Date(date.getFullYear(), date.getMonth(), 0);
+  return {
+    from: localDateInputValue(previousMonthStart),
+    to: localDateInputValue(previousMonthEnd),
+  };
+}
+
+function isDateInRange(dateText, range) {
+  return dateText >= range.from && dateText <= range.to;
+}
+
+function formatMonthSummaryRange(range) {
+  const [fromYear, fromMonth, fromDay] = range.from.split("-");
+  const [, , toDay] = range.to.split("-");
+  const date = new Date(Number(fromYear), Number(fromMonth) - 1, Number(fromDay));
+  const month = new Intl.DateTimeFormat("en-US", { month: "long" }).format(date);
+  return `${month} ${Number(fromDay)}-${Number(toDay)}`;
+}
+
+function formatSummaryNumber(value) {
+  const number = Number(value || 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
 }
 
 function renderToolCatalog(tools) {
