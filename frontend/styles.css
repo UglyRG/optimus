@@ -2,6 +2,9 @@
   color-scheme: light;
   --bg: #f5f8ff;
   --panel: #ffffff;
+  --panel-elevated: rgba(255, 255, 255, 0.92);
+  --field-bg: #ffffff;
+  --soft-bg: #f8fbff;
   --ink: #172b4d;
   --muted: #586a8c;
   --line: #d6e3f8;
@@ -10,6 +13,17 @@
   --accent: #0065ff;
   --danger: #9f3d34;
   --danger-bg: #fff1ee;
+  --success: #006f49;
+  --success-bg: #eefbf5;
+  --secondary-bg: #ffffff;
+  --secondary-border: #b8cae8;
+  --summary-card-ink: #172b4d;
+  --summary-card-muted: #586a8c;
+  --summary-card-positive: #006f49;
+  --summary-card-negative: #9f3d34;
+  --summary-card-neutral: #586a8c;
+  --code-ink: #253858;
+  --footer-bg: rgba(255, 255, 255, 0.82);
   --focus: rgba(0, 101, 255, 0.22);
   --shadow: 0 18px 44px rgba(23, 43, 77, 0.08);
   font-family:
@@ -17,11 +31,43 @@
     sans-serif;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #11151d;
+  --panel: #181f2b;
+  --panel-elevated: rgba(24, 31, 43, 0.92);
+  --field-bg: #111722;
+  --soft-bg: #141c28;
+  --ink: #eef4ff;
+  --muted: #a9b7ce;
+  --line: #314057;
+  --brand: #7db2ff;
+  --brand-hover: #a9ccff;
+  --accent: #9fc5ff;
+  --danger: #ffb4a8;
+  --danger-bg: #3b211f;
+  --success: #79dbad;
+  --success-bg: #173328;
+  --secondary-bg: #111722;
+  --secondary-border: #435777;
+  --summary-card-ink: #172b4d;
+  --summary-card-muted: #5c6f91;
+  --summary-card-positive: #006f49;
+  --summary-card-negative: #9f3d34;
+  --summary-card-neutral: #5c6f91;
+  --code-ink: #d7e5ff;
+  --footer-bg: rgba(17, 21, 29, 0.82);
+  --focus: rgba(125, 178, 255, 0.28);
+  --shadow: 0 20px 52px rgba(0, 0, 0, 0.34);
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
+  display: flex;
+  flex-direction: column;
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
@@ -40,7 +86,8 @@ button {
 }
 
 .app {
-  min-height: 100vh;
+  flex: 1 0 auto;
+  min-height: calc(100vh - 58px);
 }
 
 .login-page {
@@ -95,7 +142,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px 13px;
-  background: #fff;
+  background: var(--field-bg);
   color: var(--ink);
   outline: none;
 }
@@ -140,7 +187,7 @@ button {
 }
 
 .json-section summary:hover {
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .json-section summary:focus-visible {
@@ -177,7 +224,7 @@ button {
 .json-file-input {
   border-style: solid;
   border-color: var(--line);
-  background: #f8fbff;
+  background: var(--soft-bg);
   outline: none;
   appearance: none;
   -webkit-appearance: none;
@@ -191,11 +238,11 @@ button {
 }
 
 .json-file-input::file-selector-button {
-  border: 1px solid #b8cae8;
+  border: 1px solid var(--secondary-border);
   border-radius: 6px;
   margin-right: 10px;
   padding: 7px 10px;
-  background: #fff;
+  background: var(--secondary-bg);
   color: var(--brand);
   font-weight: 800;
   outline: none;
@@ -203,11 +250,11 @@ button {
 }
 
 .json-file-input::-webkit-file-upload-button {
-  border: 1px solid #b8cae8;
+  border: 1px solid var(--secondary-border);
   border-radius: 6px;
   margin-right: 10px;
   padding: 7px 10px;
-  background: #fff;
+  background: var(--secondary-bg);
   color: var(--brand);
   font-weight: 800;
   outline: none;
@@ -227,7 +274,7 @@ button {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .json-preview:empty {
@@ -253,7 +300,7 @@ button {
   margin: 0;
   padding: 11px;
   overflow: auto;
-  color: #253858;
+  color: var(--code-ink);
   font:
     0.78rem/1.5 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   white-space: pre-wrap;
@@ -321,8 +368,8 @@ button {
 }
 
 .button-secondary {
-  border-color: #b8cae8;
-  background: #fff;
+  border-color: var(--secondary-border);
+  background: var(--secondary-bg);
   color: var(--brand);
 }
 
@@ -348,11 +395,11 @@ button {
 
 .success {
   display: none;
-  border: 1px solid rgba(0, 122, 78, 0.22);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #eefbf5;
-  color: #006f49;
+  background: var(--success-bg);
+  color: var(--success);
   font-size: 0.9rem;
 }
 
@@ -362,13 +409,21 @@ button {
 }
 
 .topbar {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1px solid var(--line);
+  width: min(1120px, calc(100% - 32px));
+  margin: 12px auto 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   padding: 14px clamp(18px, 4vw, 42px);
-  background: var(--panel);
+  background: var(--panel-elevated);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
 }
 
 .brand {
@@ -381,6 +436,50 @@ button {
   display: block;
   width: clamp(150px, 18vw, 210px);
   height: auto;
+}
+
+:root[data-theme="dark"] .brand-logo {
+  filter: brightness(0) invert(1);
+  opacity: 0.92;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border: 1px solid var(--secondary-border);
+  border-radius: 8px;
+  padding: 10px 13px;
+  gap: 8px;
+  background: var(--secondary-bg);
+  color: var(--ink);
+  font-weight: 800;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.theme-toggle-icon {
+  width: 1em;
+  font-size: 1rem;
+  line-height: 1;
+  text-align: center;
 }
 
 .index-page {
@@ -488,13 +587,14 @@ button {
 }
 
 .month-summary-metric span {
-  color: var(--muted);
+  color: var(--summary-card-muted);
   text-transform: uppercase;
 }
 
 .month-summary-metric strong {
   display: block;
   margin-top: 7px;
+  color: var(--summary-card-ink);
   font-size: 1.5rem;
   line-height: 1;
 }
@@ -505,15 +605,15 @@ button {
 }
 
 .month-summary-metric small.is-positive {
-  color: #006f49;
+  color: var(--summary-card-positive);
 }
 
 .month-summary-metric small.is-negative {
-  color: var(--danger);
+  color: var(--summary-card-negative);
 }
 
 .month-summary-metric small.is-neutral {
-  color: var(--muted);
+  color: var(--summary-card-neutral);
 }
 
 .tool-groups {
@@ -569,7 +669,7 @@ button {
 }
 
 .tool-row:hover {
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .tool-row h3 {
@@ -623,7 +723,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .admin-group-row {
@@ -693,7 +793,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .form-preview .result-head {
@@ -818,7 +918,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 13px;
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .padelog-metric span {
@@ -843,7 +943,7 @@ button {
 }
 
 .padelog-csv-preview strong {
-  color: #006f49;
+  color: var(--success);
 }
 
 .padelog-csv-preview span {
@@ -894,11 +994,11 @@ button {
 }
 
 .padelog-table tbody tr:hover {
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .padelog-group-row td {
-  background: #eef4ff;
+  background: var(--soft-bg);
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 900;
@@ -920,8 +1020,8 @@ button {
 }
 
 .padelog-result.won {
-  background: #eefbf5;
-  color: #006f49;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .padelog-result.lost {
@@ -932,6 +1032,12 @@ button {
 .padelog-result.draw {
   background: #fff7e6;
   color: #8a5d00;
+}
+
+:root[data-theme="dark"] .padelog-result.draw,
+:root[data-theme="dark"] .betlog-status.draw {
+  background: #392d16;
+  color: #ffd37a;
 }
 
 .betlog-table {
@@ -1011,7 +1117,7 @@ button {
 }
 
 .betlog-money-cell .is-positive {
-  color: #006f49;
+  color: var(--success);
 }
 
 .betlog-money-cell .is-negative {
@@ -1030,8 +1136,8 @@ button {
 }
 
 .betlog-status.won {
-  background: #eefbf5;
-  color: #006f49;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .betlog-status.lost {
@@ -1074,7 +1180,7 @@ button {
 }
 
 .betlog-free {
-  color: #006f49;
+  color: var(--success);
   text-transform: uppercase;
 }
 
@@ -1137,7 +1243,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 7px 9px;
-  background: #fff;
+  background: var(--field-bg);
   color: var(--ink);
   outline: none;
 }
@@ -1188,7 +1294,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .token-provider-card h3,
@@ -1219,7 +1325,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 13px;
-  background: #fff;
+  background: var(--panel);
 }
 
 .token-range-head {
@@ -1246,7 +1352,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #f8fbff;
+  background: var(--soft-bg);
 }
 
 .token-metric span {
@@ -1331,11 +1437,11 @@ button {
   width: 17px;
   height: 17px;
   min-width: 17px;
-  border: 1px solid #b8cae8;
+  border: 1px solid var(--secondary-border);
   border-radius: 999px;
   margin-left: 5px;
   padding: 0;
-  background: #fff;
+  background: var(--secondary-bg);
   color: var(--brand);
   font-size: 0.68rem;
   font-weight: 900;
@@ -1354,7 +1460,7 @@ button {
 .info-modal {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 40;
   display: grid;
   place-items: center;
   padding: 20px;
@@ -1371,7 +1477,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 22px;
-  background: #fff;
+  background: var(--panel);
   box-shadow: var(--shadow);
 }
 
@@ -1397,7 +1503,7 @@ button {
   height: 32px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--secondary-bg);
   color: var(--muted);
   font-size: 1.25rem;
   line-height: 1;
@@ -1418,6 +1524,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
+  background: var(--field-bg);
   color: var(--ink);
   font: 0.86rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   line-height: 1.5;
@@ -1429,7 +1536,26 @@ iframe {
   margin-top: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
+}
+
+.app-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding: 14px clamp(18px, 4vw, 42px);
+  background: var(--footer-bg);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  backdrop-filter: blur(18px);
+}
+
+.app-footer span:last-child {
+  color: var(--ink);
 }
 
 @media (max-width: 680px) {
@@ -1467,7 +1593,13 @@ iframe {
     flex-direction: column;
   }
 
+  .topbar-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
   .topbar .button,
+  .topbar .theme-toggle,
   .page-head .button,
   .admin-section-head .button,
   .padelog-history-controls .field,
@@ -1476,6 +1608,11 @@ iframe {
   .tool-panel .button,
   .result-head .button {
     width: 100%;
+  }
+
+  .app-footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .betlog-edit-grid {

@@ -1,5 +1,7 @@
 const API_BASE = "http://localhost:8787/api";
+const THEME_STORAGE_KEY = "optimus-theme";
 const app = document.querySelector("#app");
+const appVersion = document.querySelector("#app-version");
 let activeUser = null;
 let activeExpiresAt = null;
 let suiteSourceFiles = [];
@@ -60,6 +62,8 @@ const TOKEN_USAGE_EXPLAINERS = {
   },
 };
 
+applyStoredTheme();
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
@@ -76,6 +80,19 @@ async function request(path, options = {}) {
   }
 
   return payload;
+}
+
+async function loadAppVersion() {
+  if (!appVersion) {
+    return;
+  }
+
+  try {
+    const payload = await request("/version");
+    appVersion.textContent = `Version ${payload.version || "unknown"}`;
+  } catch {
+    appVersion.textContent = "Version unavailable";
+  }
 }
 
 async function loadSession() {
@@ -136,17 +153,9 @@ async function renderIndex({ user, expiresAt }) {
   activeExpiresAt = expiresAt;
 
   app.innerHTML = `
-    ${renderTopbar()}
+    ${renderTopbar({ showManageTools: true })}
 
     <section class="index-page">
-      <div class="page-head">
-        <div class="page-title">
-          <h1>Index</h1>
-          <p>Signed in as ${escapeHtml(user.name)}. Session expires in ${hoursLeft(expiresAt)}h.</p>
-        </div>
-        <button class="button button-secondary" id="manage-tools-button" type="button">Manage tools</button>
-      </div>
-
       <section class="month-summary" aria-labelledby="month-summary-title">
         <div class="month-summary-head">
           <div>
@@ -165,7 +174,7 @@ async function renderIndex({ user, expiresAt }) {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#manage-tools-button").addEventListener("click", renderToolAdminDashboard);
   renderMonthlyPerformanceSummary();
 
@@ -396,7 +405,7 @@ async function renderToolAdminDashboard() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -770,7 +779,7 @@ async function renderPadelogTool() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -1503,7 +1512,7 @@ async function renderBetlogTool() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -2152,7 +2161,7 @@ function renderHtmlBase64Tool() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -2195,7 +2204,7 @@ function renderPdfBase64Tool() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -2250,7 +2259,7 @@ function renderTokenUsageTool() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -2313,7 +2322,7 @@ async function renderPresentationSuiteTool() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -2463,7 +2472,7 @@ function renderDemoBuilderTool() {
     </section>
   `;
 
-  document.querySelector("#logout-button").addEventListener("click", handleLogout);
+  attachTopbarHandlers();
   document.querySelector("#back-button").addEventListener("click", () => {
     renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
   });
@@ -2475,14 +2484,65 @@ function renderDemoBuilderTool() {
   updateDemoBuilderLivePreview();
 }
 
-function renderTopbar() {
+function renderTopbar(options = {}) {
+  const isDark = currentTheme() === "dark";
   return `
     <header class="topbar">
       <div class="brand">
         <img class="brand-logo" src="./assets/optimus-horizontal.svg" alt="Optimus" />
       </div>
-      <button class="button button-secondary" id="logout-button" type="button">Log out</button>
+      <div class="topbar-actions">
+        ${
+          options.showManageTools
+            ? '<button class="button button-secondary" id="manage-tools-button" type="button">Manage tools</button>'
+            : ""
+        }
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="${isDark}" aria-label="Switch to ${isDark ? "light" : "dark"} theme" title="Switch to ${isDark ? "light" : "dark"} theme">
+          <span class="theme-toggle-icon" aria-hidden="true">${isDark ? "☀" : "☾"}</span>
+          <span>${isDark ? "Light" : "Dark"}</span>
+        </button>
+        <button class="button button-secondary" id="logout-button" type="button">Log out</button>
+      </div>
     </header>
+  `;
+}
+
+function attachTopbarHandlers() {
+  document.querySelector("#logout-button")?.addEventListener("click", handleLogout);
+  document.querySelector("#theme-toggle")?.addEventListener("click", toggleTheme);
+}
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+function applyStoredTheme() {
+  const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  applyTheme(storedTheme === "dark" || storedTheme === "light" ? storedTheme : prefersDark ? "dark" : "light");
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+}
+
+function toggleTheme() {
+  const nextTheme = currentTheme() === "dark" ? "light" : "dark";
+  localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  applyTheme(nextTheme);
+
+  const toggle = document.querySelector("#theme-toggle");
+  if (!toggle) {
+    return;
+  }
+
+  toggle.setAttribute("aria-pressed", String(nextTheme === "dark"));
+  toggle.setAttribute("aria-label", `Switch to ${nextTheme === "dark" ? "light" : "dark"} theme`);
+  toggle.title = `Switch to ${nextTheme === "dark" ? "light" : "dark"} theme`;
+  toggle.innerHTML = `
+    <span class="theme-toggle-icon" aria-hidden="true">${nextTheme === "dark" ? "☀" : "☾"}</span>
+    <span>${nextTheme === "dark" ? "Light" : "Dark"}</span>
   `;
 }
 
@@ -3627,4 +3687,5 @@ function groupedPreviewLogText(log, logs) {
   return `│  ${text}`;
 }
 
+loadAppVersion();
 loadSession();

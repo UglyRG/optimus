@@ -1,7 +1,9 @@
 const crypto = require("node:crypto");
+const { execFile } = require("node:child_process");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
+const { promisify } = require("node:util");
 
 loadEnvFile(path.join(__dirname, "..", ".env"));
 
@@ -16,6 +18,7 @@ const DATA_DIR = path.join(__dirname, "..", "data");
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
 const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
 const BETLOG_BETS_PATH = path.join(DATA_DIR, "betlog-bets.json");
+const execFileAsync = promisify(execFile);
 const HOSTED_TOOLS = [
   {
     id: "padelog",
@@ -107,6 +110,18 @@ function sendJson(response, status, payload, headers = {}) {
     ...headers,
   });
   response.end(JSON.stringify(payload));
+}
+
+async function appVersion() {
+  try {
+    const { stdout } = await execFileAsync("git", ["describe", "--tags", "--always", "--dirty"], {
+      cwd: path.join(__dirname, ".."),
+      timeout: 2000,
+    });
+    return stdout.trim() || "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 function corsHeaders() {
@@ -2447,6 +2462,11 @@ async function handleRequest(request, response) {
 
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/version") {
+    sendJson(response, 200, { version: await appVersion() });
     return;
   }
 
