@@ -1,5 +1,6 @@
 const API_BASE = "http://localhost:8787/api";
 const THEME_STORAGE_KEY = "optimus-theme";
+const NOTELOG_CALIBRATION_STORAGE_KEY = "optimus-notelog-calibration";
 const app = document.querySelector("#app");
 const appVersion = document.querySelector("#app-version");
 let activeUser = null;
@@ -14,9 +15,29 @@ let editingPadelogMatchId = "";
 let betlogBets = [];
 let betlogHistoryPage = 1;
 let editingBetlogBetId = "";
+let notelogNotes = [];
+let activeNotelogNote = null;
+let activeNotelogPageIndex = 0;
+let notelogTool = "pen";
+let notelogColor = "#111827";
+let notelogSize = 4;
+let notelogRedoStack = [];
+let notelogDrawingStroke = null;
+let activeNotelogSidebarTab = "notes";
+let notelogCalibration = loadNotelogCalibration();
+let notelogCalibrationDraft = null;
+const NOTELOG_PAGE_WIDTH = 1414;
+const NOTELOG_PAGE_HEIGHT = 1000;
+const NOTELOG_CALIBRATION_STEPS = [
+  { id: "topLeft", label: "top-left", x: 0, y: 0 },
+  { id: "topRight", label: "top-right", x: NOTELOG_PAGE_WIDTH, y: 0 },
+  { id: "bottomRight", label: "bottom-right", x: NOTELOG_PAGE_WIDTH, y: NOTELOG_PAGE_HEIGHT },
+  { id: "bottomLeft", label: "bottom-left", x: 0, y: NOTELOG_PAGE_HEIGHT },
+];
 const TOOL_RENDERERS = {
   padelog: renderPadelogTool,
   betlog: renderBetlogTool,
+  notelog: renderNotelogTool,
   "demo-builder": renderDemoBuilderTool,
   "presentation-suite": renderPresentationSuiteTool,
   "html-base64": renderHtmlBase64Tool,
@@ -2125,6 +2146,826 @@ function localTimeInputValue(date = new Date()) {
   ].join(":");
 }
 
+async function renderNotelogTool() {
+  notelogNotes = [];
+  activeNotelogNote = null;
+  activeNotelogPageIndex = 0;
+  notelogRedoStack = [];
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page notelog-page">
+      <section class="notelog-shell">
+        <aside class="notelog-sidebar">
+          <div class="notelog-sidebar-title">
+            <div>
+              <h1>Notelog</h1>
+              <p>Write handwritten notes with a pen tablet, keep editable pages locally, and export a PDF when you need one.</p>
+            </div>
+            <button class="button button-secondary" id="back-button" type="button">Back</button>
+          </div>
+
+          <div class="notelog-sidebar-tabs" role="tablist" aria-label="Notelog sections">
+            <button class="button button-secondary is-active" data-notelog-sidebar-tab="notes" type="button">Notes</button>
+            <button class="button button-secondary" data-notelog-sidebar-tab="tools" type="button">Tools</button>
+          </div>
+
+          <section class="notelog-sidebar-panel is-active" data-notelog-sidebar-panel="notes">
+            <div class="notelog-sidebar-head">
+              <div>
+                <h2>Notes</h2>
+                <p id="notelog-count">Loading notes...</p>
+              </div>
+              <button class="button button-primary" id="notelog-new-note" type="button">New</button>
+            </div>
+            <div class="notelog-list" id="notelog-list"></div>
+          </section>
+
+          <section class="notelog-sidebar-panel" data-notelog-sidebar-panel="tools">
+            <div class="notelog-tools-panel">
+              <div class="field notelog-title-field">
+                <label for="notelog-title">Title</label>
+                <input id="notelog-title" placeholder="Untitled note" />
+              </div>
+              <div class="notelog-tool-group" aria-label="Drawing tools">
+                <button class="button button-secondary is-active" data-notelog-tool="pen" type="button">Pen</button>
+                <button class="button button-secondary" data-notelog-tool="eraser" type="button">Eraser</button>
+              </div>
+              <div class="form-grid notelog-tool-grid">
+                <div class="field notelog-compact-field">
+                  <label for="notelog-color">Color</label>
+                  <input id="notelog-color" type="color" value="${escapeAttribute(notelogColor)}" />
+                </div>
+                <div class="field notelog-background-field">
+                  <label for="notelog-background">Paper</label>
+                  <select id="notelog-background">
+                    <option value="grid">Grid</option>
+                    <option value="ruled">Ruled</option>
+                    <option value="dots">Dots</option>
+                    <option value="blank">Blank</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field notelog-size-field">
+                <label for="notelog-size">Size</label>
+                <input id="notelog-size" type="range" min="1" max="24" step="1" value="${escapeAttribute(notelogSize)}" />
+              </div>
+              <div class="notelog-tool-group">
+                <button class="button button-secondary" id="notelog-undo" type="button">Undo</button>
+                <button class="button button-secondary" id="notelog-redo" type="button">Redo</button>
+              </div>
+              <div class="notelog-tool-group">
+                <button class="button button-secondary" id="notelog-add-page" type="button">Add page</button>
+                <button class="button button-secondary" id="notelog-delete-page" type="button">Delete page</button>
+              </div>
+              <div class="notelog-tool-group">
+                <button class="button button-primary" id="notelog-save" type="button">Save</button>
+                <button class="button button-secondary" id="notelog-export" type="button">Export PDF</button>
+              </div>
+              <div class="notelog-calibration-tools">
+                <div>
+                  <h3>Tablet calibration</h3>
+                  <p id="notelog-calibration-status">Not calibrated</p>
+                </div>
+                <div class="notelog-tool-group">
+                  <button class="button button-secondary" id="notelog-calibrate" type="button">Calibrate</button>
+                  <button class="button button-secondary" id="notelog-reset-calibration" type="button">Reset</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </aside>
+
+        <section class="notelog-workspace">
+          <div class="notelog-page-tabs" id="notelog-page-tabs"></div>
+          <div class="notelog-canvas-wrap">
+            <canvas id="notelog-canvas" width="${NOTELOG_PAGE_WIDTH}" height="${NOTELOG_PAGE_HEIGHT}" aria-label="Handwriting canvas"></canvas>
+            <div class="notelog-calibration-overlay" id="notelog-calibration-overlay" hidden>
+              <div class="notelog-calibration-target" id="notelog-calibration-target"></div>
+              <div class="notelog-calibration-card">
+                <strong id="notelog-calibration-heading">Calibration</strong>
+                <span id="notelog-calibration-copy">Tap the highlighted page corner with your pen.</span>
+              </div>
+            </div>
+          </div>
+          <p class="success" id="notelog-success"></p>
+          <p class="error" id="notelog-error"></p>
+        </section>
+      </section>
+    </section>
+  `;
+
+  attachTopbarHandlers();
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector(".notelog-sidebar-tabs").addEventListener("click", handleNotelogSidebarTabClick);
+  document.querySelector("#notelog-new-note").addEventListener("click", createNotelogNote);
+  document.querySelector("#notelog-list").addEventListener("click", handleNotelogListClick);
+  document.querySelector("#notelog-title").addEventListener("input", () => {
+    if (activeNotelogNote) {
+      activeNotelogNote.title = document.querySelector("#notelog-title").value.trim() || "Untitled note";
+      renderNotelogList();
+    }
+  });
+  document.querySelector("#notelog-color").addEventListener("input", (event) => {
+    notelogColor = event.currentTarget.value;
+  });
+  document.querySelector("#notelog-size").addEventListener("input", (event) => {
+    notelogSize = Number(event.currentTarget.value) || 4;
+  });
+  document.querySelector("#notelog-background").addEventListener("change", updateNotelogPageBackground);
+  document.querySelectorAll("[data-notelog-tool]").forEach((button) => {
+    button.addEventListener("click", () => setNotelogTool(button.dataset.notelogTool));
+  });
+  document.querySelector("#notelog-undo").addEventListener("click", undoNotelogStroke);
+  document.querySelector("#notelog-redo").addEventListener("click", redoNotelogStroke);
+  document.querySelector("#notelog-add-page").addEventListener("click", addNotelogPage);
+  document.querySelector("#notelog-delete-page").addEventListener("click", deleteNotelogPage);
+  document.querySelector("#notelog-save").addEventListener("click", saveActiveNotelogNote);
+  document.querySelector("#notelog-export").addEventListener("click", exportActiveNotelogNote);
+  document.querySelector("#notelog-calibrate").addEventListener("click", startNotelogCalibration);
+  document.querySelector("#notelog-reset-calibration").addEventListener("click", resetNotelogCalibration);
+  document.querySelector("#notelog-page-tabs").addEventListener("click", handleNotelogPageTabClick);
+  attachNotelogCanvasHandlers();
+
+  try {
+    const payload = await request("/tools/notelog/notes");
+    notelogNotes = payload.notes || [];
+    activeNotelogNote = notelogNotes[0] || newNotelogNote();
+    if (!notelogNotes.length) {
+      notelogNotes = [activeNotelogNote];
+    }
+    renderActiveNotelogNote();
+  } catch (error) {
+    showScopedMessage("#notelog-error", `Could not load notes: ${error.message}`);
+    activeNotelogNote = newNotelogNote();
+    notelogNotes = [activeNotelogNote];
+    renderActiveNotelogNote();
+  }
+}
+
+function newNotelogNote() {
+  const now = new Date().toISOString();
+  return {
+    id: cryptoRandomId(),
+    title: "Untitled note",
+    createdAt: now,
+    updatedAt: now,
+    pages: [newNotelogPage()],
+    exportedFileName: "",
+    exportedAt: "",
+  };
+}
+
+function newNotelogPage() {
+  return {
+    id: cryptoRandomId(),
+    width: NOTELOG_PAGE_WIDTH,
+    height: NOTELOG_PAGE_HEIGHT,
+    background: "grid",
+    strokes: [],
+  };
+}
+
+function cryptoRandomId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createNotelogNote() {
+  activeNotelogNote = newNotelogNote();
+  notelogNotes = [activeNotelogNote, ...notelogNotes.filter((note) => note.id !== activeNotelogNote.id)];
+  activeNotelogPageIndex = 0;
+  notelogRedoStack = [];
+  renderActiveNotelogNote();
+}
+
+function handleNotelogSidebarTabClick(event) {
+  const button = event.target.closest("[data-notelog-sidebar-tab]");
+  if (!button) {
+    return;
+  }
+
+  activeNotelogSidebarTab = button.dataset.notelogSidebarTab === "tools" ? "tools" : "notes";
+  renderNotelogSidebarTabs();
+}
+
+function renderNotelogSidebarTabs() {
+  document.querySelectorAll("[data-notelog-sidebar-tab]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.notelogSidebarTab === activeNotelogSidebarTab);
+  });
+  document.querySelectorAll("[data-notelog-sidebar-panel]").forEach((panel) => {
+    panel.classList.toggle("is-active", panel.dataset.notelogSidebarPanel === activeNotelogSidebarTab);
+  });
+}
+
+function renderActiveNotelogNote() {
+  if (!activeNotelogNote) {
+    activeNotelogNote = newNotelogNote();
+  }
+  activeNotelogNote.pages = activeNotelogNote.pages?.length
+    ? activeNotelogNote.pages.map(ensureNotelogLandscapePage)
+    : [newNotelogPage()];
+  activeNotelogPageIndex = Math.min(activeNotelogPageIndex, activeNotelogNote.pages.length - 1);
+  document.querySelector("#notelog-title").value = activeNotelogNote.title || "Untitled note";
+  document.querySelector("#notelog-background").value = activeNotelogPage()?.background || "grid";
+  renderNotelogSidebarTabs();
+  renderNotelogList();
+  renderNotelogPageTabs();
+  renderNotelogCanvas();
+  updateNotelogButtons();
+  updateNotelogCalibrationStatus();
+  renderNotelogCalibrationOverlay();
+}
+
+function ensureNotelogLandscapePage(page) {
+  const width = Number(page?.width) || NOTELOG_PAGE_WIDTH;
+  const height = Number(page?.height) || NOTELOG_PAGE_HEIGHT;
+  if (width >= height) {
+    return {
+      ...page,
+      width,
+      height,
+      background: page.background || "grid",
+      strokes: page.strokes || [],
+    };
+  }
+
+  const scaleX = NOTELOG_PAGE_WIDTH / width;
+  const scaleY = NOTELOG_PAGE_HEIGHT / height;
+  return {
+    ...page,
+    width: NOTELOG_PAGE_WIDTH,
+    height: NOTELOG_PAGE_HEIGHT,
+    background: page.background || "grid",
+    strokes: (page.strokes || []).map((stroke) => ({
+      ...stroke,
+      points: (stroke.points || []).map((point) => ({
+        ...point,
+        x: point.x * scaleX,
+        y: point.y * scaleY,
+      })),
+    })),
+  };
+}
+
+function renderNotelogList() {
+  const list = document.querySelector("#notelog-list");
+  const count = document.querySelector("#notelog-count");
+  if (!list || !count) {
+    return;
+  }
+
+  count.textContent = `${notelogNotes.length} note${notelogNotes.length === 1 ? "" : "s"}`;
+  list.innerHTML = notelogNotes
+    .map((note) => {
+      const isActive = activeNotelogNote?.id === note.id;
+      const updated = note.updatedAt ? formatDisplayDate(note.updatedAt.slice(0, 10)) : "";
+      const exportLabel = note.exportedFileName ? `<span>${escapeHtml(note.exportedFileName)}</span>` : "";
+      return `
+        <article class="notelog-note-row${isActive ? " is-active" : ""}" data-notelog-note="${escapeAttribute(note.id)}">
+          <button type="button" data-open-notelog-note="${escapeAttribute(note.id)}">
+            <strong>${escapeHtml(note.title || "Untitled note")}</strong>
+            <span>${escapeHtml(note.pages?.length || 1)} page${(note.pages?.length || 1) === 1 ? "" : "s"}${updated ? ` · ${escapeHtml(updated)}` : ""}</span>
+            ${exportLabel}
+          </button>
+          <button class="notelog-delete-note" type="button" data-delete-notelog-note="${escapeAttribute(note.id)}" aria-label="Delete note">Delete</button>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+async function handleNotelogListClick(event) {
+  const deleteButton = event.target.closest("[data-delete-notelog-note]");
+  if (deleteButton) {
+    await deleteNotelogNote(deleteButton.dataset.deleteNotelogNote);
+    return;
+  }
+
+  const openButton = event.target.closest("[data-open-notelog-note]");
+  if (!openButton) {
+    return;
+  }
+
+  const note = notelogNotes.find((item) => item.id === openButton.dataset.openNotelogNote);
+  if (note) {
+    activeNotelogNote = note;
+    activeNotelogPageIndex = 0;
+    notelogRedoStack = [];
+    renderActiveNotelogNote();
+  }
+}
+
+async function deleteNotelogNote(noteId) {
+  try {
+    const payload = await request("/tools/notelog/delete", {
+      method: "POST",
+      body: JSON.stringify({ id: noteId }),
+    });
+    notelogNotes = payload.notes || [];
+    activeNotelogNote = notelogNotes[0] || newNotelogNote();
+    if (!notelogNotes.length) {
+      notelogNotes = [activeNotelogNote];
+    }
+    activeNotelogPageIndex = 0;
+    renderActiveNotelogNote();
+  } catch {
+    notelogNotes = notelogNotes.filter((note) => note.id !== noteId);
+    activeNotelogNote = notelogNotes[0] || newNotelogNote();
+    if (!notelogNotes.length) {
+      notelogNotes = [activeNotelogNote];
+    }
+    renderActiveNotelogNote();
+  }
+}
+
+function renderNotelogPageTabs() {
+  const tabs = document.querySelector("#notelog-page-tabs");
+  if (!tabs || !activeNotelogNote) {
+    return;
+  }
+
+  tabs.innerHTML = activeNotelogNote.pages
+    .map(
+      (page, index) =>
+        `<button class="button button-secondary${index === activeNotelogPageIndex ? " is-active" : ""}" data-notelog-page="${index}" type="button">Page ${index + 1}</button>`,
+    )
+    .join("");
+}
+
+function handleNotelogPageTabClick(event) {
+  const button = event.target.closest("[data-notelog-page]");
+  if (!button) {
+    return;
+  }
+
+  activeNotelogPageIndex = Number(button.dataset.notelogPage) || 0;
+  notelogRedoStack = [];
+  renderActiveNotelogNote();
+}
+
+function updateNotelogPageBackground(event) {
+  const page = activeNotelogPage();
+  if (!page) {
+    return;
+  }
+
+  page.background = event.currentTarget.value;
+  updateActiveNotelogTimestamp();
+  renderNotelogCanvas();
+}
+
+function activeNotelogPage() {
+  return activeNotelogNote?.pages?.[activeNotelogPageIndex];
+}
+
+function attachNotelogCanvasHandlers() {
+  const canvas = document.querySelector("#notelog-canvas");
+  if (!canvas) {
+    return;
+  }
+
+  canvas.addEventListener("pointerdown", startNotelogStroke);
+  canvas.addEventListener("pointermove", moveNotelogStroke);
+  canvas.addEventListener("pointerup", endNotelogStroke);
+  canvas.addEventListener("pointercancel", endNotelogStroke);
+  window.addEventListener("resize", renderNotelogCanvas);
+}
+
+function startNotelogStroke(event) {
+  const page = activeNotelogPage();
+  if (!page) {
+    return;
+  }
+
+  if (notelogCalibrationDraft) {
+    captureNotelogCalibrationPoint(event);
+    return;
+  }
+
+  event.preventDefault();
+  event.currentTarget.setPointerCapture(event.pointerId);
+  notelogRedoStack = [];
+  notelogDrawingStroke = {
+    tool: notelogTool,
+    color: notelogColor,
+    size: notelogTool === "eraser" ? Math.max(8, notelogSize * 2.5) : notelogSize,
+    points: [notelogPointFromEvent(event)],
+  };
+  page.strokes.push(notelogDrawingStroke);
+  renderNotelogCanvas();
+}
+
+function moveNotelogStroke(event) {
+  if (!notelogDrawingStroke) {
+    return;
+  }
+
+  event.preventDefault();
+  notelogDrawingStroke.points.push(notelogPointFromEvent(event));
+  renderNotelogCanvas();
+}
+
+function endNotelogStroke(event) {
+  if (!notelogDrawingStroke) {
+    return;
+  }
+
+  event.preventDefault();
+  const point = notelogDrawingStroke.points[0];
+  if (notelogDrawingStroke.points.length === 1 && point) {
+    notelogDrawingStroke.points.push({ ...point, x: point.x + 0.01, y: point.y + 0.01 });
+  }
+  notelogDrawingStroke = null;
+  updateActiveNotelogTimestamp();
+  updateNotelogButtons();
+}
+
+function notelogPointFromEvent(event) {
+  return applyNotelogCalibration(rawNotelogPointFromEvent(event));
+}
+
+function rawNotelogPointFromEvent(event) {
+  const canvas = document.querySelector("#notelog-canvas");
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+    pressure: event.pressure || 0.5,
+  };
+}
+
+function loadNotelogCalibration() {
+  try {
+    const calibration = JSON.parse(localStorage.getItem(NOTELOG_CALIBRATION_STORAGE_KEY) || "null");
+    return isValidNotelogCalibration(calibration) ? calibration : null;
+  } catch {
+    return null;
+  }
+}
+
+function isValidNotelogCalibration(calibration) {
+  return Boolean(
+    calibration &&
+      NOTELOG_CALIBRATION_STEPS.every(
+        (step) =>
+          Number.isFinite(calibration[step.id]?.x) &&
+          Number.isFinite(calibration[step.id]?.y),
+      ),
+  );
+}
+
+function saveNotelogCalibration(calibration) {
+  notelogCalibration = calibration;
+  localStorage.setItem(NOTELOG_CALIBRATION_STORAGE_KEY, JSON.stringify(calibration));
+  updateNotelogCalibrationStatus();
+}
+
+function applyNotelogCalibration(point) {
+  if (!isValidNotelogCalibration(notelogCalibration)) {
+    return point;
+  }
+
+  const topLeft = notelogCalibration.topLeft;
+  const topRight = notelogCalibration.topRight;
+  const bottomLeft = notelogCalibration.bottomLeft;
+  const axisX = { x: topRight.x - topLeft.x, y: topRight.y - topLeft.y };
+  const axisY = { x: bottomLeft.x - topLeft.x, y: bottomLeft.y - topLeft.y };
+  const determinant = axisX.x * axisY.y - axisX.y * axisY.x;
+
+  if (Math.abs(determinant) < 0.001) {
+    return point;
+  }
+
+  const raw = { x: point.x - topLeft.x, y: point.y - topLeft.y };
+  const unitX = (raw.x * axisY.y - raw.y * axisY.x) / determinant;
+  const unitY = (axisX.x * raw.y - axisX.y * raw.x) / determinant;
+
+  return {
+    ...point,
+    x: clampNotelogNumber(unitX * NOTELOG_PAGE_WIDTH, 0, NOTELOG_PAGE_WIDTH),
+    y: clampNotelogNumber(unitY * NOTELOG_PAGE_HEIGHT, 0, NOTELOG_PAGE_HEIGHT),
+  };
+}
+
+function clampNotelogNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function startNotelogCalibration() {
+  notelogCalibrationDraft = { points: [] };
+  activeNotelogSidebarTab = "tools";
+  renderNotelogSidebarTabs();
+  document.querySelector("#notelog-canvas")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  renderNotelogCalibrationOverlay();
+  showScopedMessage("#notelog-success", "Tap the highlighted page corners with your pen.");
+}
+
+function resetNotelogCalibration() {
+  notelogCalibration = null;
+  notelogCalibrationDraft = null;
+  localStorage.removeItem(NOTELOG_CALIBRATION_STORAGE_KEY);
+  updateNotelogCalibrationStatus();
+  renderNotelogCalibrationOverlay();
+  showScopedMessage("#notelog-success", "Tablet calibration reset.");
+}
+
+function captureNotelogCalibrationPoint(event) {
+  event.preventDefault();
+  const step = NOTELOG_CALIBRATION_STEPS[notelogCalibrationDraft.points.length];
+  if (!step) {
+    return;
+  }
+
+  notelogCalibrationDraft.points.push({
+    id: step.id,
+    ...rawNotelogPointFromEvent(event),
+  });
+
+  if (notelogCalibrationDraft.points.length >= NOTELOG_CALIBRATION_STEPS.length) {
+    const calibration = Object.fromEntries(
+      notelogCalibrationDraft.points.map((point) => [point.id, { x: point.x, y: point.y }]),
+    );
+    notelogCalibrationDraft = null;
+    saveNotelogCalibration(calibration);
+    renderNotelogCalibrationOverlay();
+    showScopedMessage("#notelog-success", "Tablet calibration saved.");
+    return;
+  }
+
+  renderNotelogCalibrationOverlay();
+}
+
+function updateNotelogCalibrationStatus() {
+  const status = document.querySelector("#notelog-calibration-status");
+  const resetButton = document.querySelector("#notelog-reset-calibration");
+  if (!status || !resetButton) {
+    return;
+  }
+
+  if (notelogCalibrationDraft) {
+    const step = NOTELOG_CALIBRATION_STEPS[notelogCalibrationDraft.points.length];
+    status.textContent = `Tap ${step.label} corner`;
+  } else {
+    status.textContent = notelogCalibration ? "Calibration active" : "Not calibrated";
+  }
+  resetButton.disabled = !notelogCalibration && !notelogCalibrationDraft;
+}
+
+function renderNotelogCalibrationOverlay() {
+  const overlay = document.querySelector("#notelog-calibration-overlay");
+  const target = document.querySelector("#notelog-calibration-target");
+  const heading = document.querySelector("#notelog-calibration-heading");
+  const copy = document.querySelector("#notelog-calibration-copy");
+  const canvas = document.querySelector("#notelog-canvas");
+  if (!overlay || !target || !heading || !copy || !canvas) {
+    return;
+  }
+
+  const step = notelogCalibrationDraft
+    ? NOTELOG_CALIBRATION_STEPS[notelogCalibrationDraft.points.length]
+    : null;
+  overlay.hidden = !step;
+  canvas.classList.toggle("is-calibrating", Boolean(step));
+  updateNotelogCalibrationStatus();
+
+  if (!step) {
+    return;
+  }
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const wrapperRect = overlay.parentElement.getBoundingClientRect();
+  const markerX = canvas.offsetLeft + (step.x / NOTELOG_PAGE_WIDTH) * canvasRect.width;
+  const markerY = canvas.offsetTop + (step.y / NOTELOG_PAGE_HEIGHT) * canvasRect.height;
+  const safeX = clampNotelogNumber(markerX, canvas.offsetLeft + 18, canvas.offsetLeft + canvasRect.width - 18);
+  const safeY = clampNotelogNumber(markerY, canvas.offsetTop + 18, canvas.offsetTop + canvasRect.height - 18);
+
+  target.style.left = `${safeX}px`;
+  target.style.top = `${safeY}px`;
+  heading.textContent = `Tap ${step.label}`;
+  copy.textContent = `Point ${notelogCalibrationDraft.points.length + 1} of ${NOTELOG_CALIBRATION_STEPS.length}`;
+  overlay.style.width = `${wrapperRect.width}px`;
+  overlay.style.height = `${wrapperRect.height}px`;
+}
+
+function renderNotelogCanvas() {
+  const canvas = document.querySelector("#notelog-canvas");
+  const page = activeNotelogPage();
+  if (!canvas || !page) {
+    return;
+  }
+
+  canvas.width = page.width || NOTELOG_PAGE_WIDTH;
+  canvas.height = page.height || NOTELOG_PAGE_HEIGHT;
+  const context = canvas.getContext("2d");
+  drawNotelogPage(context, page);
+}
+
+function drawNotelogPage(context, page) {
+  context.save();
+  context.clearRect(0, 0, page.width, page.height);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, page.width, page.height);
+  drawNotelogBackground(context, page);
+  for (const stroke of page.strokes || []) {
+    drawNotelogStroke(context, stroke);
+  }
+  context.restore();
+}
+
+function drawNotelogBackground(context, page) {
+  context.save();
+  context.strokeStyle = "#dbe7f6";
+  context.fillStyle = "#dbe7f6";
+  context.lineWidth = 1;
+  if (page.background === "ruled") {
+    for (let y = 96; y < page.height; y += 44) {
+      context.beginPath();
+      context.moveTo(72, y);
+      context.lineTo(page.width - 72, y);
+      context.stroke();
+    }
+  } else if (page.background === "dots") {
+    for (let y = 52; y < page.height; y += 32) {
+      for (let x = 52; x < page.width; x += 32) {
+        context.beginPath();
+        context.arc(x, y, 1.3, 0, Math.PI * 2);
+        context.fill();
+      }
+    }
+  } else if (page.background === "grid") {
+    for (let x = 50; x < page.width; x += 32) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, page.height);
+      context.stroke();
+    }
+    for (let y = 50; y < page.height; y += 32) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(page.width, y);
+      context.stroke();
+    }
+  }
+  context.restore();
+}
+
+function drawNotelogStroke(context, stroke) {
+  const points = stroke.points || [];
+  if (points.length < 2) {
+    return;
+  }
+
+  context.save();
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = stroke.tool === "eraser" ? "#ffffff" : stroke.color || "#111827";
+  context.lineWidth = stroke.size || 4;
+  context.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    context.quadraticCurveTo(current.x, current.y, (current.x + next.x) / 2, (current.y + next.y) / 2);
+  }
+  const last = points[points.length - 1];
+  context.lineTo(last.x, last.y);
+  context.stroke();
+  context.restore();
+}
+
+function setNotelogTool(tool) {
+  notelogTool = tool === "eraser" ? "eraser" : "pen";
+  document.querySelectorAll("[data-notelog-tool]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.notelogTool === notelogTool);
+  });
+}
+
+function undoNotelogStroke() {
+  const page = activeNotelogPage();
+  if (!page?.strokes?.length) {
+    return;
+  }
+
+  notelogRedoStack.push(page.strokes.pop());
+  updateActiveNotelogTimestamp();
+  renderNotelogCanvas();
+  updateNotelogButtons();
+}
+
+function redoNotelogStroke() {
+  const page = activeNotelogPage();
+  const stroke = notelogRedoStack.pop();
+  if (!page || !stroke) {
+    return;
+  }
+
+  page.strokes.push(stroke);
+  updateActiveNotelogTimestamp();
+  renderNotelogCanvas();
+  updateNotelogButtons();
+}
+
+function addNotelogPage() {
+  if (!activeNotelogNote) {
+    return;
+  }
+
+  activeNotelogNote.pages.push(newNotelogPage());
+  activeNotelogPageIndex = activeNotelogNote.pages.length - 1;
+  notelogRedoStack = [];
+  updateActiveNotelogTimestamp();
+  renderActiveNotelogNote();
+}
+
+function deleteNotelogPage() {
+  if (!activeNotelogNote || activeNotelogNote.pages.length <= 1) {
+    showScopedMessage("#notelog-error", "A note needs at least one page.");
+    return;
+  }
+
+  activeNotelogNote.pages.splice(activeNotelogPageIndex, 1);
+  activeNotelogPageIndex = Math.max(0, activeNotelogPageIndex - 1);
+  notelogRedoStack = [];
+  updateActiveNotelogTimestamp();
+  renderActiveNotelogNote();
+}
+
+function updateActiveNotelogTimestamp() {
+  if (activeNotelogNote) {
+    activeNotelogNote.updatedAt = new Date().toISOString();
+  }
+}
+
+function updateNotelogButtons() {
+  const page = activeNotelogPage();
+  const undo = document.querySelector("#notelog-undo");
+  const redo = document.querySelector("#notelog-redo");
+  const deletePage = document.querySelector("#notelog-delete-page");
+  if (undo) undo.disabled = !(page?.strokes?.length);
+  if (redo) redo.disabled = !notelogRedoStack.length;
+  if (deletePage) deletePage.disabled = !activeNotelogNote || activeNotelogNote.pages.length <= 1;
+}
+
+async function saveActiveNotelogNote() {
+  if (!activeNotelogNote) {
+    return;
+  }
+
+  activeNotelogNote.title = document.querySelector("#notelog-title").value.trim() || "Untitled note";
+  updateActiveNotelogTimestamp();
+  try {
+    const payload = await request("/tools/notelog/notes", {
+      method: "POST",
+      body: JSON.stringify({ note: activeNotelogNote }),
+    });
+    activeNotelogNote = payload.note;
+    notelogNotes = payload.notes || [activeNotelogNote];
+    renderActiveNotelogNote();
+    showScopedMessage("#notelog-success", "Note saved.");
+  } catch (error) {
+    showScopedMessage("#notelog-error", error.message);
+  }
+}
+
+async function exportActiveNotelogNote() {
+  if (!activeNotelogNote) {
+    return;
+  }
+
+  try {
+    await saveActiveNotelogNote();
+    const pageImages = activeNotelogNote.pages.map(notelogPageToJpegDataUrl);
+    const payload = await request("/tools/notelog/export", {
+      method: "POST",
+      body: JSON.stringify({ id: activeNotelogNote.id, pageImages }),
+    });
+    notelogNotes = payload.notes || notelogNotes;
+    activeNotelogNote = notelogNotes.find((note) => note.id === activeNotelogNote.id) || activeNotelogNote;
+    renderActiveNotelogNote();
+    showScopedMessage("#notelog-success", `Exported ${payload.fileName}.`);
+  } catch (error) {
+    showScopedMessage("#notelog-error", error.message);
+  }
+}
+
+function notelogPageToJpegDataUrl(page) {
+  const canvas = document.createElement("canvas");
+  canvas.width = page.width || NOTELOG_PAGE_WIDTH;
+  canvas.height = page.height || NOTELOG_PAGE_HEIGHT;
+  const context = canvas.getContext("2d");
+  drawNotelogPage(context, page);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
 function renderHtmlBase64Tool() {
   app.innerHTML = `
     ${renderTopbar()}
@@ -2489,7 +3330,7 @@ function renderTopbar(options = {}) {
   return `
     <header class="topbar">
       <div class="brand">
-        <img class="brand-logo" src="./assets/optimus-horizontal.svg" alt="Optimus" />
+        <img class="brand-logo" src="./assets/optimus-vertical.svg" alt="Optimus" />
       </div>
       <div class="topbar-actions">
         ${

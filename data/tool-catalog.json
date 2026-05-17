@@ -3,17 +3,17 @@
     {
       "id": "builders",
       "name": "Superbo",
-      "displayOrder": 1
+      "displayOrder": 3
     },
     {
       "id": "utilities",
       "name": "Personal",
-      "displayOrder": 2
+      "displayOrder": 1
     },
     {
       "id": "new-group",
       "name": "Utilities",
-      "displayOrder": 3
+      "displayOrder": 2
     }
   ],
   "tools": [
@@ -27,6 +27,12 @@
       "id": "betlog",
       "groupId": "utilities",
       "displayOrder": 2,
+      "enabled": true
+    },
+    {
+      "id": "notelog",
+      "groupId": "utilities",
+      "displayOrder": 3,
       "enabled": true
     },
     {

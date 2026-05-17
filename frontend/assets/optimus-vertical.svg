@@ -1,0 +1,7 @@
+<svg width="180" height="150" viewBox="0 0 180 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="optimus-logo-title">
+  <title id="optimus-logo-title">Optimus</title>
+  <path d="M50 40 L70 5 L110 5 L130 40 L110 75 L70 75 Z" fill="none" stroke="#0052CC" stroke-width="7" stroke-linejoin="round" />
+  <path d="M78 40 L90 19 L102 40 L90 61 Z" fill="#0052CC" />
+  <text x="90" y="118" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="34" fill="#172B4D">Optimus</text>
+  <rect x="43" y="130" width="94" height="4" rx="2" fill="#0065FF" />
+</svg>

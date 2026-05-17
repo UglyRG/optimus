@@ -18,6 +18,10 @@ const DATA_DIR = path.join(__dirname, "..", "data");
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
 const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
 const BETLOG_BETS_PATH = path.join(DATA_DIR, "betlog-bets.json");
+const NOTELOG_NOTES_PATH = path.join(DATA_DIR, "notelog-notes.json");
+const NOTES_OUTPUT_DIR = path.join(OUTPUTS_DIR, "Notes");
+const NOTELOG_PAGE_WIDTH = 1414;
+const NOTELOG_PAGE_HEIGHT = 1000;
 const execFileAsync = promisify(execFile);
 const HOSTED_TOOLS = [
   {
@@ -29,6 +33,11 @@ const HOSTED_TOOLS = [
     id: "betlog",
     title: "Betlog",
     description: "Log placed bets, import CSV batches, and review stake, returns, profit, and hit-rate performance.",
+  },
+  {
+    id: "notelog",
+    title: "Notelog",
+    description: "Capture handwritten pen-tablet notes on editable pages and export them as local PDFs.",
   },
   {
     id: "demo-builder",
@@ -64,11 +73,12 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
   tools: [
     { id: "padelog", groupId: "utilities", displayOrder: 1, enabled: true },
     { id: "betlog", groupId: "utilities", displayOrder: 2, enabled: true },
+    { id: "notelog", groupId: "utilities", displayOrder: 3, enabled: true },
     { id: "demo-builder", groupId: "builders", displayOrder: 1, enabled: true },
     { id: "presentation-suite", groupId: "builders", displayOrder: 2, enabled: true },
-    { id: "html-base64", groupId: "utilities", displayOrder: 3, enabled: true },
-    { id: "pdf-base64", groupId: "utilities", displayOrder: 4, enabled: true },
-    { id: "token-usage", groupId: "utilities", displayOrder: 5, enabled: true },
+    { id: "html-base64", groupId: "utilities", displayOrder: 4, enabled: true },
+    { id: "pdf-base64", groupId: "utilities", displayOrder: 5, enabled: true },
+    { id: "token-usage", groupId: "utilities", displayOrder: 6, enabled: true },
   ],
 };
 
@@ -1418,6 +1428,313 @@ async function deleteBetlogBet(betRowId) {
   return { bets: nextBets };
 }
 
+function defaultNotelogPage() {
+  return {
+    id: crypto.randomUUID(),
+    width: NOTELOG_PAGE_WIDTH,
+    height: NOTELOG_PAGE_HEIGHT,
+    background: "grid",
+    strokes: [],
+  };
+}
+
+function normalizeNotelogNote(rawNote = {}) {
+  const createdAt = cleanText(rawNote.createdAt, new Date().toISOString(), 40);
+  const updatedAt = cleanText(rawNote.updatedAt, createdAt, 40);
+  const pages = Array.isArray(rawNote.pages) && rawNote.pages.length
+    ? rawNote.pages.slice(0, 120).map(normalizeNotelogPage)
+    : [defaultNotelogPage()];
+
+  return {
+    id: cleanText(rawNote.id, crypto.randomUUID(), 80),
+    title: cleanText(rawNote.title, "Untitled note", 120),
+    createdAt,
+    updatedAt,
+    pages,
+    exportedFileName: cleanText(rawNote.exportedFileName, "", 180),
+    exportedAt: cleanText(rawNote.exportedAt, "", 40),
+  };
+}
+
+function normalizeNotelogPage(rawPage = {}) {
+  const rawWidth = cleanBoundedNumber(rawPage.width, NOTELOG_PAGE_WIDTH, 300, 3000);
+  const rawHeight = cleanBoundedNumber(rawPage.height, NOTELOG_PAGE_HEIGHT, 300, 5000);
+  const isPortrait = rawHeight > rawWidth;
+  const width = isPortrait ? NOTELOG_PAGE_WIDTH : rawWidth;
+  const height = isPortrait ? NOTELOG_PAGE_HEIGHT : rawHeight;
+  const scaleX = width / rawWidth;
+  const scaleY = height / rawHeight;
+  const background = ["blank", "ruled", "grid", "dots"].includes(rawPage.background) ? rawPage.background : "grid";
+  const strokes = Array.isArray(rawPage.strokes)
+    ? rawPage.strokes.slice(0, 15000).map((stroke) => normalizeNotelogStroke(stroke, { scaleX, scaleY }))
+    : [];
+
+  return {
+    id: cleanText(rawPage.id, crypto.randomUUID(), 80),
+    width,
+    height,
+    background,
+    strokes,
+  };
+}
+
+function normalizeNotelogStroke(rawStroke = {}, options = {}) {
+  const tool = rawStroke.tool === "eraser" ? "eraser" : "pen";
+  const color = safeHexColor(rawStroke.color, "#111827");
+  const size = cleanBoundedNumber(rawStroke.size, 4, 1, 80);
+  const points = Array.isArray(rawStroke.points)
+    ? rawStroke.points.slice(0, 3000).map((point) => normalizeNotelogPoint(point, options))
+    : [];
+
+  return { tool, color, size, points };
+}
+
+function normalizeNotelogPoint(rawPoint = {}, options = {}) {
+  const scaleX = Number.isFinite(options.scaleX) ? options.scaleX : 1;
+  const scaleY = Number.isFinite(options.scaleY) ? options.scaleY : 1;
+  return {
+    x: cleanBoundedNumber(Number(rawPoint.x) * scaleX, 0, -10000, 10000),
+    y: cleanBoundedNumber(Number(rawPoint.y) * scaleY, 0, -10000, 10000),
+    pressure: cleanBoundedNumber(rawPoint.pressure, 0.5, 0, 1),
+  };
+}
+
+function cleanBoundedNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(number * 1000) / 1000));
+}
+
+function sortNotelogNotes(notes) {
+  return [...notes].sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+}
+
+async function loadNotelogNotes() {
+  try {
+    const contents = await fs.readFile(NOTELOG_NOTES_PATH, "utf8");
+    const parsed = JSON.parse(contents);
+    const notes = Array.isArray(parsed?.notes) ? parsed.notes : Array.isArray(parsed) ? parsed : [];
+    return sortNotelogNotes(notes.map(normalizeNotelogNote));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function saveNotelogNotes(notes) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    NOTELOG_NOTES_PATH,
+    `${JSON.stringify({ notes: sortNotelogNotes(notes) }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function upsertNotelogNote(payload = {}) {
+  const note = normalizeNotelogNote({
+    ...(payload.note || payload),
+    updatedAt: new Date().toISOString(),
+  });
+  const notes = await loadNotelogNotes();
+  const existingIndex = notes.findIndex((item) => item.id === note.id);
+  if (existingIndex >= 0) {
+    note.createdAt = notes[existingIndex].createdAt;
+    note.exportedFileName = notes[existingIndex].exportedFileName;
+    note.exportedAt = notes[existingIndex].exportedAt;
+    notes[existingIndex] = note;
+  } else {
+    notes.unshift(note);
+  }
+
+  const sortedNotes = sortNotelogNotes(notes);
+  await saveNotelogNotes(sortedNotes);
+  return { note, notes: sortedNotes };
+}
+
+async function deleteNotelogNote(noteId) {
+  const id = String(noteId || "").trim();
+  if (!id) {
+    throw new Error("Choose a note to delete");
+  }
+
+  const notes = await loadNotelogNotes();
+  const nextNotes = notes.filter((note) => note.id !== id);
+  if (nextNotes.length === notes.length) {
+    throw new Error("Note not found");
+  }
+
+  await saveNotelogNotes(nextNotes);
+  return { notes: nextNotes };
+}
+
+async function exportNotelogNote(payload = {}) {
+  const id = String(payload.id || payload.note?.id || "").trim();
+  const pageImages = Array.isArray(payload.pageImages) ? payload.pageImages : [];
+  if (!id) {
+    throw new Error("Choose a note to export");
+  }
+  if (!pageImages.length) {
+    throw new Error("Add at least one page before exporting");
+  }
+
+  const notes = await loadNotelogNotes();
+  const noteIndex = notes.findIndex((note) => note.id === id);
+  if (noteIndex === -1) {
+    throw new Error("Note not found");
+  }
+
+  const images = pageImages.map(parseJpegDataUrl);
+  const pdf = buildPdfFromJpegs(images);
+  const fileName = notelogPdfFileName(notes[noteIndex].title);
+  const outputPath = path.join(NOTES_OUTPUT_DIR, fileName);
+
+  await fs.mkdir(NOTES_OUTPUT_DIR, { recursive: true });
+  await fs.writeFile(outputPath, pdf);
+
+  notes[noteIndex] = {
+    ...notes[noteIndex],
+    exportedFileName: fileName,
+    exportedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  const sortedNotes = sortNotelogNotes(notes);
+  await saveNotelogNotes(sortedNotes);
+
+  return {
+    fileName,
+    outputPath,
+    notes: sortedNotes,
+    note: notes[noteIndex],
+  };
+}
+
+function notelogPdfFileName(title) {
+  const safeBaseName = String(title || "note")
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100) || "note";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${safeBaseName}-${stamp}.pdf`;
+}
+
+function parseJpegDataUrl(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/);
+  if (!match) {
+    throw new Error("Export pages must be JPEG data URLs");
+  }
+
+  const buffer = Buffer.from(match[1], "base64");
+  const dimensions = jpegDimensions(buffer);
+  return { buffer, ...dimensions };
+}
+
+function jpegDimensions(buffer) {
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+    throw new Error("Export page is not a valid JPEG");
+  }
+
+  let offset = 2;
+  while (offset < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    const marker = buffer[offset + 1];
+    const length = buffer.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) {
+      return {
+        height: buffer.readUInt16BE(offset + 5),
+        width: buffer.readUInt16BE(offset + 7),
+      };
+    }
+    offset += 2 + length;
+  }
+
+  throw new Error("Could not read JPEG dimensions");
+}
+
+function buildPdfFromJpegs(images) {
+  const chunks = [];
+  const offsets = [0];
+  const pageWidth = 841.89;
+  const pageHeight = 595.28;
+  const margin = 18;
+  let objectNumber = 1;
+  const catalogObject = objectNumber++;
+  const pagesObject = objectNumber++;
+  const pageObjects = [];
+  const imageObjects = [];
+  const contentObjects = [];
+
+  for (let index = 0; index < images.length; index += 1) {
+    pageObjects.push(objectNumber++);
+    imageObjects.push(objectNumber++);
+    contentObjects.push(objectNumber++);
+  }
+
+  function push(value) {
+    chunks.push(Buffer.isBuffer(value) ? value : Buffer.from(value, "binary"));
+  }
+
+  function writeObject(number, body) {
+    offsets[number] = Buffer.concat(chunks).length;
+    push(`${number} 0 obj\n${body}\nendobj\n`);
+  }
+
+  function writeStreamObject(number, dictionary, stream) {
+    offsets[number] = Buffer.concat(chunks).length;
+    push(`${number} 0 obj\n${dictionary}\nstream\n`);
+    push(stream);
+    push("\nendstream\nendobj\n");
+  }
+
+  push("%PDF-1.4\n");
+  writeObject(catalogObject, `<< /Type /Catalog /Pages ${pagesObject} 0 R >>`);
+  writeObject(
+    pagesObject,
+    `<< /Type /Pages /Kids [${pageObjects.map((number) => `${number} 0 R`).join(" ")}] /Count ${pageObjects.length} >>`,
+  );
+
+  images.forEach((image, index) => {
+    const imageObject = imageObjects[index];
+    const contentObject = contentObjects[index];
+    const drawableWidth = pageWidth - margin * 2;
+    const drawableHeight = pageHeight - margin * 2;
+    const scale = Math.min(drawableWidth / image.width, drawableHeight / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
+    const x = (pageWidth - width) / 2;
+    const y = (pageHeight - height) / 2;
+    const content = Buffer.from(`q\n${width.toFixed(2)} 0 0 ${height.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm\n/Im${index + 1} Do\nQ\n`, "binary");
+
+    writeObject(
+      pageObjects[index],
+      `<< /Type /Page /Parent ${pagesObject} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im${index + 1} ${imageObject} 0 R >> >> /Contents ${contentObject} 0 R >>`,
+    );
+    writeStreamObject(
+      imageObject,
+      `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.buffer.length} >>`,
+      image.buffer,
+    );
+    writeStreamObject(contentObject, `<< /Length ${content.length} >>`, content);
+  });
+
+  const xrefOffset = Buffer.concat(chunks).length;
+  push(`xref\n0 ${objectNumber}\n0000000000 65535 f \n`);
+  for (let index = 1; index < objectNumber; index += 1) {
+    push(`${String(offsets[index]).padStart(10, "0")} 00000 n \n`);
+  }
+  push(`trailer\n<< /Size ${objectNumber} /Root ${catalogObject} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
+
+  return Buffer.concat(chunks);
+}
+
 function normalizeStringList(items, fallback) {
   const source = Array.isArray(items) && items.length ? items : fallback;
   return source.slice(0, 20).map((item) => cleanText(item, "Placeholder item", 300));
@@ -2631,6 +2948,61 @@ async function handleRequest(request, response) {
       sendJson(response, 200, await updateBetlogBet(payload));
     } catch (error) {
       sendJson(response, 400, { error: error.message || "Could not update Betlog bet" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/notelog/notes") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, { notes: await loadNotelogNotes() });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/notelog/notes") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await upsertNotelogNote(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not save note" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/notelog/delete") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await deleteNotelogNote(payload.id));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not delete note" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/notelog/export") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await exportNotelogNote(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not export note" });
     }
     return;
   }

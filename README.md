@@ -1,6 +1,6 @@
 # Optimus
 
-Version: `0.2.0`
+Version: `v4.5`
 
 Optimus is split into two local services:
 
@@ -44,6 +44,14 @@ Padelog match data is persisted locally in `data/padelog-matches.json` when the 
 Track placed bets from the Personal tools group. Each saved row represents one selection, so combo bets can repeat the same `bet_id`, stake, return, and metadata across multiple rows for analysis. Bets can be added manually one at a time or imported in batches from CSV using the columns `date`, `time`, `bet_id`, `bet_type`, `stake`, `free_bet`, `status`, `return_amount`, `selection`, `odds`, `market`, `match`, `score`, `outcome_type`, and `legs`. The UI shows month-to-date, year-to-date, and custom date-range statistics, with stake and return calculated once per unique bet ID so combo rows do not double-count money.
 
 Betlog data is persisted locally in `data/betlog-bets.json` when the first bet is saved.
+
+### Notelog
+
+Capture handwritten notes from a pen tablet in the Personal tools group. Notes use a landscape page canvas and are stored locally as editable page and stroke data, with page controls, pen/eraser tools, undo/redo, paper styles, and one-click PDF export. The Notelog workspace uses a left-side Notes/Tools panel and a compact Optimus rail so the writing area can use the full page height.
+
+Tablet calibration is available from the Notelog Tools tab. Tap the four highlighted page corners to map tablet input to the note page area; calibration is stored in the browser and can be reset from the same panel. Exported PDFs are saved in `Outputs/Notes/`.
+
+Notelog data is persisted locally in `data/notelog-notes.json` when the first note is saved.
 
 ### Demo Builder
 

@@ -409,18 +409,21 @@ button {
 }
 
 .topbar {
-  position: sticky;
-  top: 12px;
+  position: fixed;
+  top: 16px;
+  bottom: 16px;
+  left: 16px;
   z-index: 20;
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-items: start;
   justify-content: space-between;
   gap: 16px;
-  width: min(1120px, calc(100% - 32px));
-  margin: 12px auto 0;
+  width: 128px;
+  margin: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px clamp(18px, 4vw, 42px);
+  padding: 18px 14px;
   background: var(--panel-elevated);
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
@@ -429,12 +432,13 @@ button {
 .brand {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-width: 0;
 }
 
 .brand-logo {
   display: block;
-  width: clamp(150px, 18vw, 210px);
+  width: 108px;
   height: auto;
 }
 
@@ -445,8 +449,15 @@ button {
 
 .topbar-actions {
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  align-self: end;
+  flex-direction: column;
   gap: 10px;
+}
+
+.topbar-actions .button,
+.topbar-actions .theme-toggle {
+  width: 100%;
 }
 
 .theme-toggle {
@@ -483,9 +494,9 @@ button {
 }
 
 .index-page {
-  width: min(1120px, calc(100% - 32px));
-  margin: 0 auto;
-  padding: clamp(28px, 5vw, 48px) 0;
+  width: min(1120px, calc(100% - 184px));
+  margin: 0 24px 0 160px;
+  padding: 24px 0;
 }
 
 .page-head {
@@ -1545,6 +1556,7 @@ iframe {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  margin-left: 144px;
   border-top: 1px solid var(--line);
   padding: 14px clamp(18px, 4vw, 42px);
   background: var(--footer-bg);
@@ -1556,6 +1568,372 @@ iframe {
 
 .app-footer span:last-child {
   color: var(--ink);
+}
+
+@media (max-width: 920px) {
+  .topbar {
+    position: sticky;
+    top: 12px;
+    bottom: auto;
+    left: auto;
+    display: flex;
+    align-items: center;
+    width: min(1120px, calc(100% - 32px));
+    margin: 12px auto 0;
+    padding: 14px clamp(18px, 4vw, 42px);
+  }
+
+  .brand {
+    justify-content: flex-start;
+  }
+
+  .brand-logo {
+    width: 124px;
+  }
+
+  .topbar-actions {
+    align-self: auto;
+    flex-direction: row;
+  }
+
+  .topbar-actions .button,
+  .topbar-actions .theme-toggle {
+    width: auto;
+  }
+
+  .index-page,
+  .notelog-page {
+    width: min(1120px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 48px) 0;
+  }
+
+  .app-footer {
+    margin-left: 0;
+  }
+}
+
+.notelog-page {
+  width: calc(100% - 184px);
+  max-width: none;
+  padding-top: 16px;
+}
+
+@media (max-width: 920px) {
+  .notelog-page {
+    width: min(1120px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 48px) 0;
+  }
+}
+
+.notelog-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.notelog-sidebar,
+.notelog-workspace {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.notelog-sidebar {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.notelog-sidebar-title {
+  display: grid;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.notelog-sidebar-title h1 {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.08;
+}
+
+.notelog-sidebar-title p {
+  margin: 8px 0 0;
+  line-height: 1.35;
+}
+
+.notelog-sidebar-title .button {
+  width: 100%;
+}
+
+.notelog-sidebar-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.notelog-sidebar-tabs .button {
+  width: 100%;
+}
+
+.notelog-sidebar-tabs .button.is-active {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
+}
+
+.notelog-sidebar-panel {
+  display: none;
+}
+
+.notelog-sidebar-panel.is-active {
+  display: grid;
+  gap: 12px;
+}
+
+.notelog-sidebar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notelog-sidebar h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.notelog-sidebar p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.notelog-list {
+  display: grid;
+  gap: 8px;
+  max-height: calc(100vh - 240px);
+  overflow: auto;
+}
+
+.notelog-note-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft-bg);
+}
+
+.notelog-note-row.is-active {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.notelog-note-row button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.notelog-note-row [data-open-notelog-note] {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px;
+}
+
+.notelog-note-row strong,
+.notelog-note-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notelog-note-row span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.notelog-delete-note {
+  align-self: stretch;
+  border-left: 1px solid var(--line) !important;
+  padding: 0 9px;
+  color: var(--danger) !important;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.notelog-workspace {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.notelog-tools-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.notelog-calibration-tools {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--soft-bg);
+}
+
+.notelog-calibration-tools h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.notelog-calibration-tools p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.notelog-tool-grid {
+  grid-template-columns: 74px minmax(0, 1fr);
+}
+
+.notelog-title-field {
+  min-width: 0;
+}
+
+.notelog-compact-field {
+  width: 74px;
+}
+
+.notelog-size-field {
+  min-width: 110px;
+}
+
+.notelog-background-field {
+  min-width: 100px;
+}
+
+.notelog-tool-group,
+.notelog-page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.notelog-tool-group .button {
+  flex: 1 1 110px;
+}
+
+.notelog-tool-group .button.is-active,
+.notelog-page-tabs .button.is-active {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
+}
+
+.notelog-canvas-wrap {
+  position: relative;
+  display: grid;
+  justify-content: center;
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: color-mix(in srgb, var(--soft-bg) 82%, var(--line));
+}
+
+#notelog-canvas {
+  width: min(100%, 980px);
+  height: auto;
+  aspect-ratio: 1414 / 1000;
+  border: 1px solid #c6d4ea;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(23, 43, 77, 0.14);
+  touch-action: none;
+}
+
+#notelog-canvas.is-calibrating {
+  cursor: crosshair;
+}
+
+.notelog-calibration-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.notelog-calibration-target {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--brand);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 7px color-mix(in srgb, var(--brand) 18%, transparent),
+    0 8px 18px rgba(23, 43, 77, 0.22);
+  transform: translate(-50%, -50%);
+}
+
+.notelog-calibration-target::before,
+.notelog-calibration-target::after {
+  position: absolute;
+  content: "";
+  background: var(--brand);
+}
+
+.notelog-calibration-target::before {
+  top: 50%;
+  left: -10px;
+  width: 48px;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.notelog-calibration-target::after {
+  top: -10px;
+  left: 50%;
+  width: 2px;
+  height: 48px;
+  transform: translateX(-50%);
+}
+
+.notelog-calibration-card {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 4px;
+  max-width: 260px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-elevated);
+  box-shadow: var(--shadow);
+}
+
+.notelog-calibration-card strong {
+  font-size: 0.95rem;
+}
+
+.notelog-calibration-card span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 @media (max-width: 680px) {
@@ -1572,6 +1950,8 @@ iframe {
   .month-summary-metrics,
   .padelog-layout,
   .betlog-entry-layout,
+  .notelog-shell,
+  .notelog-tool-grid,
   .padelog-form-grid,
   .padelog-metrics,
   .token-usage-grid,
@@ -1607,6 +1987,20 @@ iframe {
   .padelog-pagination .button,
   .tool-panel .button,
   .result-head .button {
+    width: 100%;
+  }
+
+  .notelog-sidebar {
+    position: static;
+  }
+
+  .notelog-list {
+    max-height: none;
+  }
+
+  .notelog-compact-field,
+  .notelog-size-field,
+  .notelog-background-field {
     width: 100%;
   }
 
