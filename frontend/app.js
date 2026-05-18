@@ -481,6 +481,20 @@ function renderToolAdminForm(catalog) {
         <section class="admin-section">
           <div class="admin-section-head">
             <div>
+              <h2>Backup and restore</h2>
+              <p>Download or restore the local data files for tools, Padelog, Betlog, and Notelog.</p>
+            </div>
+            <div class="admin-actions">
+              <button class="button button-secondary" id="backup-data-button" type="button">Backup</button>
+              <button class="button button-secondary" id="restore-data-button" type="button">Restore</button>
+              <input id="restore-data-file" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden />
+            </div>
+          </div>
+        </section>
+
+        <section class="admin-section">
+          <div class="admin-section-head">
+            <div>
               <h2>Groups</h2>
               <p>Lower numbers appear first.</p>
             </div>
@@ -511,6 +525,11 @@ function renderToolAdminForm(catalog) {
   );
 
   document.querySelector("#add-tool-group").addEventListener("click", handleAddToolGroup);
+  document.querySelector("#backup-data-button").addEventListener("click", handleBackupData);
+  document.querySelector("#restore-data-button").addEventListener("click", () => {
+    document.querySelector("#restore-data-file").click();
+  });
+  document.querySelector("#restore-data-file").addEventListener("change", handleRestoreData);
   document.querySelector("#admin-group-list").addEventListener("click", handleAdminGroupListClick);
   document.querySelector("#tool-admin-form").addEventListener("submit", handleToolAdminSubmit);
 }
@@ -609,6 +628,47 @@ async function handleToolAdminSubmit(event) {
   }
 }
 
+async function handleBackupData() {
+  try {
+    const result = await request("/admin/backup");
+    downloadBase64File(result.base64, result.fileName || "optimus-backup.zip", result.mimeType || "application/zip");
+    showAdminSuccess("Backup downloaded.");
+  } catch (error) {
+    showAdminError(error.message);
+  }
+}
+
+async function handleRestoreData(event) {
+  const input = event.target;
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+
+  const confirmed = window.confirm("Restore this backup? Current tool layout, Padelog, Betlog, and Notelog data will be replaced.");
+  if (!confirmed) {
+    input.value = "";
+    return;
+  }
+
+  try {
+    const base64 = await fileToBase64(file);
+    const result = await request("/admin/restore", {
+      method: "POST",
+      body: JSON.stringify({ base64 }),
+    });
+    renderToolAdminForm(result.catalog);
+    const restored = result.restored || {};
+    showAdminSuccess(
+      `Backup restored. ${restored.matches || 0} matches, ${restored.bets || 0} bets, and ${restored.notes || 0} notes restored.`,
+    );
+  } catch (error) {
+    showAdminError(error.message);
+  } finally {
+    input.value = "";
+  }
+}
+
 function readToolAdminFormValues() {
   const form = document.querySelector("#tool-admin-form");
   const groupRows = Array.from(form.querySelectorAll(".admin-group-row"));
@@ -661,6 +721,25 @@ function showAdminError(message) {
   if (!error) return;
   error.textContent = message;
   error.classList.add("is-visible");
+}
+
+function downloadBase64File(base64, fileName, mimeType) {
+  const bytes = base64ToBytes(base64);
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function base64ToBytes(base64) {
+  const binary = atob(base64 || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 async function renderPadelogTool() {

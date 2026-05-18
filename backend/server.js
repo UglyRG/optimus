@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const zlib = require("node:zlib");
 const { PDFDocument } = require("pdf-lib");
 
 loadEnvFile(path.join(__dirname, "..", ".env"));
@@ -27,6 +28,12 @@ const COMBINE_PDF_MIN_DOCUMENTS = 2;
 const COMBINE_PDF_MAX_DOCUMENTS = 5;
 const PDF_HEADER_SEARCH_BYTES = 1024;
 const execFileAsync = promisify(execFile);
+const BACKUP_FILES = [
+  { name: "tool-catalog.json", path: TOOL_CATALOG_PATH },
+  { name: "padelog-matches.json", path: PADELOG_MATCHES_PATH },
+  { name: "betlog-bets.json", path: BETLOG_BETS_PATH },
+  { name: "notelog-notes.json", path: NOTELOG_NOTES_PATH },
+];
 const HOSTED_TOOLS = [
   {
     id: "padelog",
@@ -302,6 +309,185 @@ async function saveToolCatalogConfig(payload) {
   await fs.writeFile(TOOL_CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
   return adminToolCatalog();
 }
+
+async function createBackupArchive() {
+  const catalog = normalizeToolCatalogConfig(await loadToolCatalogConfig());
+  const files = [
+    { name: "data/tool-catalog.json", data: `${JSON.stringify(catalog, null, 2)}\n` },
+    { name: "data/padelog-matches.json", data: `${JSON.stringify({ matches: await loadPadelogMatches() }, null, 2)}\n` },
+    { name: "data/betlog-bets.json", data: `${JSON.stringify({ bets: await loadBetlogBets() }, null, 2)}\n` },
+    { name: "data/notelog-notes.json", data: `${JSON.stringify({ notes: await loadNotelogNotes() }, null, 2)}\n` },
+  ];
+  const date = new Date().toISOString().slice(0, 10);
+
+  return {
+    fileName: `optimus-backup-${date}.zip`,
+    mimeType: "application/zip",
+    base64: createStoredZip(files).toString("base64"),
+  };
+}
+
+async function restoreBackupArchive(payload) {
+  const compactBase64 = String(payload?.base64 || "").trim();
+  if (!compactBase64) {
+    throw new Error("Choose a backup zip file first.");
+  }
+
+  const entries = readZipEntries(Buffer.from(compactBase64, "base64"));
+  const filesByName = new Map();
+  for (const [entryName, contents] of entries) {
+    filesByName.set(path.basename(entryName), contents.toString("utf8"));
+  }
+
+  const missing = BACKUP_FILES.filter((file) => !filesByName.has(file.name)).map((file) => file.name);
+  if (missing.length) {
+    throw new Error(`Backup is missing: ${missing.join(", ")}`);
+  }
+
+  const catalog = normalizeToolCatalogConfig(JSON.parse(filesByName.get("tool-catalog.json")), { strict: true });
+  const padelog = parseBackupCollection(filesByName.get("padelog-matches.json"), "matches").map(normalizePadelogMatch);
+  const betlog = parseBackupCollection(filesByName.get("betlog-bets.json"), "bets").map(normalizeBetlogBet);
+  const notelog = parseBackupCollection(filesByName.get("notelog-notes.json"), "notes").map(normalizeNotelogNote);
+
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(TOOL_CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+  await savePadelogMatches(padelog);
+  await saveBetlogBets(betlog);
+  await saveNotelogNotes(notelog);
+
+  return {
+    ok: true,
+    restored: {
+      matches: padelog.length,
+      bets: betlog.length,
+      notes: notelog.length,
+    },
+    catalog: await adminToolCatalog(),
+  };
+}
+
+function parseBackupCollection(contents, key) {
+  const parsed = JSON.parse(contents);
+  const values = Array.isArray(parsed?.[key]) ? parsed[key] : Array.isArray(parsed) ? parsed : null;
+  if (!Array.isArray(values)) {
+    throw new Error(`${key} backup file must contain an array.`);
+  }
+  return values;
+}
+
+function createStoredZip(files) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBuffer = Buffer.from(file.name, "utf8");
+    const dataBuffer = Buffer.isBuffer(file.data) ? file.data : Buffer.from(String(file.data), "utf8");
+    const crc = crc32(dataBuffer);
+    const localHeader = Buffer.alloc(30);
+    const centralHeader = Buffer.alloc(46);
+
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0x0800, 6);
+    localHeader.writeUInt16LE(0, 8);
+    writeZipDateTime(localHeader, 10);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(dataBuffer.length, 18);
+    localHeader.writeUInt32LE(dataBuffer.length, 22);
+    localHeader.writeUInt16LE(nameBuffer.length, 26);
+
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0x0800, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    writeZipDateTime(centralHeader, 12);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(dataBuffer.length, 20);
+    centralHeader.writeUInt32LE(dataBuffer.length, 24);
+    centralHeader.writeUInt16LE(nameBuffer.length, 28);
+    centralHeader.writeUInt32LE(offset, 42);
+
+    localParts.push(localHeader, nameBuffer, dataBuffer);
+    centralParts.push(centralHeader, nameBuffer);
+    offset += localHeader.length + nameBuffer.length + dataBuffer.length;
+  }
+
+  const centralOffset = offset;
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(centralOffset, 16);
+
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function readZipEntries(buffer) {
+  const entries = new Map();
+  let offset = 0;
+
+  while (offset + 30 <= buffer.length && buffer.readUInt32LE(offset) === 0x04034b50) {
+    const flags = buffer.readUInt16LE(offset + 6);
+    const method = buffer.readUInt16LE(offset + 8);
+    const compressedSize = buffer.readUInt32LE(offset + 18);
+    const nameLength = buffer.readUInt16LE(offset + 26);
+    const extraLength = buffer.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + nameLength + extraLength;
+    const dataEnd = dataStart + compressedSize;
+
+    if (flags & 0x08) {
+      throw new Error("Zip files with data descriptors are not supported.");
+    }
+    if (dataEnd > buffer.length) {
+      throw new Error("Backup zip is incomplete.");
+    }
+
+    const entryName = buffer.subarray(nameStart, nameStart + nameLength).toString("utf8");
+    const rawData = buffer.subarray(dataStart, dataEnd);
+    const data = method === 0 ? rawData : method === 8 ? zlib.inflateRawSync(rawData) : null;
+    if (!data) {
+      throw new Error(`Unsupported zip compression method for ${entryName}.`);
+    }
+    if (!entryName.endsWith("/")) {
+      entries.set(entryName, data);
+    }
+
+    offset = dataEnd;
+  }
+
+  if (!entries.size) {
+    throw new Error("Backup zip does not contain any files.");
+  }
+  return entries;
+}
+
+function writeZipDateTime(buffer, offset, date = new Date()) {
+  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const dosDate = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  buffer.writeUInt16LE(dosTime, offset);
+  buffer.writeUInt16LE(dosDate, offset + 2);
+}
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  return value >>> 0;
+});
 
 function normalizeToolCatalogConfig(config, options = {}) {
   const groups = normalizeToolGroups(config?.groups);
@@ -2988,6 +3174,35 @@ async function handleRequest(request, response) {
 
     const payload = await readJson(request);
     sendJson(response, 200, await saveToolCatalogConfig(payload));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/backup") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      sendJson(response, 200, await createBackupArchive());
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not create backup" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/restore") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await restoreBackupArchive(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not restore backup" });
+    }
     return;
   }
 

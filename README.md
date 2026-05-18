@@ -1,6 +1,6 @@
 # Optimus
 
-Version: `v4.5`
+Version: `v4.6`
 
 Optimus is split into two local services:
 
@@ -32,6 +32,8 @@ Branding and favicon files live in `frontend/assets/`. A root `frontend/favicon.
 ## Tools
 
 The backend exposes the tool catalog at `GET /api/tools`. Tool group, visibility, and display order are managed from the frontend "Manage tools" dashboard and persisted in `data/tool-catalog.json`. The frontend renders the index from this metadata and maps each hosted tool `id` to its local UI.
+
+The "Manage tools" dashboard also includes Backup and Restore controls. Backup downloads a zip containing `data/tool-catalog.json`, `data/padelog-matches.json`, `data/betlog-bets.json`, and `data/notelog-notes.json`. Restore accepts that zip and replaces the local tool layout, Padelog, Betlog, and Notelog data with the backup contents. Generated files in `Outputs/` and private `.env` values are not included.
 
 ### Padelog
 

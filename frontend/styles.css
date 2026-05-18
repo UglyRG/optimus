@@ -782,6 +782,11 @@ button {
   color: var(--muted);
 }
 
+.admin-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .admin-group-list,
 .admin-tool-list {
   display: grid;
@@ -2032,6 +2037,7 @@ iframe {
 
   .topbar,
   .page-head,
+  .admin-actions,
   .admin-section-head,
   .betlog-import-head,
   .padelog-history-controls,
