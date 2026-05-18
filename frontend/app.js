@@ -2,7 +2,6 @@ const API_BASE = "http://localhost:8787/api";
 const THEME_STORAGE_KEY = "optimus-theme";
 const NOTELOG_CALIBRATION_STORAGE_KEY = "optimus-notelog-calibration";
 const app = document.querySelector("#app");
-const appVersion = document.querySelector("#app-version");
 let activeUser = null;
 let activeExpiresAt = null;
 let suiteSourceFiles = [];
@@ -26,6 +25,8 @@ let notelogDrawingStroke = null;
 let activeNotelogSidebarTab = "notes";
 let notelogCalibration = loadNotelogCalibration();
 let notelogCalibrationDraft = null;
+let notelogAutosaveTimer = null;
+let notelogIsSaving = false;
 const NOTELOG_PAGE_WIDTH = 1414;
 const NOTELOG_PAGE_HEIGHT = 1000;
 const NOTELOG_CALIBRATION_STEPS = [
@@ -104,16 +105,26 @@ async function request(path, options = {}) {
 }
 
 async function loadAppVersion() {
+  const appVersion = document.querySelector("#app-version");
   if (!appVersion) {
     return;
   }
 
   try {
     const payload = await request("/version");
-    appVersion.textContent = `Version ${payload.version || "unknown"}`;
+    appVersion.textContent = formatAppVersion(payload.version);
   } catch {
     appVersion.textContent = "Version unavailable";
   }
+}
+
+function formatAppVersion(version) {
+  const cleanVersion = String(version || "")
+    .replace(/-dirty$/, "")
+    .replace(/^v?/, "")
+    .trim();
+  const [major = "4", minor = "5"] = cleanVersion.split(".");
+  return `v.${major}.${minor}`;
 }
 
 async function loadSession() {
@@ -2203,6 +2214,8 @@ async function renderNotelogTool() {
                     <option value="ruled">Ruled</option>
                     <option value="dots">Dots</option>
                     <option value="blank">Blank</option>
+                    <option value="meeting">Meeting</option>
+                    <option value="cornell">Cornell</option>
                   </select>
                 </div>
               </div>
@@ -2221,6 +2234,10 @@ async function renderNotelogTool() {
               <div class="notelog-tool-group">
                 <button class="button button-primary" id="notelog-save" type="button">Save</button>
                 <button class="button button-secondary" id="notelog-export" type="button">Export PDF</button>
+              </div>
+              <div class="notelog-export-preview" id="notelog-export-preview" hidden>
+                <span id="notelog-save-status">Autosave ready</span>
+                <a id="notelog-pdf-link" href="#" target="_blank" rel="noopener">Open PDF</a>
               </div>
               <div class="notelog-calibration-tools">
                 <div>
@@ -2266,6 +2283,7 @@ async function renderNotelogTool() {
     if (activeNotelogNote) {
       activeNotelogNote.title = document.querySelector("#notelog-title").value.trim() || "Untitled note";
       renderNotelogList();
+      scheduleNotelogAutosave();
     }
   });
   document.querySelector("#notelog-color").addEventListener("input", (event) => {
@@ -2342,6 +2360,7 @@ function createNotelogNote() {
   activeNotelogPageIndex = 0;
   notelogRedoStack = [];
   renderActiveNotelogNote();
+  scheduleNotelogAutosave();
 }
 
 function handleNotelogSidebarTabClick(event) {
@@ -2379,6 +2398,7 @@ function renderActiveNotelogNote() {
   renderNotelogCanvas();
   updateNotelogButtons();
   updateNotelogCalibrationStatus();
+  updateNotelogPdfLink(activeNotelogNote);
   renderNotelogCalibrationOverlay();
 }
 
@@ -2518,6 +2538,7 @@ function updateNotelogPageBackground(event) {
   page.background = event.currentTarget.value;
   updateActiveNotelogTimestamp();
   renderNotelogCanvas();
+  scheduleNotelogAutosave();
 }
 
 function activeNotelogPage() {
@@ -2567,7 +2588,14 @@ function moveNotelogStroke(event) {
   }
 
   event.preventDefault();
-  notelogDrawingStroke.points.push(notelogPointFromEvent(event));
+  const events = typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [event];
+  for (const pointerEvent of events) {
+    const point = notelogPointFromEvent(pointerEvent);
+    const previous = notelogDrawingStroke.points[notelogDrawingStroke.points.length - 1];
+    if (!previous || distanceBetweenNotelogPoints(previous, point) >= 1.2) {
+      notelogDrawingStroke.points.push(point);
+    }
+  }
   renderNotelogCanvas();
 }
 
@@ -2581,9 +2609,11 @@ function endNotelogStroke(event) {
   if (notelogDrawingStroke.points.length === 1 && point) {
     notelogDrawingStroke.points.push({ ...point, x: point.x + 0.01, y: point.y + 0.01 });
   }
+  notelogDrawingStroke.points = stabilizeNotelogPoints(notelogDrawingStroke.points);
   notelogDrawingStroke = null;
   updateActiveNotelogTimestamp();
   updateNotelogButtons();
+  scheduleNotelogAutosave();
 }
 
 function notelogPointFromEvent(event) {
@@ -2600,6 +2630,32 @@ function rawNotelogPointFromEvent(event) {
     y: (event.clientY - rect.top) * scaleY,
     pressure: event.pressure || 0.5,
   };
+}
+
+function distanceBetweenNotelogPoints(left, right) {
+  return Math.hypot((right.x || 0) - (left.x || 0), (right.y || 0) - (left.y || 0));
+}
+
+function stabilizeNotelogPoints(points) {
+  if (!Array.isArray(points) || points.length < 4) {
+    return points || [];
+  }
+
+  const smoothed = points.map((point, index) => {
+    if (index === 0 || index === points.length - 1) {
+      return point;
+    }
+    const previous = points[index - 1];
+    const next = points[index + 1];
+    return {
+      ...point,
+      x: previous.x * 0.2 + point.x * 0.6 + next.x * 0.2,
+      y: previous.y * 0.2 + point.y * 0.6 + next.y * 0.2,
+      pressure: previous.pressure * 0.15 + point.pressure * 0.7 + next.pressure * 0.15,
+    };
+  });
+
+  return smoothed.filter((point, index) => index === 0 || index === smoothed.length - 1 || distanceBetweenNotelogPoints(smoothed[index - 1], point) >= 1.8);
 }
 
 function loadNotelogCalibration() {
@@ -2785,7 +2841,7 @@ function drawNotelogBackground(context, page) {
   context.strokeStyle = "#dbe7f6";
   context.fillStyle = "#dbe7f6";
   context.lineWidth = 1;
-  if (page.background === "ruled") {
+  if (page.background === "ruled" || page.background === "cornell" || page.background === "meeting") {
     for (let y = 96; y < page.height; y += 44) {
       context.beginPath();
       context.moveTo(72, y);
@@ -2814,6 +2870,30 @@ function drawNotelogBackground(context, page) {
       context.stroke();
     }
   }
+
+  context.strokeStyle = "#c6d4ea";
+  context.lineWidth = 2;
+  if (page.background === "cornell") {
+    context.beginPath();
+    context.moveTo(330, 70);
+    context.lineTo(330, page.height - 190);
+    context.moveTo(72, page.height - 190);
+    context.lineTo(page.width - 72, page.height - 190);
+    context.stroke();
+  } else if (page.background === "meeting") {
+    context.beginPath();
+    context.moveTo(72, 92);
+    context.lineTo(page.width - 72, 92);
+    context.moveTo(72, 150);
+    context.lineTo(page.width - 72, 150);
+    context.moveTo(page.width - 360, 92);
+    context.lineTo(page.width - 360, 150);
+    context.moveTo(page.width - 360, 210);
+    context.lineTo(page.width - 360, page.height - 72);
+    context.moveTo(page.width - 360, page.height - 220);
+    context.lineTo(page.width - 72, page.height - 220);
+    context.stroke();
+  }
   context.restore();
 }
 
@@ -2827,18 +2907,18 @@ function drawNotelogStroke(context, stroke) {
   context.lineCap = "round";
   context.lineJoin = "round";
   context.strokeStyle = stroke.tool === "eraser" ? "#ffffff" : stroke.color || "#111827";
-  context.lineWidth = stroke.size || 4;
-  context.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
-  context.beginPath();
-  context.moveTo(points[0].x, points[0].y);
-  for (let index = 1; index < points.length - 1; index += 1) {
+  context.globalCompositeOperation = "source-over";
+
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
     const current = points[index];
-    const next = points[index + 1];
-    context.quadraticCurveTo(current.x, current.y, (current.x + next.x) / 2, (current.y + next.y) / 2);
+    const pressure = Math.max(0.22, ((previous.pressure || 0.5) + (current.pressure || 0.5)) / 2);
+    context.lineWidth = Math.max(0.8, (stroke.size || 4) * (0.55 + pressure));
+    context.beginPath();
+    context.moveTo(previous.x, previous.y);
+    context.lineTo(current.x, current.y);
+    context.stroke();
   }
-  const last = points[points.length - 1];
-  context.lineTo(last.x, last.y);
-  context.stroke();
   context.restore();
 }
 
@@ -2859,6 +2939,7 @@ function undoNotelogStroke() {
   updateActiveNotelogTimestamp();
   renderNotelogCanvas();
   updateNotelogButtons();
+  scheduleNotelogAutosave();
 }
 
 function redoNotelogStroke() {
@@ -2872,6 +2953,7 @@ function redoNotelogStroke() {
   updateActiveNotelogTimestamp();
   renderNotelogCanvas();
   updateNotelogButtons();
+  scheduleNotelogAutosave();
 }
 
 function addNotelogPage() {
@@ -2884,6 +2966,7 @@ function addNotelogPage() {
   notelogRedoStack = [];
   updateActiveNotelogTimestamp();
   renderActiveNotelogNote();
+  scheduleNotelogAutosave();
 }
 
 function deleteNotelogPage() {
@@ -2897,6 +2980,7 @@ function deleteNotelogPage() {
   notelogRedoStack = [];
   updateActiveNotelogTimestamp();
   renderActiveNotelogNote();
+  scheduleNotelogAutosave();
 }
 
 function updateActiveNotelogTimestamp() {
@@ -2915,13 +2999,35 @@ function updateNotelogButtons() {
   if (deletePage) deletePage.disabled = !activeNotelogNote || activeNotelogNote.pages.length <= 1;
 }
 
-async function saveActiveNotelogNote() {
+function scheduleNotelogAutosave() {
+  if (!activeNotelogNote) {
+    return;
+  }
+
+  window.clearTimeout(notelogAutosaveTimer);
+  setNotelogSaveStatus("Autosave pending");
+  notelogAutosaveTimer = window.setTimeout(() => {
+    saveActiveNotelogNote({ silent: true });
+  }, 900);
+}
+
+function setNotelogSaveStatus(message) {
+  const status = document.querySelector("#notelog-save-status");
+  if (status) {
+    status.textContent = message;
+  }
+}
+
+async function saveActiveNotelogNote(options = {}) {
   if (!activeNotelogNote) {
     return;
   }
 
   activeNotelogNote.title = document.querySelector("#notelog-title").value.trim() || "Untitled note";
   updateActiveNotelogTimestamp();
+  window.clearTimeout(notelogAutosaveTimer);
+  notelogIsSaving = true;
+  setNotelogSaveStatus("Saving...");
   try {
     const payload = await request("/tools/notelog/notes", {
       method: "POST",
@@ -2929,10 +3035,17 @@ async function saveActiveNotelogNote() {
     });
     activeNotelogNote = payload.note;
     notelogNotes = payload.notes || [activeNotelogNote];
-    renderActiveNotelogNote();
-    showScopedMessage("#notelog-success", "Note saved.");
+    renderNotelogList();
+    updateNotelogPdfLink(activeNotelogNote);
+    setNotelogSaveStatus(`Saved ${localTimeInputValue()}`);
+    if (!options.silent) {
+      showScopedMessage("#notelog-success", "Note saved.");
+    }
   } catch (error) {
+    setNotelogSaveStatus("Save failed");
     showScopedMessage("#notelog-error", error.message);
+  } finally {
+    notelogIsSaving = false;
   }
 }
 
@@ -2943,27 +3056,38 @@ async function exportActiveNotelogNote() {
 
   try {
     await saveActiveNotelogNote();
-    const pageImages = activeNotelogNote.pages.map(notelogPageToJpegDataUrl);
     const payload = await request("/tools/notelog/export", {
       method: "POST",
-      body: JSON.stringify({ id: activeNotelogNote.id, pageImages }),
+      body: JSON.stringify({ id: activeNotelogNote.id }),
     });
     notelogNotes = payload.notes || notelogNotes;
     activeNotelogNote = notelogNotes.find((note) => note.id === activeNotelogNote.id) || activeNotelogNote;
     renderActiveNotelogNote();
+    updateNotelogPdfLink(activeNotelogNote, payload.previewUrl);
     showScopedMessage("#notelog-success", `Exported ${payload.fileName}.`);
   } catch (error) {
     showScopedMessage("#notelog-error", error.message);
   }
 }
 
-function notelogPageToJpegDataUrl(page) {
-  const canvas = document.createElement("canvas");
-  canvas.width = page.width || NOTELOG_PAGE_WIDTH;
-  canvas.height = page.height || NOTELOG_PAGE_HEIGHT;
-  const context = canvas.getContext("2d");
-  drawNotelogPage(context, page);
-  return canvas.toDataURL("image/jpeg", 0.9);
+function updateNotelogPdfLink(note, previewUrl = "") {
+  const preview = document.querySelector("#notelog-export-preview");
+  const link = document.querySelector("#notelog-pdf-link");
+  if (!preview || !link) {
+    return;
+  }
+
+  const fileName = note?.exportedFileName || "";
+  if (!fileName && !previewUrl) {
+    preview.hidden = false;
+    link.hidden = true;
+    return;
+  }
+
+  preview.hidden = false;
+  link.hidden = false;
+  link.href = previewUrl ? `${API_BASE.replace(/\/api$/, "")}${previewUrl}` : `${API_BASE}/outputs/notes/${encodeURIComponent(fileName)}`;
+  link.textContent = "Open PDF";
 }
 
 function renderHtmlBase64Tool() {
@@ -3344,6 +3468,7 @@ function renderTopbar(options = {}) {
         </button>
         <button class="button button-secondary" id="logout-button" type="button">Log out</button>
       </div>
+      <div class="topbar-version" id="app-version">v.4.5</div>
     </header>
   `;
 }
@@ -3351,6 +3476,7 @@ function renderTopbar(options = {}) {
 function attachTopbarHandlers() {
   document.querySelector("#logout-button")?.addEventListener("click", handleLogout);
   document.querySelector("#theme-toggle")?.addEventListener("click", toggleTheme);
+  loadAppVersion();
 }
 
 function currentTheme() {

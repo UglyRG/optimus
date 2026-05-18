@@ -47,9 +47,9 @@ Betlog data is persisted locally in `data/betlog-bets.json` when the first bet i
 
 ### Notelog
 
-Capture handwritten notes from a pen tablet in the Personal tools group. Notes use a landscape page canvas and are stored locally as editable page and stroke data, with page controls, pen/eraser tools, undo/redo, paper styles, and one-click PDF export. The Notelog workspace uses a left-side Notes/Tools panel and a compact Optimus rail so the writing area can use the full page height.
+Capture handwritten notes from a pen tablet in the Personal tools group. Notes use a landscape page canvas and are stored locally as editable page and stroke data, with page controls, pen/eraser tools, pressure-aware strokes, stabilization, undo/redo, paper styles, page templates, autosave, and one-click vector PDF export. The Notelog workspace uses a left-side Notes/Tools panel and a compact Optimus rail so the writing area can use the full page height.
 
-Tablet calibration is available from the Notelog Tools tab. Tap the four highlighted page corners to map tablet input to the note page area; calibration is stored in the browser and can be reset from the same panel. Exported PDFs are saved in `Outputs/Notes/`.
+Tablet calibration is available from the Notelog Tools tab. Tap the four highlighted page corners to map tablet input to the note page area; calibration is stored in the browser and can be reset from the same panel. Exported PDFs are saved in `Outputs/Notes/` and can be opened from the Notelog export link.
 
 Notelog data is persisted locally in `data/notelog-notes.json` when the first note is saved.
 

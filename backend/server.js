@@ -1464,7 +1464,9 @@ function normalizeNotelogPage(rawPage = {}) {
   const height = isPortrait ? NOTELOG_PAGE_HEIGHT : rawHeight;
   const scaleX = width / rawWidth;
   const scaleY = height / rawHeight;
-  const background = ["blank", "ruled", "grid", "dots"].includes(rawPage.background) ? rawPage.background : "grid";
+  const background = ["blank", "ruled", "grid", "dots", "cornell", "meeting"].includes(rawPage.background)
+    ? rawPage.background
+    : "grid";
   const strokes = Array.isArray(rawPage.strokes)
     ? rawPage.strokes.slice(0, 15000).map((stroke) => normalizeNotelogStroke(stroke, { scaleX, scaleY }))
     : [];
@@ -1574,12 +1576,8 @@ async function deleteNotelogNote(noteId) {
 
 async function exportNotelogNote(payload = {}) {
   const id = String(payload.id || payload.note?.id || "").trim();
-  const pageImages = Array.isArray(payload.pageImages) ? payload.pageImages : [];
   if (!id) {
     throw new Error("Choose a note to export");
-  }
-  if (!pageImages.length) {
-    throw new Error("Add at least one page before exporting");
   }
 
   const notes = await loadNotelogNotes();
@@ -1588,8 +1586,11 @@ async function exportNotelogNote(payload = {}) {
     throw new Error("Note not found");
   }
 
-  const images = pageImages.map(parseJpegDataUrl);
-  const pdf = buildPdfFromJpegs(images);
+  if (!notes[noteIndex].pages.length) {
+    throw new Error("Add at least one page before exporting");
+  }
+
+  const pdf = buildNotelogVectorPdf(notes[noteIndex].pages);
   const fileName = notelogPdfFileName(notes[noteIndex].title);
   const outputPath = path.join(NOTES_OUTPUT_DIR, fileName);
 
@@ -1608,6 +1609,7 @@ async function exportNotelogNote(payload = {}) {
   return {
     fileName,
     outputPath,
+    previewUrl: `/api/outputs/notes/${encodeURIComponent(fileName)}`,
     notes: sortedNotes,
     note: notes[noteIndex],
   };
@@ -1623,58 +1625,19 @@ function notelogPdfFileName(title) {
   return `${safeBaseName}-${stamp}.pdf`;
 }
 
-function parseJpegDataUrl(dataUrl) {
-  const match = String(dataUrl || "").match(/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/);
-  if (!match) {
-    throw new Error("Export pages must be JPEG data URLs");
-  }
-
-  const buffer = Buffer.from(match[1], "base64");
-  const dimensions = jpegDimensions(buffer);
-  return { buffer, ...dimensions };
-}
-
-function jpegDimensions(buffer) {
-  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
-    throw new Error("Export page is not a valid JPEG");
-  }
-
-  let offset = 2;
-  while (offset < buffer.length) {
-    if (buffer[offset] !== 0xff) {
-      offset += 1;
-      continue;
-    }
-    const marker = buffer[offset + 1];
-    const length = buffer.readUInt16BE(offset + 2);
-    if (marker >= 0xc0 && marker <= 0xc3) {
-      return {
-        height: buffer.readUInt16BE(offset + 5),
-        width: buffer.readUInt16BE(offset + 7),
-      };
-    }
-    offset += 2 + length;
-  }
-
-  throw new Error("Could not read JPEG dimensions");
-}
-
-function buildPdfFromJpegs(images) {
+function buildNotelogVectorPdf(pages) {
   const chunks = [];
   const offsets = [0];
   const pageWidth = 841.89;
   const pageHeight = 595.28;
-  const margin = 18;
   let objectNumber = 1;
   const catalogObject = objectNumber++;
   const pagesObject = objectNumber++;
   const pageObjects = [];
-  const imageObjects = [];
   const contentObjects = [];
 
-  for (let index = 0; index < images.length; index += 1) {
+  for (let index = 0; index < pages.length; index += 1) {
     pageObjects.push(objectNumber++);
-    imageObjects.push(objectNumber++);
     contentObjects.push(objectNumber++);
   }
 
@@ -1701,26 +1664,13 @@ function buildPdfFromJpegs(images) {
     `<< /Type /Pages /Kids [${pageObjects.map((number) => `${number} 0 R`).join(" ")}] /Count ${pageObjects.length} >>`,
   );
 
-  images.forEach((image, index) => {
-    const imageObject = imageObjects[index];
+  pages.forEach((page, index) => {
     const contentObject = contentObjects[index];
-    const drawableWidth = pageWidth - margin * 2;
-    const drawableHeight = pageHeight - margin * 2;
-    const scale = Math.min(drawableWidth / image.width, drawableHeight / image.height);
-    const width = image.width * scale;
-    const height = image.height * scale;
-    const x = (pageWidth - width) / 2;
-    const y = (pageHeight - height) / 2;
-    const content = Buffer.from(`q\n${width.toFixed(2)} 0 0 ${height.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm\n/Im${index + 1} Do\nQ\n`, "binary");
+    const content = Buffer.from(notelogPdfPageContent(page, pageWidth, pageHeight), "binary");
 
     writeObject(
       pageObjects[index],
-      `<< /Type /Page /Parent ${pagesObject} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im${index + 1} ${imageObject} 0 R >> >> /Contents ${contentObject} 0 R >>`,
-    );
-    writeStreamObject(
-      imageObject,
-      `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.buffer.length} >>`,
-      image.buffer,
+      `<< /Type /Page /Parent ${pagesObject} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << >> /Contents ${contentObject} 0 R >>`,
     );
     writeStreamObject(contentObject, `<< /Length ${content.length} >>`, content);
   });
@@ -1733,6 +1683,126 @@ function buildPdfFromJpegs(images) {
   push(`trailer\n<< /Size ${objectNumber} /Root ${catalogObject} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
 
   return Buffer.concat(chunks);
+}
+
+function notelogPdfPageContent(page, pdfWidth, pdfHeight) {
+  const width = page.width || NOTELOG_PAGE_WIDTH;
+  const height = page.height || NOTELOG_PAGE_HEIGHT;
+  const scaleX = pdfWidth / width;
+  const scaleY = pdfHeight / height;
+  const commands = [
+    "q",
+    "1 1 1 rg",
+    `0 0 ${pdfNumber(pdfWidth)} ${pdfNumber(pdfHeight)} re f`,
+    ...notelogPdfBackgroundCommands(page, pdfWidth, pdfHeight, scaleX, scaleY),
+    ...notelogPdfStrokeCommands(page, pdfWidth, pdfHeight, scaleX, scaleY),
+    "Q",
+  ];
+
+  return `${commands.join("\n")}\n`;
+}
+
+function notelogPdfBackgroundCommands(page, pdfWidth, pdfHeight, scaleX, scaleY) {
+  const commands = [];
+  const lineColor = "0.86 0.91 0.96";
+  const strongLineColor = "0.78 0.85 0.94";
+  const addLine = (x1, y1, x2, y2, color = lineColor, width = 0.45) => {
+    commands.push(
+      `${color} RG`,
+      `${pdfNumber(width)} w`,
+      `${pdfPoint(x1, y1, scaleX, scaleY, pdfHeight)} m ${pdfPoint(x2, y2, scaleX, scaleY, pdfHeight)} l S`,
+    );
+  };
+
+  if (page.background === "ruled" || page.background === "cornell" || page.background === "meeting") {
+    for (let y = 96; y < page.height; y += 44) {
+      addLine(72, y, page.width - 72, y);
+    }
+  } else if (page.background === "dots") {
+    commands.push(`${lineColor} rg`);
+    for (let y = 52; y < page.height; y += 32) {
+      for (let x = 52; x < page.width; x += 32) {
+        const cx = x * scaleX;
+        const cy = pdfHeight - y * scaleY;
+        commands.push(`${pdfNumber(cx - 0.8)} ${pdfNumber(cy - 0.8)} 1.6 1.6 re f`);
+      }
+    }
+  } else if (page.background === "grid") {
+    for (let x = 50; x < page.width; x += 32) {
+      addLine(x, 0, x, page.height);
+    }
+    for (let y = 50; y < page.height; y += 32) {
+      addLine(0, y, page.width, y);
+    }
+  }
+
+  if (page.background === "cornell") {
+    addLine(330, 70, 330, page.height - 190, strongLineColor, 1);
+    addLine(72, page.height - 190, page.width - 72, page.height - 190, strongLineColor, 1);
+  }
+
+  if (page.background === "meeting") {
+    addLine(72, 92, page.width - 72, 92, strongLineColor, 1);
+    addLine(72, 150, page.width - 72, 150, strongLineColor, 1);
+    addLine(page.width - 360, 92, page.width - 360, 150, strongLineColor, 1);
+    addLine(page.width - 360, page.height - 220, page.width - 72, page.height - 220, strongLineColor, 1);
+    addLine(page.width - 360, 210, page.width - 360, page.height - 72, strongLineColor, 1);
+  }
+
+  return commands;
+}
+
+function notelogPdfStrokeCommands(page, pdfWidth, pdfHeight, scaleX, scaleY) {
+  return (page.strokes || []).flatMap((stroke) => {
+    const points = stroke.points || [];
+    if (points.length < 2) {
+      return [];
+    }
+
+    const color = stroke.tool === "eraser" ? "#ffffff" : stroke.color || "#111827";
+    const [r, g, b] = hexToPdfRgb(color);
+    const commands = [
+      `${r} ${g} ${b} RG`,
+      "1 J",
+      "1 j",
+    ];
+
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      const pressure = Math.max(0.22, ((previous.pressure || 0.5) + (current.pressure || 0.5)) / 2);
+      const width = Math.max(0.3, (stroke.size || 4) * (0.55 + pressure) * scaleY);
+      commands.push(
+        `${pdfNumber(width)} w`,
+        `${pdfPoint(previous.x, previous.y, scaleX, scaleY, pdfHeight)} m ${pdfPoint(current.x, current.y, scaleX, scaleY, pdfHeight)} l S`,
+      );
+    }
+
+    return commands;
+  });
+}
+
+function pdfPoint(x, y, scaleX, scaleY, pdfHeight) {
+  return `${pdfNumber(x * scaleX)} ${pdfNumber(pdfHeight - y * scaleY)}`;
+}
+
+function pdfNumber(value) {
+  return Number(value).toFixed(2).replace(/\.?0+$/, "");
+}
+
+function hexToPdfRgb(hexColor) {
+  const match = String(hexColor || "").match(/^#([0-9a-f]{6})$/i);
+  const hex = match ? match[1] : "111827";
+  return [0, 2, 4].map((index) => pdfNumber(parseInt(hex.slice(index, index + 2), 16) / 255));
+}
+
+async function readNotelogPdf(fileName) {
+  const candidate = String(fileName || "").trim();
+  if (!candidate || path.basename(candidate) !== candidate || path.extname(candidate).toLowerCase() !== ".pdf") {
+    throw new Error("Choose a valid Notelog PDF");
+  }
+
+  return fs.readFile(path.join(NOTES_OUTPUT_DIR, candidate));
 }
 
 function normalizeStringList(items, fallback) {
@@ -3003,6 +3073,27 @@ async function handleRequest(request, response) {
       sendJson(response, 200, await exportNotelogNote(payload));
     } catch (error) {
       sendJson(response, 400, { error: error.message || "Could not export note" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname.startsWith("/api/outputs/notes/")) {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const fileName = decodeURIComponent(url.pathname.replace("/api/outputs/notes/", ""));
+      const pdf = await readNotelogPdf(fileName);
+      response.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${path.basename(fileName).replace(/"/g, "")}"`,
+        ...corsHeaders(),
+      });
+      response.end(pdf);
+    } catch (error) {
+      sendJson(response, 404, { error: error.message || "Notelog PDF not found" });
     }
     return;
   }

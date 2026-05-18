@@ -415,7 +415,7 @@ button {
   left: 16px;
   z-index: 20;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   align-items: start;
   justify-content: space-between;
   gap: 16px;
@@ -458,6 +458,13 @@ button {
 .topbar-actions .button,
 .topbar-actions .theme-toggle {
   width: 100%;
+}
+
+.topbar-version {
+  justify-self: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
 .theme-toggle {
@@ -1550,26 +1557,6 @@ iframe {
   background: var(--panel);
 }
 
-.app-footer {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-left: 144px;
-  border-top: 1px solid var(--line);
-  padding: 14px clamp(18px, 4vw, 42px);
-  background: var(--footer-bg);
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 800;
-  backdrop-filter: blur(18px);
-}
-
-.app-footer span:last-child {
-  color: var(--ink);
-}
-
 @media (max-width: 920px) {
   .topbar {
     position: sticky;
@@ -1581,6 +1568,10 @@ iframe {
     width: min(1120px, calc(100% - 32px));
     margin: 12px auto 0;
     padding: 14px clamp(18px, 4vw, 42px);
+  }
+
+  .topbar-version {
+    margin-left: auto;
   }
 
   .brand {
@@ -1608,9 +1599,6 @@ iframe {
     padding: clamp(28px, 5vw, 48px) 0;
   }
 
-  .app-footer {
-    margin-left: 0;
-  }
 }
 
 .notelog-page {
@@ -1803,6 +1791,30 @@ iframe {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.notelog-export-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--soft-bg);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.notelog-export-preview[hidden],
+.notelog-export-preview a[hidden] {
+  display: none;
+}
+
+.notelog-export-preview a {
+  color: var(--brand);
+  text-decoration: none;
 }
 
 .notelog-tool-grid {
@@ -2002,11 +2014,6 @@ iframe {
   .notelog-size-field,
   .notelog-background-field {
     width: 100%;
-  }
-
-  .app-footer {
-    align-items: flex-start;
-    flex-direction: column;
   }
 
   .betlog-edit-grid {
