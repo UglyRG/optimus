@@ -27,6 +27,8 @@ let notelogCalibration = loadNotelogCalibration();
 let notelogCalibrationDraft = null;
 let notelogAutosaveTimer = null;
 let notelogIsSaving = false;
+let combinePdfFiles = [];
+const COMBINE_PDF_MAX_FILES = 5;
 const NOTELOG_PAGE_WIDTH = 1414;
 const NOTELOG_PAGE_HEIGHT = 1000;
 const NOTELOG_CALIBRATION_STEPS = [
@@ -43,6 +45,7 @@ const TOOL_RENDERERS = {
   "presentation-suite": renderPresentationSuiteTool,
   "html-base64": renderHtmlBase64Tool,
   "pdf-base64": renderPdfBase64Tool,
+  "combine-pdfs": renderCombinePdfsTool,
   "token-usage": renderTokenUsageTool,
 };
 const TOKEN_USAGE_EXPLAINERS = {
@@ -3176,6 +3179,62 @@ function renderPdfBase64Tool() {
   document.querySelector("#pdf-base64-form").addEventListener("submit", handlePdfBase64Submit);
 }
 
+function renderCombinePdfsTool() {
+  combinePdfFiles = [];
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>Combine PDFs</h1>
+          <p>Select two to five PDF files, set their order, and save one combined PDF to Outputs.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <form class="tool-panel" id="combine-pdfs-form">
+        <div class="form-grid">
+          <div class="field">
+            <label for="combine-pdf-files">PDF files</label>
+            <input id="combine-pdf-files" name="pdfFiles" type="file" accept=".pdf,application/pdf" multiple />
+          </div>
+          <div class="field">
+            <label for="combine-pdf-name">New PDF name</label>
+            <input id="combine-pdf-name" name="fileName" value="combined.pdf" required />
+          </div>
+        </div>
+        <div class="field">
+          <label>Insert order</label>
+          <div class="combine-pdf-list" id="combine-pdf-list"></div>
+        </div>
+        <p class="error" id="tool-error"></p>
+        <button class="button button-primary" type="submit">Create combined PDF</button>
+      </form>
+
+      <section class="result-panel" id="result-panel" hidden>
+        <div class="result-head">
+          <div>
+            <h2>Output</h2>
+            <p id="saved-path"></p>
+          </div>
+          <a class="button button-secondary" id="download-output" href="#" download>Download</a>
+        </div>
+        <iframe id="iframe-preview" title="Combined PDF preview"></iframe>
+      </section>
+    </section>
+  `;
+
+  attachTopbarHandlers();
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#combine-pdf-files").addEventListener("change", handleCombinePdfFileChange);
+  document.querySelector("#combine-pdf-list").addEventListener("click", handleCombinePdfOrderClick);
+  document.querySelector("#combine-pdfs-form").addEventListener("submit", handleCombinePdfsSubmit);
+  renderCombinePdfList();
+}
+
 function renderTokenUsageTool() {
   app.innerHTML = `
     ${renderTopbar()}
@@ -3555,6 +3614,94 @@ function renderSourceFileOptions(selectedSourceFile) {
     .join("");
 }
 
+function renderCombinePdfList() {
+  const list = document.querySelector("#combine-pdf-list");
+  if (!list) {
+    return;
+  }
+
+  if (!combinePdfFiles.length) {
+    list.innerHTML = '<div class="tool-list-state">No PDFs selected.</div>';
+    return;
+  }
+
+  list.innerHTML = combinePdfFiles
+    .map(
+      (file, index) => `
+        <div class="combine-pdf-row">
+          <span class="badge">${index + 1}</span>
+          <span class="combine-pdf-name" title="${escapeAttribute(file.name)}">${escapeHtml(file.name)}</span>
+          <div class="combine-pdf-actions">
+            <button class="button button-secondary" type="button" data-action="up" data-index="${index}" ${index === 0 ? "disabled" : ""}>Up</button>
+            <button class="button button-secondary" type="button" data-action="down" data-index="${index}" ${index === combinePdfFiles.length - 1 ? "disabled" : ""}>Down</button>
+            <button class="button button-secondary" type="button" data-action="remove" data-index="${index}">Remove</button>
+          </div>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function handleCombinePdfFileChange(event) {
+  clearToolError();
+  hideResultPanel();
+
+  const selectedFiles = Array.from(event.target.files || []);
+  const existingKeys = new Set(combinePdfFiles.map(combinePdfFileKey));
+  const newFiles = selectedFiles.filter((file) => {
+    const key = combinePdfFileKey(file);
+    if (existingKeys.has(key)) {
+      return false;
+    }
+
+    existingKeys.add(key);
+    return true;
+  });
+
+  combinePdfFiles = [...combinePdfFiles, ...newFiles];
+  if (combinePdfFiles.length > COMBINE_PDF_MAX_FILES) {
+    combinePdfFiles = combinePdfFiles.slice(0, COMBINE_PDF_MAX_FILES);
+    showToolError("Only the first five PDF files will be combined.");
+  }
+
+  event.target.value = "";
+  renderCombinePdfList();
+}
+
+function combinePdfFileKey(file) {
+  return [file.name, file.size, file.lastModified].join(":");
+}
+
+function handleCombinePdfOrderClick(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) {
+    return;
+  }
+
+  clearToolError();
+  hideResultPanel();
+
+  const index = Number(button.dataset.index);
+  const action = button.dataset.action;
+  if (!Number.isInteger(index) || index < 0 || index >= combinePdfFiles.length) {
+    return;
+  }
+
+  if (action === "up" && index > 0) {
+    [combinePdfFiles[index - 1], combinePdfFiles[index]] = [combinePdfFiles[index], combinePdfFiles[index - 1]];
+  }
+
+  if (action === "down" && index < combinePdfFiles.length - 1) {
+    [combinePdfFiles[index], combinePdfFiles[index + 1]] = [combinePdfFiles[index + 1], combinePdfFiles[index]];
+  }
+
+  if (action === "remove") {
+    combinePdfFiles.splice(index, 1);
+  }
+
+  renderCombinePdfList();
+}
+
 async function handleHtmlBase64Submit(event) {
   event.preventDefault();
 
@@ -3604,6 +3751,51 @@ async function handlePdfBase64Submit(event) {
     showToolResult(result);
   } catch (error) {
     showToolError(error.message);
+  }
+}
+
+async function handleCombinePdfsSubmit(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const submitButton = form.querySelector('button[type="submit"]');
+  const data = new FormData(form);
+  clearToolError();
+
+  if (combinePdfFiles.length < 2) {
+    showToolError("Choose at least two PDF files first.");
+    return;
+  }
+
+  if (combinePdfFiles.length > COMBINE_PDF_MAX_FILES) {
+    showToolError("Choose no more than five PDF files.");
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = "Combining...";
+
+  try {
+    const files = await Promise.all(
+      combinePdfFiles.map(async (file) => ({
+        fileName: file.name,
+        base64: await fileToBase64(file),
+      })),
+    );
+    const result = await request("/tools/combine-pdfs", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: String(data.get("fileName") || "").trim(),
+        files,
+      }),
+    });
+
+    showCombinePdfResult(result);
+  } catch (error) {
+    showToolError(error.message);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "Create combined PDF";
   }
 }
 
@@ -4324,6 +4516,7 @@ function showToolResult(result) {
   const preview = document.querySelector("#iframe-preview");
   const copyButton = document.querySelector("#copy-output");
 
+  clearToolError();
   savedPath.textContent = `Saved as ${result.fileName}`;
   output.value = result.iframeSource;
   preview.src = result.iframeSource;
@@ -4345,6 +4538,7 @@ function showPresentationSuiteResult(result) {
   const preview = document.querySelector("#iframe-preview");
   const copyButton = document.querySelector("#copy-output");
 
+  clearToolError();
   savedPath.textContent = `Saved as ${result.fileName}`;
   output.value = result.html;
   preview.srcdoc = result.html;
@@ -4359,6 +4553,20 @@ function showPresentationSuiteResult(result) {
   });
 }
 
+function showCombinePdfResult(result) {
+  const panel = document.querySelector("#result-panel");
+  const savedPath = document.querySelector("#saved-path");
+  const preview = document.querySelector("#iframe-preview");
+  const download = document.querySelector("#download-output");
+
+  clearToolError();
+  savedPath.textContent = `Saved as ${result.fileName} (${result.pageCount} pages)`;
+  preview.src = result.pdfSource;
+  download.href = result.pdfSource;
+  download.download = result.fileName;
+  panel.hidden = false;
+}
+
 function showDemoBuilderResult(result) {
   const panel = document.querySelector("#result-panel");
   const savedPath = document.querySelector("#saved-path");
@@ -4366,6 +4574,7 @@ function showDemoBuilderResult(result) {
   const preview = document.querySelector("#iframe-preview");
   const copyButton = document.querySelector("#copy-output");
 
+  clearToolError();
   savedPath.textContent = `Saved as ${result.fileName}`;
   output.value = result.html;
   preview.srcdoc = result.html;
@@ -4385,6 +4594,7 @@ function showTokenUsageResult(result) {
   const generated = document.querySelector("#token-usage-generated");
   const grid = document.querySelector("#token-usage-grid");
 
+  clearToolError();
   generated.textContent = `Checked ${formatDateTime(result.generatedAt)}`;
   grid.innerHTML = (result.providers || []).map(renderTokenUsageProvider).join("");
   panel.hidden = false;
@@ -4565,8 +4775,29 @@ function closeTokenInfoModal() {
 
 function showToolError(message) {
   const error = document.querySelector("#tool-error");
+  if (!error) {
+    return;
+  }
+
   error.textContent = message;
   error.classList.add("is-visible");
+}
+
+function clearToolError() {
+  const error = document.querySelector("#tool-error");
+  if (!error) {
+    return;
+  }
+
+  error.textContent = "";
+  error.classList.remove("is-visible");
+}
+
+function hideResultPanel() {
+  const panel = document.querySelector("#result-panel");
+  if (panel) {
+    panel.hidden = true;
+  }
 }
 
 async function handleLogout() {

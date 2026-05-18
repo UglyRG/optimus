@@ -4,5 +4,8 @@
     "backend": "node backend/server.js",
     "dev": "node scripts/dev.js",
     "frontend": "node frontend/server.js"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
   }
 }

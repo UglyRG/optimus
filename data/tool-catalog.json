@@ -1,11 +1,6 @@
 {
   "groups": [
     {
-      "id": "builders",
-      "name": "Superbo",
-      "displayOrder": 3
-    },
-    {
       "id": "utilities",
       "name": "Personal",
       "displayOrder": 1
@@ -14,6 +9,11 @@
       "id": "new-group",
       "name": "Utilities",
       "displayOrder": 2
+    },
+    {
+      "id": "builders",
+      "name": "Superbo",
+      "displayOrder": 3
     }
   ],
   "tools": [
@@ -60,9 +60,15 @@
       "enabled": true
     },
     {
-      "id": "token-usage",
+      "id": "combine-pdfs",
       "groupId": "new-group",
       "displayOrder": 1,
+      "enabled": true
+    },
+    {
+      "id": "token-usage",
+      "groupId": "new-group",
+      "displayOrder": 2,
       "enabled": true
     }
   ]

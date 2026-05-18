@@ -4,6 +4,7 @@ const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { PDFDocument } = require("pdf-lib");
 
 loadEnvFile(path.join(__dirname, "..", ".env"));
 
@@ -12,7 +13,7 @@ const HOST = process.env.HOST || "localhost";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:4173";
 const ACCESS_KEY = process.env.OPTIMUS_ACCESS_KEY || "optimus";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
-const MAX_JSON_BODY_BYTES = 50 * 1024 * 1024;
+const MAX_JSON_BODY_BYTES = 200 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
 const DATA_DIR = path.join(__dirname, "..", "data");
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
@@ -22,6 +23,9 @@ const NOTELOG_NOTES_PATH = path.join(DATA_DIR, "notelog-notes.json");
 const NOTES_OUTPUT_DIR = path.join(OUTPUTS_DIR, "Notes");
 const NOTELOG_PAGE_WIDTH = 1414;
 const NOTELOG_PAGE_HEIGHT = 1000;
+const COMBINE_PDF_MIN_DOCUMENTS = 2;
+const COMBINE_PDF_MAX_DOCUMENTS = 5;
+const PDF_HEADER_SEARCH_BYTES = 1024;
 const execFileAsync = promisify(execFile);
 const HOSTED_TOOLS = [
   {
@@ -60,6 +64,11 @@ const HOSTED_TOOLS = [
     description: "Convert a PDF file into an iframe-ready Base64 data string and save it to Outputs.",
   },
   {
+    id: "combine-pdfs",
+    title: "Combine PDFs",
+    description: "Combine two to five PDF files into one new PDF while preserving page sizes.",
+  },
+  {
     id: "token-usage",
     title: "Check My Token Usage",
     description: "Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom range.",
@@ -78,7 +87,8 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
     { id: "presentation-suite", groupId: "builders", displayOrder: 2, enabled: true },
     { id: "html-base64", groupId: "utilities", displayOrder: 4, enabled: true },
     { id: "pdf-base64", groupId: "utilities", displayOrder: 5, enabled: true },
-    { id: "token-usage", groupId: "utilities", displayOrder: 6, enabled: true },
+    { id: "combine-pdfs", groupId: "utilities", displayOrder: 6, enabled: true },
+    { id: "token-usage", groupId: "utilities", displayOrder: 7, enabled: true },
   ],
 };
 
@@ -417,6 +427,27 @@ function outputHtmlFileName(fileName, fallback = "output") {
     .slice(0, 120);
 
   return `${safeBaseName || fallback}.html`;
+}
+
+function outputCombinedPdfFileName(fileName) {
+  const parsed = path.parse(fileName || "combined.pdf");
+  const baseName = parsed.name || "combined";
+  const safeBaseName = baseName
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+
+  return `${safeBaseName || "combined"}.pdf`;
+}
+
+function hasPdfHeader(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 5) {
+    return false;
+  }
+
+  const headerIndex = buffer.indexOf("%PDF-");
+  return headerIndex >= 0 && headerIndex <= PDF_HEADER_SEARCH_BYTES;
 }
 
 function escapeTemplateHtml(value) {
@@ -2753,7 +2784,7 @@ async function savePdfIframeSource({ fileName, base64 }) {
   }
 
   const pdfBuffer = Buffer.from(compactBase64, "base64");
-  if (pdfBuffer.length < 5 || pdfBuffer.subarray(0, 5).toString("ascii") !== "%PDF-") {
+  if (!hasPdfHeader(pdfBuffer)) {
     throw new Error("Choose a valid PDF file");
   }
 
@@ -2768,6 +2799,65 @@ async function savePdfIframeSource({ fileName, base64 }) {
     fileName: savedFileName,
     outputPath,
     iframeSource,
+  };
+}
+
+async function combinePdfDocuments({ fileName, files }) {
+  if (!Array.isArray(files) || files.length < COMBINE_PDF_MIN_DOCUMENTS) {
+    throw new Error("Choose at least two PDF files to combine");
+  }
+
+  if (files.length > COMBINE_PDF_MAX_DOCUMENTS) {
+    throw new Error("Combine PDFs supports up to five documents at a time");
+  }
+
+  const combinedPdf = await PDFDocument.create();
+  let pageCount = 0;
+
+  for (const [index, file] of files.entries()) {
+    const sourceName = String(file?.fileName || `Document ${index + 1}`).trim();
+    const compactBase64 = String(file?.base64 || "").trim();
+
+    if (!compactBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(compactBase64)) {
+      throw new Error(`${sourceName} must be a Base64 PDF`);
+    }
+
+    const pdfBuffer = Buffer.from(compactBase64, "base64");
+    if (!hasPdfHeader(pdfBuffer)) {
+      throw new Error(`${sourceName} is not a valid PDF file`);
+    }
+
+    let sourcePdf;
+    try {
+      sourcePdf = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+    } catch {
+      throw new Error(`${sourceName} could not be read as a PDF`);
+    }
+
+    const copiedPages = await combinedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+    copiedPages.forEach((page) => {
+      combinedPdf.addPage(page);
+      pageCount += 1;
+    });
+  }
+
+  if (pageCount === 0) {
+    throw new Error("The selected PDFs do not contain any pages");
+  }
+
+  const savedFileName = outputCombinedPdfFileName(fileName);
+  const outputPath = path.join(OUTPUTS_DIR, savedFileName);
+  const pdfBytes = await combinedPdf.save();
+  const base64 = Buffer.from(pdfBytes).toString("base64");
+
+  await fs.mkdir(OUTPUTS_DIR, { recursive: true });
+  await fs.writeFile(outputPath, pdfBytes);
+
+  return {
+    fileName: savedFileName,
+    outputPath,
+    pageCount,
+    pdfSource: `data:application/pdf;base64,${base64}`,
   };
 }
 
@@ -3119,6 +3209,21 @@ async function handleRequest(request, response) {
     const payload = await readJson(request);
     const result = await savePdfIframeSource(payload);
     sendJson(response, 200, result);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/combine-pdfs") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await combinePdfDocuments(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not combine PDFs" });
+    }
     return;
   }
 

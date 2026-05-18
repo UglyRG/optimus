@@ -65,6 +65,10 @@ Upload an `.html` file from the UI to create an iframe-ready `data:text/html;bas
 
 Upload a `.pdf` file from the UI to create an iframe-ready `data:application/pdf;base64,...` string. Outputs are saved locally in `Outputs/` as `base64-pdf-initialfilename.txt`.
 
+### Combine PDFs
+
+Select two to five `.pdf` files, reorder them in the UI, and save a single combined PDF under a new file name. Pages are appended document by document in the chosen order, while preserving each page's original size. Outputs are saved locally in `Outputs/` as the requested `.pdf` file.
+
 ### Check My Token Usage
 
 Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom date range. Month-to-date and year-to-date are loaded automatically when the tool opens. The tool reads `OPENAI_ADMIN_KEY` and `ANTHROPIC_ADMIN_KEY` from `.env`; normal model-call keys are not used for usage reports.

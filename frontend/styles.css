@@ -71,8 +71,28 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background: var(--bg);
+  background:
+    linear-gradient(rgba(245, 248, 255, 0.52), rgba(245, 248, 255, 0.52)),
+    url("./assets/optimus-background.jpg"),
+    url("./assets/optimus-backgroud.png"),
+    var(--bg);
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
   color: var(--ink);
+}
+
+:root[data-theme="dark"] body {
+  background:
+    linear-gradient(rgba(17, 21, 29, 0.64), rgba(17, 21, 29, 0.64)),
+    url("./assets/optimus-background.jpg"),
+    url("./assets/optimus-backgroud.png"),
+    var(--bg);
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
 button,
@@ -341,6 +361,41 @@ button {
   grid-template-columns: 92px minmax(0, 1fr) minmax(220px, 0.8fr);
   align-items: center;
   gap: 10px;
+}
+
+.combine-pdf-list {
+  display: grid;
+  gap: 10px;
+}
+
+.combine-pdf-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--soft-bg);
+}
+
+.combine-pdf-name {
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combine-pdf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.combine-pdf-actions .button {
+  min-height: 34px;
+  padding: 6px 9px;
 }
 
 .button {
@@ -1958,6 +2013,7 @@ iframe {
   .form-grid,
   .color-grid,
   .label-row,
+  .combine-pdf-row,
   .month-summary-grid,
   .month-summary-metrics,
   .padelog-layout,
