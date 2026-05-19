@@ -637,6 +637,20 @@ button {
   text-transform: uppercase;
 }
 
+.month-summary-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.month-summary-ai-button {
+  min-height: 34px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .month-summary-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1012,6 +1026,110 @@ button {
   margin-top: 7px;
   font-size: 1.45rem;
   line-height: 1;
+}
+
+.ai-modal[hidden] {
+  display: none;
+}
+
+.ai-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(7, 14, 28, 0.56);
+}
+
+.ai-modal-dialog {
+  width: min(760px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.ai-modal-head,
+.ai-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+}
+
+.ai-modal-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.ai-modal-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.ai-modal-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.ai-modal-body {
+  min-height: 260px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.ai-modal-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+}
+
+.ai-modal-counter {
+  min-width: 52px;
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
+}
+
+.ai-insights-loading {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.ai-insights-run-meta {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.ai-insights-text {
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+.ai-insights-text p {
+  margin: 0 0 10px;
+}
+
+.ai-insights-text p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-insights-error {
+  color: var(--danger);
+  font-weight: 800;
+}
+
+.ai-insights-empty {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .padelog-csv-preview {

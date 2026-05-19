@@ -15,6 +15,7 @@ Create a local `.env` file for private values. It is ignored by Git.
 ```env
 OPTIMUS_ACCESS_KEY=your-login-password
 ANTHROPIC_API_KEY=your-anthropic-api-key
+ANTHROPIC_ANALYSIS_MODEL=claude-haiku-4-5-20251001
 OPENAI_API_KEY=your-openai-api-key
 # Admin keys for organization usage reports:
 ANTHROPIC_ADMIN_KEY=your-anthropic-admin-api-key
@@ -33,17 +34,19 @@ Branding and favicon files live in `frontend/assets/`. A root `frontend/favicon.
 
 The backend exposes the tool catalog at `GET /api/tools`. Tool group, visibility, and display order are managed from the frontend "Manage tools" dashboard and persisted in `data/tool-catalog.json`. The frontend renders the index from this metadata and maps each hosted tool `id` to its local UI.
 
-The "Manage tools" dashboard also includes Backup and Restore controls. Backup downloads a zip containing `data/tool-catalog.json`, `data/padelog-matches.json`, `data/betlog-bets.json`, and `data/notelog-notes.json`. Restore accepts that zip and replaces the local tool layout, Padelog, Betlog, and Notelog data with the backup contents. Generated files in `Outputs/` and private `.env` values are not included.
+The "Manage tools" dashboard also includes Backup and Restore controls. Backup downloads a zip containing `data/tool-catalog.json`, `data/padelog-matches.json`, `data/betlog-bets.json`, `data/notelog-notes.json`, and `data/performance-insights.json`. Restore accepts that zip and replaces the local tool layout, Padelog, Betlog, Notelog, and saved AI insight data with the backup contents. Generated files in `Outputs/` and private `.env` values are not included.
 
 ### Padelog
 
 Track padel match performance from the Personal tools group. Each match stores Padel Club, Date, Teammate, Opponents, Result (`Won`, `Lost`, or `Draw`), and Sets as a set score such as `1-0`, `2-1`, `1-1`, or `2-2`. Matches can be added manually one at a time or imported in batches from CSV using the columns `Padel Club`, `Date`, `Teamate`, `Opponents`, `Result`, and `Sets`. CSV dates can use `YYYY-MM-DD` or day/month formats such as `8/1/26`. The UI shows month-to-date, year-to-date, and custom date-range statistics above the manual and CSV entry panels, plus editable, paginated match history grouped by month, club, or no grouping.
 
-Padelog match data is persisted locally in `data/padelog-matches.json` when the first match is saved.
+Padelog match data is persisted locally in `data/padelog-matches.json` when the first match is saved. AI performance insights use `ANTHROPIC_API_KEY`, default to `ANTHROPIC_ANALYSIS_MODEL` or `claude-haiku-4-5-20251001`, and analyze the full saved JSON history. The AI insights button opens a modal with the latest saved run, previous/next controls for older runs, and a Generate new action. Saved insight runs are stored in `data/performance-insights.json`.
 
 ### Betlog
 
 Track placed bets from the Personal tools group. Each saved row represents one selection, so combo bets can repeat the same `bet_id`, stake, return, and metadata across multiple rows for analysis. Bets can be added manually one at a time or imported in batches from CSV using the columns `date`, `time`, `bet_id`, `bet_type`, `stake`, `free_bet`, `status`, `return_amount`, `selection`, `odds`, `market`, `match`, `score`, `outcome_type`, and `legs`. The UI shows month-to-date, year-to-date, and custom date-range statistics, with stake and return calculated once per unique bet ID so combo rows do not double-count money.
+
+Betlog AI performance insights use the same modal workflow as Padelog: the latest saved run opens first, previous/next controls browse older runs, and Generate new analyzes the full Betlog JSON history. Runs are saved in `data/performance-insights.json` and included in backup/restore.
 
 Betlog data is persisted locally in `data/betlog-bets.json` when the first bet is saved.
 

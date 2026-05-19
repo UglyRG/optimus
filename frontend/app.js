@@ -14,6 +14,12 @@ let editingPadelogMatchId = "";
 let betlogBets = [];
 let betlogHistoryPage = 1;
 let editingBetlogBetId = "";
+let performanceInsightModalState = {
+  toolId: "",
+  insights: [],
+  index: 0,
+  isGenerating: false,
+};
 let notelogNotes = [];
 let activeNotelogNote = null;
 let activeNotelogPageIndex = 0;
@@ -247,13 +253,13 @@ async function renderMonthlyPerformanceSummary() {
 
     caption.textContent = `${formatMonthSummaryRange(currentRange)} compared with ${formatMonthSummaryRange(previousRange)}.`;
     grid.innerHTML = [
-      renderMonthSummaryGroup("Padel performance", "padel", [
+      renderMonthSummaryGroup("Padel performance", "padel", "padelog", [
         monthMetric("Matches", currentPadel.matches, previousPadel.matches, { suffix: "", higherIsGood: true }),
         monthMetric("Wins", currentPadel.wins, previousPadel.wins, { suffix: "", higherIsGood: true }),
         monthMetric("Win rate", currentPadel.winRate, previousPadel.winRate, { suffix: "%", higherIsGood: true }),
         monthMetric("Losses", currentPadel.losses, previousPadel.losses, { suffix: "", higherIsGood: false }),
       ]),
-      renderMonthSummaryGroup("Betting performance", "betting", [
+      renderMonthSummaryGroup("Betting performance", "betting", "betlog", [
         monthMetric("Profit", currentBetting.profit, previousBetting.profit, {
           formatter: formatMoney,
           higherIsGood: true,
@@ -263,21 +269,38 @@ async function renderMonthlyPerformanceSummary() {
         monthMetric("Bets", currentBetting.uniqueBets, previousBetting.uniqueBets, { suffix: "", higherIsGood: true }),
       ]),
     ].join("");
+    attachMonthSummaryInsightHandlers();
   } catch (error) {
     caption.textContent = "Could not load monthly performance.";
     grid.innerHTML = `<p class="error is-visible">Could not load summary: ${escapeHtml(error.message)}</p>`;
   }
 }
 
-function renderMonthSummaryGroup(title, variant, metrics) {
+function renderMonthSummaryGroup(title, variant, toolId, metrics) {
   return `
     <article class="month-summary-group ${escapeAttribute(`is-${variant}`)}">
-      <h3>${escapeHtml(title)}</h3>
+      <div class="month-summary-group-head">
+        <h3>${escapeHtml(title)}</h3>
+        <button class="button button-primary month-summary-ai-button" id="${escapeAttribute(toolId)}-summary-ai-analysis" type="button">
+          AI insights
+        </button>
+      </div>
       <div class="month-summary-metrics">
         ${metrics.map(renderMonthSummaryMetric).join("")}
       </div>
     </article>
   `;
+}
+
+function attachMonthSummaryInsightHandlers() {
+  [
+    ["padelog", "#padelog-summary-ai-analysis"],
+    ["betlog", "#betlog-summary-ai-analysis"],
+  ].forEach(([toolId, buttonSelector]) => {
+    document.querySelector(buttonSelector)?.addEventListener("click", () =>
+      openPerformanceInsightsModal(toolId),
+    );
+  });
 }
 
 function renderMonthSummaryMetric(metric) {
@@ -766,6 +789,7 @@ async function renderPadelogTool() {
             <button class="button button-secondary is-active" data-padelog-range="month" type="button">Month to date</button>
             <button class="button button-secondary" data-padelog-range="year" type="button">Year to date</button>
             <button class="button button-secondary" data-padelog-range="custom" type="button">Custom</button>
+            <button class="button button-primary" id="padelog-ai-analysis" type="button">AI insights</button>
           </div>
         </div>
         <div class="padelog-custom-range" id="padelog-custom-range" hidden>
@@ -899,6 +923,7 @@ async function renderPadelogTool() {
   });
   document.querySelector("#padelog-match-form").addEventListener("submit", handlePadelogManualSubmit);
   document.querySelector("#padelog-import").addEventListener("click", handlePadelogCsvImport);
+  document.querySelector("#padelog-ai-analysis").addEventListener("click", () => openPerformanceInsightsModal("padelog"));
   document.querySelector("#padelog-download-template").addEventListener("click", downloadPadelogCsvTemplate);
   document.querySelector("#padelog-csv").addEventListener("change", previewPadelogCsvFile);
   document.querySelector("#padelog-match-table").addEventListener("click", handlePadelogTableClick);
@@ -1428,6 +1453,171 @@ function showScopedMessage(selector, message) {
   }, 2600);
 }
 
+async function openPerformanceInsightsModal(toolId) {
+  ensurePerformanceInsightsModal();
+  performanceInsightModalState = {
+    toolId,
+    insights: [],
+    index: 0,
+    isGenerating: false,
+  };
+  document.querySelector("#ai-insights-modal").hidden = false;
+  renderPerformanceInsightModal({ loading: true });
+
+  try {
+    const payload = await request(`/tools/${toolId}/analysis`);
+    performanceInsightModalState.insights = payload.insights || [];
+    performanceInsightModalState.index = 0;
+    renderPerformanceInsightModal();
+  } catch (error) {
+    renderPerformanceInsightModal({ error: error.message });
+  }
+}
+
+function ensurePerformanceInsightsModal() {
+  if (document.querySelector("#ai-insights-modal")) {
+    return;
+  }
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div class="ai-modal" id="ai-insights-modal" hidden>
+        <div class="ai-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-insights-title">
+          <div class="ai-modal-head">
+            <div>
+              <h2 id="ai-insights-title">AI insights</h2>
+              <p id="ai-insights-subtitle"></p>
+            </div>
+            <button class="button button-secondary ai-modal-close" id="ai-insights-close" type="button" aria-label="Close AI insights">Close</button>
+          </div>
+          <div class="ai-modal-body" id="ai-insights-body"></div>
+          <div class="ai-modal-actions">
+            <button class="button button-secondary" id="ai-insights-prev" type="button">&lt;</button>
+            <span class="ai-modal-counter" id="ai-insights-counter"></span>
+            <button class="button button-secondary" id="ai-insights-next" type="button">&gt;</button>
+            <button class="button button-primary" id="ai-insights-generate" type="button">Generate new</button>
+          </div>
+        </div>
+      </div>
+    `,
+  );
+
+  document.querySelector("#ai-insights-close").addEventListener("click", closePerformanceInsightsModal);
+  document.querySelector("#ai-insights-modal").addEventListener("click", (event) => {
+    if (event.target.id === "ai-insights-modal") {
+      closePerformanceInsightsModal();
+    }
+  });
+  document.querySelector("#ai-insights-prev").addEventListener("click", () => stepPerformanceInsight(1));
+  document.querySelector("#ai-insights-next").addEventListener("click", () => stepPerformanceInsight(-1));
+  document.querySelector("#ai-insights-generate").addEventListener("click", generatePerformanceInsight);
+}
+
+function closePerformanceInsightsModal() {
+  const modal = document.querySelector("#ai-insights-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+function stepPerformanceInsight(delta) {
+  const { insights, index } = performanceInsightModalState;
+  if (!insights.length) {
+    return;
+  }
+
+  performanceInsightModalState.index = Math.min(Math.max(index + delta, 0), insights.length - 1);
+  renderPerformanceInsightModal();
+}
+
+async function generatePerformanceInsight() {
+  if (performanceInsightModalState.isGenerating) {
+    return;
+  }
+
+  performanceInsightModalState.isGenerating = true;
+  renderPerformanceInsightModal({ loading: true, loadingText: "Generating a fresh insight..." });
+
+  let generationError = "";
+  try {
+    const insight = await request(`/tools/${performanceInsightModalState.toolId}/analysis`, { method: "POST" });
+    performanceInsightModalState.insights = [insight, ...performanceInsightModalState.insights];
+    performanceInsightModalState.index = 0;
+  } catch (error) {
+    generationError = error.message;
+  } finally {
+    performanceInsightModalState.isGenerating = false;
+    renderPerformanceInsightModal(generationError ? { error: generationError } : {});
+  }
+}
+
+function renderPerformanceInsightModal(options = {}) {
+  const body = document.querySelector("#ai-insights-body");
+  const subtitle = document.querySelector("#ai-insights-subtitle");
+  const counter = document.querySelector("#ai-insights-counter");
+  const previousButton = document.querySelector("#ai-insights-prev");
+  const nextButton = document.querySelector("#ai-insights-next");
+  const generateButton = document.querySelector("#ai-insights-generate");
+  if (!body || !subtitle || !counter || !previousButton || !nextButton || !generateButton) {
+    return;
+  }
+
+  const { toolId, insights, index, isGenerating } = performanceInsightModalState;
+  const toolName = toolId === "betlog" ? "Betlog" : "Padelog";
+  subtitle.textContent = insights.length
+    ? `${toolName}: showing saved runs. Generate a new one when you want a fresh read.`
+    : `${toolName}: no saved insight yet. Generate one from the full JSON history.`;
+
+  if (options.loading) {
+    body.innerHTML = `<div class="ai-insights-loading">${escapeHtml(options.loadingText || "Loading saved insights...")}</div>`;
+  } else if (options.error) {
+    body.innerHTML = `<div class="ai-insights-error">${escapeHtml(options.error)}</div>`;
+  } else if (!insights.length) {
+    body.innerHTML = '<div class="ai-insights-empty">No saved runs yet.</div>';
+  } else {
+    body.innerHTML = renderPerformanceInsight(insights[index]);
+  }
+
+  counter.textContent = insights.length ? `${index + 1} / ${insights.length}` : "0 / 0";
+  previousButton.disabled = !insights.length || index >= insights.length - 1 || isGenerating;
+  nextButton.disabled = !insights.length || index <= 0 || isGenerating;
+  generateButton.disabled = isGenerating;
+  generateButton.textContent = isGenerating ? "Generating..." : "Generate new";
+}
+
+function renderPerformanceInsight(insight) {
+  const text = String(insight?.insight || "").trim();
+  if (!text || isModelOnlyInsightText(text)) {
+    return '<div class="ai-insights-error">No insight text was returned. Please try generating it again.</div>';
+  }
+
+  return `
+    <div class="ai-insights-run-meta">${escapeHtml(formatPerformanceInsightRunMeta(insight))}</div>
+    <div class="ai-insights-text">${formatInsightText(text)}</div>
+  `;
+}
+
+function formatPerformanceInsightRunMeta(insight) {
+  const generatedAt = insight.generatedAt ? new Date(insight.generatedAt) : null;
+  const dateText = generatedAt && !Number.isNaN(generatedAt.getTime()) ? generatedAt.toLocaleString() : "Saved run";
+  const countText = insight.sourceRecordCount ? ` · ${insight.sourceRecordCount} records` : "";
+  return `${dateText}${countText}`;
+}
+
+function isModelOnlyInsightText(text) {
+  return /^model\s*:\s*claude[\w.-]*\s*$/i.test(String(text || "").trim());
+}
+
+function formatInsightText(text) {
+  return escapeHtml(text)
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n{2,}/g, "</p><p>")
+    .replace(/\n/g, "<br>")
+    .replace(/^/, "<p>")
+    .replace(/$/, "</p>");
+}
+
 async function renderBetlogTool() {
   betlogBets = [];
   app.innerHTML = `
@@ -1452,6 +1642,7 @@ async function renderBetlogTool() {
             <button class="button button-secondary is-active" data-betlog-range="month" type="button">Month to date</button>
             <button class="button button-secondary" data-betlog-range="year" type="button">Year to date</button>
             <button class="button button-secondary" data-betlog-range="custom" type="button">Custom</button>
+            <button class="button button-primary" id="betlog-ai-analysis" type="button">AI insights</button>
           </div>
         </div>
         <div class="padelog-custom-range" id="betlog-custom-range" hidden>
@@ -1634,6 +1825,7 @@ async function renderBetlogTool() {
   document.querySelector("#betlog-show-manual").addEventListener("click", showBetlogManualEntry);
   document.querySelector("#betlog-hide-manual").addEventListener("click", hideBetlogManualEntry);
   document.querySelector("#betlog-import").addEventListener("click", handleBetlogCsvImport);
+  document.querySelector("#betlog-ai-analysis").addEventListener("click", () => openPerformanceInsightsModal("betlog"));
   document.querySelector("#betlog-download-template").addEventListener("click", downloadBetlogCsvTemplate);
   document.querySelector("#betlog-csv").addEventListener("change", previewBetlogCsvFile);
   document.querySelector("#betlog-bet-table").addEventListener("click", handleBetlogTableClick);

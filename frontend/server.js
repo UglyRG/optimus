@@ -52,6 +52,9 @@ const server = http.createServer((request, response) => {
 
     send(response, 200, contents, {
       "Content-Type": MIME_TYPES[path.extname(filePath)] || "application/octet-stream",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
     });
   });
 });

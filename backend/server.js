@@ -13,6 +13,8 @@ const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "localhost";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:4173";
 const ACCESS_KEY = process.env.OPTIMUS_ACCESS_KEY || "optimus";
+const ANTHROPIC_ANALYSIS_MODEL =
+  process.env.ANTHROPIC_ANALYSIS_MODEL || process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const MAX_JSON_BODY_BYTES = 200 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
@@ -21,6 +23,7 @@ const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
 const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
 const BETLOG_BETS_PATH = path.join(DATA_DIR, "betlog-bets.json");
 const NOTELOG_NOTES_PATH = path.join(DATA_DIR, "notelog-notes.json");
+const PERFORMANCE_INSIGHTS_PATH = path.join(DATA_DIR, "performance-insights.json");
 const NOTES_OUTPUT_DIR = path.join(OUTPUTS_DIR, "Notes");
 const NOTELOG_PAGE_WIDTH = 1414;
 const NOTELOG_PAGE_HEIGHT = 1000;
@@ -317,6 +320,7 @@ async function createBackupArchive() {
     { name: "data/padelog-matches.json", data: `${JSON.stringify({ matches: await loadPadelogMatches() }, null, 2)}\n` },
     { name: "data/betlog-bets.json", data: `${JSON.stringify({ bets: await loadBetlogBets() }, null, 2)}\n` },
     { name: "data/notelog-notes.json", data: `${JSON.stringify({ notes: await loadNotelogNotes() }, null, 2)}\n` },
+    { name: "data/performance-insights.json", data: `${JSON.stringify({ insights: await loadPerformanceInsights() }, null, 2)}\n` },
   ];
   const date = new Date().toISOString().slice(0, 10);
 
@@ -348,12 +352,16 @@ async function restoreBackupArchive(payload) {
   const padelog = parseBackupCollection(filesByName.get("padelog-matches.json"), "matches").map(normalizePadelogMatch);
   const betlog = parseBackupCollection(filesByName.get("betlog-bets.json"), "bets").map(normalizeBetlogBet);
   const notelog = parseBackupCollection(filesByName.get("notelog-notes.json"), "notes").map(normalizeNotelogNote);
+  const insights = filesByName.has("performance-insights.json")
+    ? parseBackupCollection(filesByName.get("performance-insights.json"), "insights").map(normalizePerformanceInsight)
+    : [];
 
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.writeFile(TOOL_CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
   await savePadelogMatches(padelog);
   await saveBetlogBets(betlog);
   await saveNotelogNotes(notelog);
+  await savePerformanceInsights(insights);
 
   return {
     ok: true,
@@ -361,6 +369,7 @@ async function restoreBackupArchive(payload) {
       matches: padelog.length,
       bets: betlog.length,
       notes: notelog.length,
+      insights: insights.length,
     },
     catalog: await adminToolCatalog(),
   };
@@ -1310,7 +1319,146 @@ function apiErrorMessage(payload, status) {
     payload?.message ||
     payload?.error ||
     `Provider returned HTTP ${status}`;
-  return typeof message === "string" ? message : `Provider returned HTTP ${status}`;
+  const text = typeof message === "string" ? message : `Provider returned HTTP ${status}`;
+  return text.startsWith("model:")
+    ? `${text}. Check ANTHROPIC_ANALYSIS_MODEL in .env or use claude-haiku-4-5-20251001.`
+    : text;
+}
+
+function anthropicModelKey() {
+  const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim();
+  if (!apiKey) {
+    throw new Error("Set ANTHROPIC_API_KEY in .env");
+  }
+
+  return apiKey;
+}
+
+async function fetchAnthropicMessage({ system, user, maxTokens = 1000 }) {
+  const payload = await fetchJson("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+      "x-api-key": anthropicModelKey(),
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_ANALYSIS_MODEL,
+      max_tokens: maxTokens,
+      temperature: 0.3,
+      system,
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+
+  const text = extractAnthropicText(payload).trim();
+  if (!text) {
+    throw new Error("Anthropic returned no insight text. Try again, or check the configured ANTHROPIC_ANALYSIS_MODEL.");
+  }
+  if (isModelOnlyInsight(text)) {
+    throw new Error("Anthropic returned metadata instead of analysis text. Try again.");
+  }
+
+  return text;
+}
+
+function extractAnthropicText(payload = {}) {
+  if (typeof payload.content === "string") {
+    return payload.content;
+  }
+
+  if (!Array.isArray(payload.content)) {
+    return "";
+  }
+
+  return payload.content
+    .map((part) => {
+      if (typeof part === "string") {
+        return part;
+      }
+      if (part?.type === "text" && typeof part.text === "string") {
+        return part.text;
+      }
+      if (typeof part?.text === "string") {
+        return part.text;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function normalizePerformanceInsight(rawInsight = {}) {
+  const toolId = cleanText(rawInsight.toolId || rawInsight.tool || "", "", 24);
+  if (!["padelog", "betlog"].includes(toolId)) {
+    throw new Error("Performance insight tool must be padelog or betlog");
+  }
+
+  const insight = cleanText(rawInsight.insight, "", 20000);
+  if (!insight) {
+    throw new Error("Performance insight is empty.");
+  }
+  if (isModelOnlyInsight(insight)) {
+    throw new Error("Performance insight only contains model metadata.");
+  }
+
+  return {
+    id: cleanText(rawInsight.id, crypto.randomUUID(), 80),
+    toolId,
+    model: cleanText(rawInsight.model, ANTHROPIC_ANALYSIS_MODEL, 120),
+    generatedAt: cleanText(rawInsight.generatedAt, new Date().toISOString(), 40),
+    sourceRecordCount: cleanUsageNumber(rawInsight.sourceRecordCount),
+    insight,
+  };
+}
+
+function isModelOnlyInsight(text) {
+  const normalized = String(text || "").trim().toLowerCase();
+  return /^model\s*:\s*claude[\w.-]*\s*$/.test(normalized);
+}
+
+async function loadPerformanceInsights() {
+  try {
+    const contents = await fs.readFile(PERFORMANCE_INSIGHTS_PATH, "utf8");
+    const parsed = JSON.parse(contents);
+    const insights = Array.isArray(parsed?.insights) ? parsed.insights : Array.isArray(parsed) ? parsed : [];
+    return sortPerformanceInsights(insights.map(normalizePerformanceInsight));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function savePerformanceInsights(insights) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    PERFORMANCE_INSIGHTS_PATH,
+    `${JSON.stringify({ insights: sortPerformanceInsights(insights) }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+function sortPerformanceInsights(insights) {
+  return [...insights].sort((left, right) => String(right.generatedAt || "").localeCompare(String(left.generatedAt || "")));
+}
+
+async function performanceInsightsForTool(toolId) {
+  const normalizedToolId = String(toolId || "").trim();
+  if (!["padelog", "betlog"].includes(normalizedToolId)) {
+    throw new Error("Choose Padelog or Betlog");
+  }
+
+  const insights = await loadPerformanceInsights();
+  return insights.filter((insight) => insight.toolId === normalizedToolId);
+}
+
+async function savePerformanceInsight(insight) {
+  const normalizedInsight = normalizePerformanceInsight(insight);
+  const insights = await loadPerformanceInsights();
+  await savePerformanceInsights([normalizedInsight, ...insights]);
+  return normalizedInsight;
 }
 
 function normalizePadelogMatch(rawMatch = {}) {
@@ -1470,6 +1618,73 @@ async function deletePadelogMatch(matchId) {
 
   await savePadelogMatches(nextMatches);
   return { matches: nextMatches };
+}
+
+async function analyzePadelogPerformance() {
+  const matches = await loadPadelogMatches();
+  if (!matches.length) {
+    throw new Error("Add at least one Padelog match before asking for AI insights.");
+  }
+
+  const system = [
+    "You are a concise padel performance analyst.",
+    "Use only the provided JSON data and computed summary.",
+    "Look for patterns across the full record: form over time, teammates, clubs, opponents, set scores, win/loss/draw mix, and data quality.",
+    "Return exactly 5 bullets and no headings.",
+    "Keep each bullet under 24 words.",
+    "Do not include an introduction or closing sentence.",
+    "Avoid generic sports advice; tie every point to the data.",
+  ].join(" ");
+  const user = JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      summary: summarizePadelogPerformance(matches),
+      matches,
+    },
+    null,
+    2,
+  );
+
+  const insight = {
+    id: crypto.randomUUID(),
+    toolId: "padelog",
+    model: ANTHROPIC_ANALYSIS_MODEL,
+    generatedAt: new Date().toISOString(),
+    sourceRecordCount: matches.length,
+    insight: await fetchAnthropicMessage({ system, user, maxTokens: 360 }),
+  };
+  await savePerformanceInsight(insight);
+  return insight;
+}
+
+function summarizePadelogPerformance(matches) {
+  const byMonth = groupBy(matches, (match) => String(match.date || "").slice(0, 7));
+  const byClub = groupBy(matches, (match) => match.club || "Unknown club");
+  const byTeammate = groupBy(matches, (match) => match.teammate || "Unknown teammate");
+
+  return {
+    matches: matches.length,
+    firstDate: matches[matches.length - 1]?.date || "",
+    lastDate: matches[0]?.date || "",
+    resultBreakdown: countBy(matches, (match) => match.result || "Unknown"),
+    setScoreBreakdown: countBy(matches, (match) => match.sets || "Unknown"),
+    monthly: summarizePadelogGroups(byMonth),
+    clubs: summarizePadelogGroups(byClub),
+    teammates: summarizePadelogGroups(byTeammate),
+  };
+}
+
+function summarizePadelogGroups(groups) {
+  return Array.from(groups.entries())
+    .map(([label, rows]) => ({
+      label,
+      matches: rows.length,
+      wins: rows.filter((row) => row.result === "Won").length,
+      losses: rows.filter((row) => row.result === "Lost").length,
+      draws: rows.filter((row) => row.result === "Draw").length,
+      winRate: rows.length ? Math.round((rows.filter((row) => row.result === "Won").length / rows.length) * 100) : 0,
+    }))
+    .sort((left, right) => right.matches - left.matches || String(left.label).localeCompare(String(right.label)));
 }
 
 function normalizeBetlogBet(rawBet = {}) {
@@ -1643,6 +1858,153 @@ async function deleteBetlogBet(betRowId) {
 
   await saveBetlogBets(nextBets);
   return { bets: nextBets };
+}
+
+async function analyzeBetlogPerformance() {
+  const bets = await loadBetlogBets();
+  if (!bets.length) {
+    throw new Error("Add at least one Betlog row before asking for AI insights.");
+  }
+
+  const system = [
+    "You are a concise betting performance analyst focused on risk discipline.",
+    "Use only the provided JSON data and computed summary.",
+    "Analyze the full record: ROI, stake allocation, hit rate, bet types, odds bands, markets, selections, open bets, and repeated weaknesses.",
+    "Return exactly 5 bullets and no headings.",
+    "Keep each bullet under 24 words.",
+    "Do not include an introduction or closing sentence.",
+    "Do not encourage more betting. Focus on performance, bankroll protection, and measurable process improvements.",
+  ].join(" ");
+  const user = JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      summary: summarizeBetlogPerformance(bets),
+      bets,
+    },
+    null,
+    2,
+  );
+
+  const insight = {
+    id: crypto.randomUUID(),
+    toolId: "betlog",
+    model: ANTHROPIC_ANALYSIS_MODEL,
+    generatedAt: new Date().toISOString(),
+    sourceRecordCount: bets.length,
+    insight: await fetchAnthropicMessage({ system, user, maxTokens: 360 }),
+  };
+  await savePerformanceInsight(insight);
+  return insight;
+}
+
+function summarizeBetlogPerformance(bets) {
+  const uniqueBets = Array.from(groupBetsByBetId(bets).values()).map((rows) => rows[0]);
+  const settledBets = uniqueBets.filter((bet) => !isOpenBetStatus(bet.status));
+  const wins = settledBets.filter((bet) => Number(bet.returnAmount) > 0 || isWinningBetStatus(bet.status)).length;
+  const stake = sumNumbers(uniqueBets.map((bet) => (bet.freeBet ? 0 : bet.stake)));
+  const returns = sumNumbers(uniqueBets.map((bet) => bet.returnAmount));
+  const profit = Math.round((returns - stake) * 100) / 100;
+  const byMonth = groupBy(uniqueBets, (bet) => String(bet.date || "").slice(0, 7));
+  const byBetType = groupBy(uniqueBets, (bet) => bet.betType || "Unknown bet type");
+  const byStatus = groupBy(uniqueBets, (bet) => bet.status || "Unknown status");
+  const oddsBands = groupBy(uniqueBets, betlogOddsBand);
+
+  return {
+    rows: bets.length,
+    uniqueBets: uniqueBets.length,
+    firstDate: uniqueBets[uniqueBets.length - 1]?.date || "",
+    lastDate: uniqueBets[0]?.date || "",
+    stake,
+    returns,
+    profit,
+    roi: stake ? Math.round((profit / stake) * 1000) / 10 : 0,
+    winRate: settledBets.length ? Math.round((wins / settledBets.length) * 100) : 0,
+    openBets: uniqueBets.filter((bet) => isOpenBetStatus(bet.status)).length,
+    avgOdds: uniqueBets.length ? Math.round((sumNumbers(uniqueBets.map((bet) => bet.odds)) / uniqueBets.length) * 100) / 100 : 0,
+    statusBreakdown: countBy(uniqueBets, (bet) => bet.status || "Unknown"),
+    monthly: summarizeBetlogGroups(byMonth),
+    betTypes: summarizeBetlogGroups(byBetType),
+    statuses: summarizeBetlogGroups(byStatus),
+    oddsBands: summarizeBetlogGroups(oddsBands),
+  };
+}
+
+function summarizeBetlogGroups(groups) {
+  return Array.from(groups.entries())
+    .map(([label, rows]) => {
+      const stake = sumNumbers(rows.map((row) => (row.freeBet ? 0 : row.stake)));
+      const returns = sumNumbers(rows.map((row) => row.returnAmount));
+      const profit = Math.round((returns - stake) * 100) / 100;
+      return {
+        label,
+        bets: rows.length,
+        stake,
+        returns,
+        profit,
+        roi: stake ? Math.round((profit / stake) * 1000) / 10 : 0,
+      };
+    })
+    .sort((left, right) => right.bets - left.bets || String(left.label).localeCompare(String(right.label)));
+}
+
+function groupBetsByBetId(bets) {
+  const groups = new Map();
+  bets.forEach((bet) => {
+    const key = bet.betId || bet.id;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(bet);
+  });
+  return groups;
+}
+
+function isOpenBetStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return ["open", "pending", "active", "ανοιχτό", "εκκρεμεί"].includes(normalized);
+}
+
+function isWinningBetStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return ["won", "win", "κερδισμένο", "cash out"].includes(normalized);
+}
+
+function betlogOddsBand(bet) {
+  const odds = Number(bet.odds) || 0;
+  if (odds < 1.5) {
+    return "Under 1.50";
+  }
+  if (odds < 2) {
+    return "1.50-1.99";
+  }
+  if (odds < 3) {
+    return "2.00-2.99";
+  }
+  return "3.00+";
+}
+
+function groupBy(rows, keyFn) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = keyFn(row) || "Unknown";
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(row);
+  });
+  return groups;
+}
+
+function countBy(rows, keyFn) {
+  return Object.fromEntries(
+    Array.from(groupBy(rows, keyFn).entries())
+      .map(([label, groupRows]) => [label, groupRows.length])
+      .sort((left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0]))),
+  );
+}
+
+function sumNumbers(numbers) {
+  return numbers.reduce((total, value) => total + (Number(value) || 0), 0);
 }
 
 function defaultNotelogPage() {
@@ -3272,6 +3634,34 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/tools/padelog/analysis") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      sendJson(response, 200, { insights: await performanceInsightsForTool("padelog") });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not load Padelog insights" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/padelog/analysis") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      sendJson(response, 200, await analyzePadelogPerformance());
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not analyze Padelog performance" });
+    }
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/tools/betlog/bets") {
     const session = requireSession(request, response);
     if (!session) {
@@ -3323,6 +3713,34 @@ async function handleRequest(request, response) {
       sendJson(response, 200, await updateBetlogBet(payload));
     } catch (error) {
       sendJson(response, 400, { error: error.message || "Could not update Betlog bet" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/betlog/analysis") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      sendJson(response, 200, { insights: await performanceInsightsForTool("betlog") });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not load Betlog insights" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/betlog/analysis") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      sendJson(response, 200, await analyzeBetlogPerformance());
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not analyze Betlog performance" });
     }
     return;
   }
