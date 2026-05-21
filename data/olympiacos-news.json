@@ -1,0 +1,33 @@
+{
+  "sites": [
+    {
+      "id": "sport-fm.gr",
+      "name": "Sport Fm",
+      "url": "https://www.sport-fm.gr/",
+      "hostname": "sport-fm.gr",
+      "enabled": true
+    },
+    {
+      "id": "gazzetta.gr",
+      "name": "Gazzetta",
+      "url": "https://www.gazzetta.gr/",
+      "hostname": "gazzetta.gr",
+      "enabled": true
+    },
+    {
+      "id": "sport24.gr",
+      "name": "Sport24",
+      "url": "https://www.sport24.gr/",
+      "hostname": "sport24.gr",
+      "enabled": true
+    },
+    {
+      "id": "thrylos24.gr",
+      "name": "Thrylos24",
+      "url": "https://www.thrylos24.gr/",
+      "hostname": "thrylos24.gr",
+      "enabled": true
+    }
+  ],
+  "runs": []
+}

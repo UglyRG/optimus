@@ -15,6 +15,8 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:4173";
 const ACCESS_KEY = process.env.OPTIMUS_ACCESS_KEY || "optimus";
 const ANTHROPIC_ANALYSIS_MODEL =
   process.env.ANTHROPIC_ANALYSIS_MODEL || process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+const OPENAI_OLYMPIACOS_NEWS_MODEL =
+  process.env.OPENAI_OLYMPIACOS_NEWS_MODEL || process.env.OPENAI_SEARCH_MODEL || "gpt-5";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const MAX_JSON_BODY_BYTES = 200 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
@@ -24,6 +26,7 @@ const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
 const BETLOG_BETS_PATH = path.join(DATA_DIR, "betlog-bets.json");
 const NOTELOG_NOTES_PATH = path.join(DATA_DIR, "notelog-notes.json");
 const PERFORMANCE_INSIGHTS_PATH = path.join(DATA_DIR, "performance-insights.json");
+const OLYMPIACOS_NEWS_PATH = path.join(DATA_DIR, "olympiacos-news.json");
 const NOTES_OUTPUT_DIR = path.join(OUTPUTS_DIR, "Notes");
 const NOTELOG_PAGE_WIDTH = 1414;
 const NOTELOG_PAGE_HEIGHT = 1000;
@@ -83,6 +86,11 @@ const HOSTED_TOOLS = [
     title: "Check My Token Usage",
     description: "Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom range.",
   },
+  {
+    id: "olympiacos-news",
+    title: "Olympiacos News",
+    description: "Search Greek sports sites for the latest Olympiacos FC and BC news in the last 24 hours.",
+  },
 ];
 const DEFAULT_TOOL_CATALOG_CONFIG = {
   groups: [
@@ -99,6 +107,7 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
     { id: "pdf-base64", groupId: "utilities", displayOrder: 5, enabled: true },
     { id: "combine-pdfs", groupId: "utilities", displayOrder: 6, enabled: true },
     { id: "token-usage", groupId: "utilities", displayOrder: 7, enabled: true },
+    { id: "olympiacos-news", groupId: "utilities", displayOrder: 8, enabled: true },
   ],
 };
 
@@ -321,6 +330,7 @@ async function createBackupArchive() {
     { name: "data/betlog-bets.json", data: `${JSON.stringify({ bets: await loadBetlogBets() }, null, 2)}\n` },
     { name: "data/notelog-notes.json", data: `${JSON.stringify({ notes: await loadNotelogNotes() }, null, 2)}\n` },
     { name: "data/performance-insights.json", data: `${JSON.stringify({ insights: await loadPerformanceInsights() }, null, 2)}\n` },
+    { name: "data/olympiacos-news.json", data: `${JSON.stringify(await loadOlympiacosNewsStore(), null, 2)}\n` },
   ];
   const date = new Date().toISOString().slice(0, 10);
 
@@ -355,6 +365,9 @@ async function restoreBackupArchive(payload) {
   const insights = filesByName.has("performance-insights.json")
     ? parseBackupCollection(filesByName.get("performance-insights.json"), "insights").map(normalizePerformanceInsight)
     : [];
+  const olympiacosNews = filesByName.has("olympiacos-news.json")
+    ? normalizeOlympiacosNewsStore(JSON.parse(filesByName.get("olympiacos-news.json")))
+    : defaultOlympiacosNewsStore();
 
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.writeFile(TOOL_CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
@@ -362,6 +375,7 @@ async function restoreBackupArchive(payload) {
   await saveBetlogBets(betlog);
   await saveNotelogNotes(notelog);
   await savePerformanceInsights(insights);
+  await saveOlympiacosNewsStore(olympiacosNews);
 
   return {
     ok: true,
@@ -370,6 +384,7 @@ async function restoreBackupArchive(payload) {
       bets: betlog.length,
       notes: notelog.length,
       insights: insights.length,
+      olympiacosNewsRuns: olympiacosNews.runs.length,
     },
     catalog: await adminToolCatalog(),
   };
@@ -1459,6 +1474,340 @@ async function savePerformanceInsight(insight) {
   const insights = await loadPerformanceInsights();
   await savePerformanceInsights([normalizedInsight, ...insights]);
   return normalizedInsight;
+}
+
+const DEFAULT_OLYMPIACOS_NEWS_SITES = [
+  "https://www.sport-fm.gr/",
+  "https://www.gazzetta.gr/",
+  "https://www.sport24.gr/",
+  "https://www.thrylos24.gr/",
+];
+const OLYMPIACOS_NEWS_TEAMS = [
+  {
+    id: "football",
+    label: "Olympiacos FC",
+    greekLabel: "Ολυμπιακός Ποδόσφαιρο",
+  },
+  {
+    id: "basketball",
+    label: "Olympiacos BC",
+    greekLabel: "Ολυμπιακός Μπάσκετ",
+  },
+];
+const OLYMPIACOS_NEWS_WINDOW_HOURS = 24;
+
+function defaultOlympiacosNewsStore() {
+  return {
+    sites: DEFAULT_OLYMPIACOS_NEWS_SITES.map(normalizeOlympiacosNewsSite),
+    runs: [],
+  };
+}
+
+async function loadOlympiacosNewsStore() {
+  try {
+    const contents = await fs.readFile(OLYMPIACOS_NEWS_PATH, "utf8");
+    return normalizeOlympiacosNewsStore(JSON.parse(contents));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return defaultOlympiacosNewsStore();
+    }
+    throw error;
+  }
+}
+
+async function saveOlympiacosNewsStore(store) {
+  const normalizedStore = normalizeOlympiacosNewsStore(store);
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(OLYMPIACOS_NEWS_PATH, `${JSON.stringify(normalizedStore, null, 2)}\n`, "utf8");
+  return normalizedStore;
+}
+
+function normalizeOlympiacosNewsStore(store = {}) {
+  const defaultStore = defaultOlympiacosNewsStore();
+  const rawSites = Array.isArray(store.sites) && store.sites.length ? store.sites : defaultStore.sites;
+  const sites = uniqueOlympiacosNewsSites(rawSites.map(normalizeOlympiacosNewsSite));
+  const rawRuns = Array.isArray(store.runs) ? store.runs : [];
+
+  return {
+    sites,
+    runs: rawRuns.map(normalizeOlympiacosNewsRun).sort(sortOlympiacosNewsRuns).slice(0, 120),
+  };
+}
+
+function uniqueOlympiacosNewsSites(sites) {
+  const seen = new Set();
+  return sites.filter((site) => {
+    const key = site.hostname;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeOlympiacosNewsSite(rawSite) {
+  const input = typeof rawSite === "string" ? { url: rawSite } : rawSite || {};
+  const url = normalizeOlympiacosNewsUrl(input.url || input.href || input.hostname);
+  const hostname = new URL(url).hostname.replace(/^www\./, "");
+  return {
+    id: cleanText(input.id, hostname, 80),
+    name: cleanText(input.name, titleFromHostname(hostname), 80),
+    url,
+    hostname,
+    enabled: input.enabled !== false,
+  };
+}
+
+function normalizeOlympiacosNewsUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    throw new Error("Website URL is required");
+  }
+  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+  let parsed;
+  try {
+    parsed = new URL(withProtocol);
+  } catch {
+    throw new Error("Website URL is not valid");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Website URL must use http or https");
+  }
+  parsed.hash = "";
+  parsed.search = "";
+  parsed.pathname = parsed.pathname || "/";
+  return parsed.toString();
+}
+
+function titleFromHostname(hostname) {
+  return String(hostname || "News site")
+    .replace(/^www\./, "")
+    .split(".")[0]
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function normalizeOlympiacosNewsRun(rawRun = {}) {
+  const generatedAt = cleanText(rawRun.generatedAt, new Date().toISOString(), 40);
+  const window = rawRun.window || {};
+  return {
+    id: cleanText(rawRun.id, crypto.randomUUID(), 80),
+    generatedAt,
+    window: {
+      hours: cleanPositiveInteger(window.hours, OLYMPIACOS_NEWS_WINDOW_HOURS),
+      from: cleanText(window.from, new Date(Date.now() - OLYMPIACOS_NEWS_WINDOW_HOURS * 60 * 60 * 1000).toISOString(), 40),
+      to: cleanText(window.to, generatedAt, 40),
+    },
+    sites: Array.isArray(rawRun.sites) ? rawRun.sites.map(normalizeOlympiacosNewsRunSite) : [],
+  };
+}
+
+function normalizeOlympiacosNewsRunSite(site = {}) {
+  return {
+    siteId: cleanText(site.siteId, "", 80),
+    name: cleanText(site.name, "News site", 80),
+    url: cleanText(site.url, "", 240),
+    hostname: cleanText(site.hostname, "", 120),
+    teams: Object.fromEntries(
+      OLYMPIACOS_NEWS_TEAMS.map((team) => {
+        const rawTeam = site.teams?.[team.id] || {};
+        return [
+          team.id,
+          {
+            summary: cleanText(rawTeam.summary, "Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο.", 1000),
+            articles: Array.isArray(rawTeam.articles)
+              ? rawTeam.articles.map(normalizeOlympiacosNewsArticle).slice(0, 6)
+              : [],
+          },
+        ];
+      }),
+    ),
+    errors: Array.isArray(site.errors) ? site.errors.map((error) => cleanText(error, "", 240)).filter(Boolean) : [],
+  };
+}
+
+function normalizeOlympiacosNewsArticle(article = {}) {
+  return {
+    title: cleanText(article.title, "Untitled article", 240),
+    url: cleanText(article.url, "", 600),
+    publishedAt: cleanText(article.publishedAt, "", 40),
+    snippet: cleanText(article.snippet, "", 500),
+  };
+}
+
+function sortOlympiacosNewsRuns(left, right) {
+  return String(right.generatedAt || "").localeCompare(String(left.generatedAt || ""));
+}
+
+async function updateOlympiacosNewsSites(payload = {}) {
+  const incomingSites = Array.isArray(payload.sites) ? payload.sites : [];
+  if (!incomingSites.length) {
+    throw new Error("Add at least one website.");
+  }
+  const store = await loadOlympiacosNewsStore();
+  const nextStore = {
+    ...store,
+    sites: uniqueOlympiacosNewsSites(incomingSites.map(normalizeOlympiacosNewsSite)),
+  };
+  return saveOlympiacosNewsStore(nextStore);
+}
+
+async function runOlympiacosNewsSearch() {
+  const store = await loadOlympiacosNewsStore();
+  const enabledSites = store.sites.filter((site) => site.enabled);
+  if (!enabledSites.length) {
+    throw new Error("Enable at least one website before running the search.");
+  }
+
+  const now = new Date();
+  const from = new Date(now.getTime() - OLYMPIACOS_NEWS_WINDOW_HOURS * 60 * 60 * 1000);
+  const sites = await openAiOlympiacosNewsForSites(enabledSites, { from, to: now });
+  const run = normalizeOlympiacosNewsRun({
+    id: crypto.randomUUID(),
+    generatedAt: now.toISOString(),
+    window: {
+      hours: OLYMPIACOS_NEWS_WINDOW_HOURS,
+      from: from.toISOString(),
+      to: now.toISOString(),
+    },
+    sites,
+  });
+  const nextStore = await saveOlympiacosNewsStore({
+    ...store,
+    runs: [run, ...store.runs],
+  });
+
+  return {
+    run,
+    runs: nextStore.runs,
+    sites: nextStore.sites,
+  };
+}
+
+function openAiModelKey() {
+  const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+  if (!apiKey) {
+    throw new Error("Set OPENAI_API_KEY in .env");
+  }
+  return apiKey;
+}
+
+async function openAiOlympiacosNewsForSites(sites, window) {
+  const payload = await fetchJson("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiModelKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENAI_OLYMPIACOS_NEWS_MODEL,
+      reasoning: { effort: "low" },
+      tools: [
+        {
+          type: "web_search",
+          user_location: {
+            type: "approximate",
+            country: "GR",
+            city: "Athens",
+            region: "Attica",
+            timezone: "Europe/Athens",
+          },
+        },
+      ],
+      tool_choice: "auto",
+      include: ["web_search_call.action.sources"],
+      input: olympiacosNewsOpenAiPrompt(sites, window),
+    }),
+  });
+  const parsed = parseOpenAiOlympiacosNewsResponse(extractOpenAiResponseText(payload));
+  return [
+    normalizeOpenAiOlympiacosSiteResult(
+      {
+        id: "general-web",
+        name: "General web",
+        url: "https://www.google.com/search?q=Olympiacos+news",
+        hostname: "general-web",
+      },
+      parsed.sites?.["general-web"],
+    ),
+    ...sites.map((site) => normalizeOpenAiOlympiacosSiteResult(site, parsed.sites?.[site.hostname])),
+  ];
+}
+
+function olympiacosNewsOpenAiPrompt(sites, window) {
+  return [
+    "Search the web for the most recent and important Greek and international headlines about Olympiacos FC football and Olympiacos BC basketball.",
+    "Start from the configured priority websites, then broaden to reliable web sources when they have more recent or important coverage.",
+    `Time window: only include articles first published from ${window.from.toISOString()} through ${window.to.toISOString()}.`,
+    "Create a general-web entry that synthesizes the most important headlines for each team across all reliable sources.",
+    "For each configured priority website, also synthesize all relevant articles from that site for each team when available.",
+    "The summary field must be a combined digest, not a per-article summary or a list of article headlines.",
+    "Use the articles array for supporting source links and metadata, ordered by importance and recency.",
+    "If a configured priority site has no relevant article for a team in the time window, say so in Greek.",
+    "Do not include rumors unless the source page presents them as news.",
+    "Return ONLY valid JSON with this exact shape:",
+    '{"sites":{"general-web":{"football":{"summary":"...","articles":[{"title":"...","url":"...","publishedAt":"ISO date or empty","snippet":"..."}]},"basketball":{"summary":"...","articles":[{"title":"...","url":"...","publishedAt":"ISO date or empty","snippet":"..."}]},"errors":[]},"example.gr":{"football":{"summary":"...","articles":[{"title":"...","url":"...","publishedAt":"ISO date or empty","snippet":"..."}]},"basketball":{"summary":"...","articles":[{"title":"...","url":"...","publishedAt":"ISO date or empty","snippet":"..."}]},"errors":[]}}}',
+    "Configured priority websites:",
+    ...sites.map((site) => `- ${site.hostname} (${site.name})`),
+  ].join("\n");
+}
+
+function extractOpenAiResponseText(payload = {}) {
+  if (typeof payload.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text;
+  }
+
+  if (!Array.isArray(payload.output)) {
+    return "";
+  }
+
+  return payload.output
+    .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
+    .map((content) => content.text || content.output_text || "")
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function parseOpenAiOlympiacosNewsResponse(text) {
+  const cleanText = String(text || "").trim();
+  if (!cleanText) {
+    throw new Error("OpenAI returned no news summary text.");
+  }
+
+  try {
+    return JSON.parse(cleanText);
+  } catch {
+    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    throw new Error("OpenAI returned a news summary that was not valid JSON.");
+  }
+}
+
+function normalizeOpenAiOlympiacosSiteResult(site, rawSite = {}) {
+  return normalizeOlympiacosNewsRunSite({
+    siteId: site.id,
+    name: site.name,
+    url: site.url,
+    hostname: site.hostname,
+    teams: {
+      football: normalizeOpenAiOlympiacosTeam(rawSite.football),
+      basketball: normalizeOpenAiOlympiacosTeam(rawSite.basketball),
+    },
+    errors: Array.isArray(rawSite.errors) ? rawSite.errors : [],
+  });
+}
+
+function normalizeOpenAiOlympiacosTeam(rawTeam = {}) {
+  return {
+    summary: cleanText(rawTeam.summary, "Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο.", 1000),
+    articles: Array.isArray(rawTeam.articles)
+      ? rawTeam.articles.map(normalizeOlympiacosNewsArticle).slice(0, 6)
+      : [],
+  };
 }
 
 function normalizePadelogMatch(rawMatch = {}) {
@@ -3576,6 +3925,45 @@ async function handleRequest(request, response) {
 
     const files = await listIframeSourceFiles();
     sendJson(response, 200, { files });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/olympiacos-news") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, await loadOlympiacosNewsStore());
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/olympiacos-news/sites") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await updateOlympiacosNewsSites(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not save Olympiacos news sites" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/olympiacos-news/run") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      sendJson(response, 200, await runOlympiacosNewsSearch());
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not run Olympiacos news search" });
+    }
     return;
   }
 

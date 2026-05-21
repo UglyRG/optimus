@@ -17,6 +17,7 @@ OPTIMUS_ACCESS_KEY=your-login-password
 ANTHROPIC_API_KEY=your-anthropic-api-key
 ANTHROPIC_ANALYSIS_MODEL=claude-haiku-4-5-20251001
 OPENAI_API_KEY=your-openai-api-key
+OPENAI_OLYMPIACOS_NEWS_MODEL=gpt-5
 # Admin keys for organization usage reports:
 ANTHROPIC_ADMIN_KEY=your-anthropic-admin-api-key
 OPENAI_ADMIN_KEY=your-openai-admin-api-key
@@ -34,7 +35,7 @@ Branding and favicon files live in `frontend/assets/`. A root `frontend/favicon.
 
 The backend exposes the tool catalog at `GET /api/tools`. Tool group, visibility, and display order are managed from the frontend "Manage tools" dashboard and persisted in `data/tool-catalog.json`. The frontend renders the index from this metadata and maps each hosted tool `id` to its local UI.
 
-The "Manage tools" dashboard also includes Backup and Restore controls. Backup downloads a zip containing `data/tool-catalog.json`, `data/padelog-matches.json`, `data/betlog-bets.json`, `data/notelog-notes.json`, and `data/performance-insights.json`. Restore accepts that zip and replaces the local tool layout, Padelog, Betlog, Notelog, and saved AI insight data with the backup contents. Generated files in `Outputs/` and private `.env` values are not included.
+The "Manage tools" dashboard also includes Backup and Restore controls. Backup downloads a zip containing `data/tool-catalog.json`, `data/padelog-matches.json`, `data/betlog-bets.json`, `data/notelog-notes.json`, `data/performance-insights.json`, and `data/olympiacos-news.json`. Restore accepts that zip and replaces the local tool layout, Padelog, Betlog, Notelog, Olympiacos News, and saved AI insight data with the backup contents. Generated files in `Outputs/` and private `.env` values are not included.
 
 ### Padelog
 
@@ -57,6 +58,12 @@ Capture handwritten notes from a pen tablet in the Personal tools group. Notes u
 Tablet calibration is available from the Notelog Tools tab. Tap the four highlighted page corners to map tablet input to the note page area; calibration is stored in the browser and can be reset from the same panel. Exported PDFs are saved in `Outputs/Notes/` and can be opened from the Notelog export link.
 
 Notelog data is persisted locally in `data/notelog-notes.json` when the first note is saved.
+
+### Olympiacos News
+
+Search for the most recent and important Olympiacos FC football and Olympiacos BC basketball headlines from the Personal tools group. The tool uses OpenAI web search with `OPENAI_API_KEY`, starts from the configured priority websites, then broadens to reliable web sources for important recent coverage. The default priority websites are Sport FM, Gazzetta, Sport24, and Thrylos24; additional websites can be added or disabled from the tool UI.
+
+Each run searches a 24-hour window, saves a Greek combined summary for football and basketball, and stores supporting source links separately. Runs are persisted locally in `data/olympiacos-news.json` and can be browsed with previous/next controls. The main dashboard also shows the latest saved Olympiacos findings as a right-side column. Configure the model with `OPENAI_OLYMPIACOS_NEWS_MODEL` or `OPENAI_SEARCH_MODEL`; if neither is set, the tool defaults to `gpt-5`.
 
 ### Demo Builder
 

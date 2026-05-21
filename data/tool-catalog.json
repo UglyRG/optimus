@@ -36,6 +36,12 @@
       "enabled": true
     },
     {
+      "id": "olympiacos-news",
+      "groupId": "utilities",
+      "displayOrder": 4,
+      "enabled": true
+    },
+    {
       "id": "demo-builder",
       "groupId": "builders",
       "displayOrder": 1,

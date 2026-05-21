@@ -14,6 +14,10 @@ let editingPadelogMatchId = "";
 let betlogBets = [];
 let betlogHistoryPage = 1;
 let editingBetlogBetId = "";
+let olympiacosNewsSites = [];
+let olympiacosNewsRuns = [];
+let olympiacosNewsRunIndex = 0;
+let olympiacosNewsIsRunning = false;
 let performanceInsightModalState = {
   toolId: "",
   insights: [],
@@ -53,6 +57,7 @@ const TOOL_RENDERERS = {
   "pdf-base64": renderPdfBase64Tool,
   "combine-pdfs": renderCombinePdfsTool,
   "token-usage": renderTokenUsageTool,
+  "olympiacos-news": renderOlympiacosNewsTool,
 };
 const TOKEN_USAGE_EXPLAINERS = {
   totalTokens: {
@@ -196,28 +201,41 @@ async function renderIndex({ user, expiresAt }) {
   app.innerHTML = `
     ${renderTopbar({ showManageTools: true })}
 
-    <section class="index-page">
-      <section class="month-summary" aria-labelledby="month-summary-title">
-        <div class="month-summary-head">
-          <div>
-            <h2 id="month-summary-title">So far this month</h2>
-            <p id="month-summary-caption">Loading performance summary...</p>
-          </div>
-        </div>
-        <div class="month-summary-grid" id="month-summary-grid">
-          <div class="tool-list-state">Loading monthly performance...</div>
-        </div>
-      </section>
+    <section class="index-page dashboard-page">
+      <section class="dashboard-layout">
+        <main class="dashboard-main">
+          <section class="month-summary" aria-label="Monthly performance summary">
+            <div class="month-summary-grid" id="month-summary-grid">
+              <div class="tool-list-state">Loading monthly performance...</div>
+            </div>
+          </section>
 
-      <div class="tool-groups" id="tool-groups" aria-label="Available tools">
-        <div class="tool-list-state">Loading tools...</div>
-      </div>
+          <div class="tool-groups" id="tool-groups" aria-label="Available tools">
+            <div class="tool-list-state">Loading tools...</div>
+          </div>
+        </main>
+
+        <aside class="dashboard-findings" aria-labelledby="dashboard-findings-title">
+          <div class="dashboard-findings-head">
+            <div>
+              <h2 id="dashboard-findings-title">Olympiacos findings</h2>
+              <p id="dashboard-findings-meta">Loading latest run...</p>
+            </div>
+            <button class="button button-primary month-summary-ai-button" id="dashboard-findings-open" type="button">Open</button>
+          </div>
+          <div class="dashboard-findings-list" id="dashboard-findings-list">
+            <p>Loading findings...</p>
+          </div>
+        </aside>
+      </section>
     </section>
   `;
 
   attachTopbarHandlers();
   document.querySelector("#manage-tools-button").addEventListener("click", renderToolAdminDashboard);
+  document.querySelector("#dashboard-findings-open").addEventListener("click", renderOlympiacosNewsTool);
   renderMonthlyPerformanceSummary();
+  renderDashboardOlympiacosFindings();
 
   try {
     const payload = await request("/tools");
@@ -231,9 +249,8 @@ async function renderIndex({ user, expiresAt }) {
 }
 
 async function renderMonthlyPerformanceSummary() {
-  const caption = document.querySelector("#month-summary-caption");
   const grid = document.querySelector("#month-summary-grid");
-  if (!caption || !grid) {
+  if (!grid) {
     return;
   }
 
@@ -251,7 +268,6 @@ async function renderMonthlyPerformanceSummary() {
     const currentBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, currentRange)));
     const previousBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, previousRange)));
 
-    caption.textContent = `${formatMonthSummaryRange(currentRange)} compared with ${formatMonthSummaryRange(previousRange)}.`;
     grid.innerHTML = [
       renderMonthSummaryGroup("Padel performance", "padel", "padelog", [
         monthMetric("Matches", currentPadel.matches, previousPadel.matches, { suffix: "", higherIsGood: true }),
@@ -271,9 +287,57 @@ async function renderMonthlyPerformanceSummary() {
     ].join("");
     attachMonthSummaryInsightHandlers();
   } catch (error) {
-    caption.textContent = "Could not load monthly performance.";
     grid.innerHTML = `<p class="error is-visible">Could not load summary: ${escapeHtml(error.message)}</p>`;
   }
+}
+
+async function renderDashboardOlympiacosFindings() {
+  const meta = document.querySelector("#dashboard-findings-meta");
+  const list = document.querySelector("#dashboard-findings-list");
+  if (!meta || !list) {
+    return;
+  }
+
+  try {
+    const payload = await request("/tools/olympiacos-news");
+    const run = payload.runs?.[0] || null;
+    const findings = run ? latestOlympiacosFindingLines(run).slice(0, 8) : [];
+    meta.textContent = run ? formatDateTime(run.generatedAt) : "No saved run yet";
+    list.innerHTML = findings.length
+      ? findings.map((finding) => `<p>${escapeHtml(finding)}</p>`).join("")
+      : "<p>Run Olympiacos News to save the first 24-hour findings.</p>";
+  } catch (error) {
+    meta.textContent = "Could not load findings";
+    list.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function latestOlympiacosFindingLines(run) {
+  return visibleOlympiacosRunSites(run).flatMap((site) =>
+    [
+      ["FC", site.teams?.football?.summary],
+      ["BC", site.teams?.basketball?.summary],
+    ]
+      .filter(([, summary], index) => {
+        const team = index === 0 ? site.teams?.football : site.teams?.basketball;
+        return hasOlympiacosTeamNews(team) && String(summary || "").trim();
+      })
+      .map(([team, summary]) => `${site.name} · ${team}: ${summary}`),
+  );
+}
+
+function visibleOlympiacosRunSites(run) {
+  return (run?.sites || []).filter(hasOlympiacosSiteNews);
+}
+
+function hasOlympiacosSiteNews(site) {
+  return site?.hostname === "general-web" ||
+    hasOlympiacosTeamNews(site?.teams?.football) ||
+    hasOlympiacosTeamNews(site?.teams?.basketball);
+}
+
+function hasOlympiacosTeamNews(team) {
+  return Array.isArray(team?.articles) && team.articles.length > 0;
 }
 
 function renderMonthSummaryGroup(title, variant, toolId, metrics) {
@@ -347,14 +411,6 @@ function previousMonthDateRange(date = new Date()) {
 
 function isDateInRange(dateText, range) {
   return dateText >= range.from && dateText <= range.to;
-}
-
-function formatMonthSummaryRange(range) {
-  const [fromYear, fromMonth, fromDay] = range.from.split("-");
-  const [, , toDay] = range.to.split("-");
-  const date = new Date(Number(fromYear), Number(fromMonth) - 1, Number(fromDay));
-  const month = new Intl.DateTimeFormat("en-US", { month: "long" }).format(date);
-  return `${month} ${Number(fromDay)}-${Number(toDay)}`;
 }
 
 function formatSummaryNumber(value) {
@@ -763,6 +819,280 @@ function base64ToBytes(base64) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+async function renderOlympiacosNewsTool() {
+  olympiacosNewsSites = [];
+  olympiacosNewsRuns = [];
+  olympiacosNewsRunIndex = 0;
+  olympiacosNewsIsRunning = false;
+
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>Olympiacos News</h1>
+          <p>Search selected Greek sports sites for Olympiacos FC and BC stories published in the last 24 hours.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <section class="tool-panel olympiacos-news-control">
+        <div class="panel-title">
+          <h2>Run search</h2>
+          <p>Each run is saved locally and can be reviewed with the history buttons.</p>
+        </div>
+        <div class="olympiacos-news-actions">
+          <button class="button button-primary" id="olympiacos-news-run" type="button">Search last 24h</button>
+          <button class="button button-secondary" id="olympiacos-news-prev" type="button">&lt;</button>
+          <span class="padelog-page-summary" id="olympiacos-news-counter">0 / 0</span>
+          <button class="button button-secondary" id="olympiacos-news-next" type="button">&gt;</button>
+        </div>
+        <p class="success" id="olympiacos-news-success"></p>
+        <p class="error" id="olympiacos-news-error"></p>
+      </section>
+
+      <section class="result-panel olympiacos-news-results">
+        <div class="result-head">
+          <div>
+            <h2>Saved findings</h2>
+            <p id="olympiacos-news-run-meta">Loading saved runs...</p>
+          </div>
+        </div>
+        <div id="olympiacos-news-results"></div>
+      </section>
+
+      <section class="tool-panel">
+        <div class="panel-title">
+          <h2>Websites</h2>
+          <p>Add or disable sources for future runs.</p>
+        </div>
+        <div class="olympiacos-site-list" id="olympiacos-site-list"></div>
+        <form class="olympiacos-site-form" id="olympiacos-site-form">
+          <div class="field">
+            <label for="olympiacos-site-url">New website</label>
+            <input id="olympiacos-site-url" name="url" placeholder="https://example.gr/" />
+          </div>
+          <button class="button button-secondary" type="submit">Add website</button>
+        </form>
+      </section>
+    </section>
+  `;
+
+  attachTopbarHandlers();
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#olympiacos-news-run").addEventListener("click", handleOlympiacosNewsRun);
+  document.querySelector("#olympiacos-news-prev").addEventListener("click", () => stepOlympiacosNewsRun(1));
+  document.querySelector("#olympiacos-news-next").addEventListener("click", () => stepOlympiacosNewsRun(-1));
+  document.querySelector("#olympiacos-site-form").addEventListener("submit", handleOlympiacosAddSite);
+  document.querySelector("#olympiacos-site-list").addEventListener("click", handleOlympiacosSiteListClick);
+
+  try {
+    const payload = await request("/tools/olympiacos-news");
+    olympiacosNewsSites = payload.sites || [];
+    olympiacosNewsRuns = payload.runs || [];
+    renderOlympiacosNewsSites();
+    renderOlympiacosNewsRun();
+  } catch (error) {
+    showScopedMessage("#olympiacos-news-error", `Could not load news tool: ${error.message}`);
+  }
+}
+
+async function handleOlympiacosNewsRun() {
+  if (olympiacosNewsIsRunning) {
+    return;
+  }
+
+  olympiacosNewsIsRunning = true;
+  renderOlympiacosNewsRun({ loading: true });
+  try {
+    const payload = await request("/tools/olympiacos-news/run", { method: "POST" });
+    olympiacosNewsSites = payload.sites || olympiacosNewsSites;
+    olympiacosNewsRuns = payload.runs || [payload.run, ...olympiacosNewsRuns].filter(Boolean);
+    olympiacosNewsRunIndex = 0;
+    renderOlympiacosNewsSites();
+    renderOlympiacosNewsRun();
+    showScopedMessage("#olympiacos-news-success", "News search saved.");
+  } catch (error) {
+    renderOlympiacosNewsRun();
+    showScopedMessage("#olympiacos-news-error", error.message);
+  } finally {
+    olympiacosNewsIsRunning = false;
+    renderOlympiacosNewsRun();
+  }
+}
+
+async function handleOlympiacosAddSite(event) {
+  event.preventDefault();
+  const input = document.querySelector("#olympiacos-site-url");
+  const url = input.value.trim();
+  if (!url) {
+    showScopedMessage("#olympiacos-news-error", "Add a website URL first.");
+    return;
+  }
+
+  const sites = [...olympiacosNewsSites, { url, enabled: true }];
+  await saveOlympiacosNewsSites(sites, () => {
+    input.value = "";
+    showScopedMessage("#olympiacos-news-success", "Website added.");
+  });
+}
+
+async function handleOlympiacosSiteListClick(event) {
+  const removeButton = event.target.closest("[data-remove-olympiacos-site]");
+  if (removeButton) {
+    const sites = olympiacosNewsSites.filter((site) => site.id !== removeButton.dataset.removeOlympiacosSite);
+    await saveOlympiacosNewsSites(sites, () => showScopedMessage("#olympiacos-news-success", "Website removed."));
+    return;
+  }
+
+  const toggle = event.target.closest("[data-toggle-olympiacos-site]");
+  if (!toggle) {
+    return;
+  }
+
+  const sites = olympiacosNewsSites.map((site) =>
+    site.id === toggle.dataset.toggleOlympiacosSite ? { ...site, enabled: toggle.checked } : site,
+  );
+  await saveOlympiacosNewsSites(sites);
+}
+
+async function saveOlympiacosNewsSites(sites, onSuccess = () => {}) {
+  try {
+    const payload = await request("/tools/olympiacos-news/sites", {
+      method: "POST",
+      body: JSON.stringify({ sites }),
+    });
+    olympiacosNewsSites = payload.sites || [];
+    olympiacosNewsRuns = payload.runs || olympiacosNewsRuns;
+    renderOlympiacosNewsSites();
+    onSuccess();
+  } catch (error) {
+    showScopedMessage("#olympiacos-news-error", error.message);
+    renderOlympiacosNewsSites();
+  }
+}
+
+function stepOlympiacosNewsRun(delta) {
+  if (!olympiacosNewsRuns.length) {
+    return;
+  }
+  olympiacosNewsRunIndex = Math.min(Math.max(olympiacosNewsRunIndex + delta, 0), olympiacosNewsRuns.length - 1);
+  renderOlympiacosNewsRun();
+}
+
+function renderOlympiacosNewsSites() {
+  const list = document.querySelector("#olympiacos-site-list");
+  if (!list) {
+    return;
+  }
+
+  list.innerHTML = olympiacosNewsSites
+    .map(
+      (site) => `
+        <article class="olympiacos-site-row">
+          <label class="toggle-field">
+            <input data-toggle-olympiacos-site="${escapeAttribute(site.id)}" type="checkbox"${site.enabled ? " checked" : ""} />
+            <span>${escapeHtml(site.name)}</span>
+          </label>
+          <a href="${escapeAttribute(site.url)}" target="_blank" rel="noopener">${escapeHtml(site.hostname)}</a>
+          <button class="button button-secondary betlog-icon-button" data-remove-olympiacos-site="${escapeAttribute(site.id)}" type="button" aria-label="Remove ${escapeAttribute(site.name)}" title="Remove website">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
+          </button>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderOlympiacosNewsRun(options = {}) {
+  const meta = document.querySelector("#olympiacos-news-run-meta");
+  const results = document.querySelector("#olympiacos-news-results");
+  const counter = document.querySelector("#olympiacos-news-counter");
+  const previousButton = document.querySelector("#olympiacos-news-prev");
+  const nextButton = document.querySelector("#olympiacos-news-next");
+  const runButton = document.querySelector("#olympiacos-news-run");
+  if (!meta || !results || !counter || !previousButton || !nextButton || !runButton) {
+    return;
+  }
+
+  if (options.loading || olympiacosNewsIsRunning) {
+    runButton.disabled = true;
+    runButton.textContent = "Searching...";
+    results.innerHTML = '<div class="tool-list-state">Searching configured websites and saving a new run...</div>';
+  } else {
+    runButton.disabled = false;
+    runButton.textContent = "Search last 24h";
+  }
+
+  const run = olympiacosNewsRuns[olympiacosNewsRunIndex];
+  counter.textContent = olympiacosNewsRuns.length ? `${olympiacosNewsRunIndex + 1} / ${olympiacosNewsRuns.length}` : "0 / 0";
+  previousButton.disabled = !olympiacosNewsRuns.length || olympiacosNewsRunIndex >= olympiacosNewsRuns.length - 1 || olympiacosNewsIsRunning;
+  nextButton.disabled = !olympiacosNewsRuns.length || olympiacosNewsRunIndex <= 0 || olympiacosNewsIsRunning;
+
+  if (!run && !options.loading && !olympiacosNewsIsRunning) {
+    meta.textContent = "No saved runs yet.";
+    results.innerHTML = '<div class="tool-list-state">Run a search to save the first 24-hour news summary.</div>';
+    return;
+  }
+  if (!run) {
+    meta.textContent = "Preparing search...";
+    return;
+  }
+
+  meta.textContent = `${formatDateTime(run.generatedAt)} · ${formatRangeDates(run.window?.from, run.window?.to)}`;
+  if (!options.loading && !olympiacosNewsIsRunning) {
+    const visibleSites = visibleOlympiacosRunSites(run);
+    results.innerHTML = visibleSites.length
+      ? visibleSites.map(renderOlympiacosNewsSiteResult).join("")
+      : '<div class="tool-list-state">No relevant articles were found for this run.</div>';
+  }
+}
+
+function renderOlympiacosNewsSiteResult(site) {
+  return `
+    <article class="olympiacos-result-site">
+      <div class="olympiacos-result-head">
+        <div>
+          <h3>${escapeHtml(site.name)}</h3>
+          <a href="${escapeAttribute(site.url)}" target="_blank" rel="noopener">${escapeHtml(site.hostname)}</a>
+        </div>
+        ${site.errors?.length ? `<span class="badge">${escapeHtml(`${site.errors.length} issue${site.errors.length === 1 ? "" : "s"}`)}</span>` : ""}
+      </div>
+      <div class="olympiacos-team-grid">
+        ${renderOlympiacosTeamSummary("Olympiacos FC", site.teams?.football)}
+        ${renderOlympiacosTeamSummary("Olympiacos BC", site.teams?.basketball)}
+      </div>
+    </article>
+  `;
+}
+
+function renderOlympiacosTeamSummary(label, team) {
+  const articles = team?.articles || [];
+  if (!articles.length) {
+    return "";
+  }
+
+  return `
+    <section class="olympiacos-team-card">
+      <h4>${escapeHtml(label)}</h4>
+      <p>${escapeHtml(team?.summary || "Δεν βρέθηκαν ειδήσεις στο τελευταίο 24ωρο.")}</p>
+      ${articles.length ? `<div class="olympiacos-article-links">${articles.map(renderOlympiacosArticleLink).join("")}</div>` : ""}
+    </section>
+  `;
+}
+
+function renderOlympiacosArticleLink(article) {
+  return `
+    <a href="${escapeAttribute(article.url)}" target="_blank" rel="noopener">
+      <span>${escapeHtml(article.title)}</span>
+      ${article.publishedAt ? `<small>${escapeHtml(formatDateTime(article.publishedAt))}</small>` : ""}
+    </a>
+  `;
 }
 
 async function renderPadelogTool() {

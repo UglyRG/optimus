@@ -556,9 +556,76 @@ button {
 }
 
 .index-page {
-  width: min(1120px, calc(100% - 184px));
+  width: min(1320px, calc(100% - 184px));
   margin: 0 24px 0 160px;
   padding: 24px 0;
+}
+
+.dashboard-page {
+  width: calc(100% - 184px);
+}
+
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1120px) minmax(320px, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.dashboard-main {
+  min-width: 0;
+}
+
+.dashboard-findings {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: calc(100vh - 48px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--panel-elevated);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.dashboard-findings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard-findings h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dashboard-findings-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.dashboard-findings-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-findings-list p {
+  margin: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.dashboard-findings-list p:first-child {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .page-head {
@@ -601,6 +668,7 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  align-items: stretch;
 }
 
 .month-summary-grid > .tool-list-state,
@@ -1366,6 +1434,144 @@ button {
   stroke-width: 2;
 }
 
+.olympiacos-news-control {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.olympiacos-news-control .success,
+.olympiacos-news-control .error {
+  grid-column: 1 / -1;
+}
+
+.olympiacos-news-actions,
+.olympiacos-site-form {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.olympiacos-site-form .field {
+  flex: 1 1 280px;
+}
+
+.olympiacos-site-list {
+  display: grid;
+  gap: 10px;
+}
+
+.olympiacos-site-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.8fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--soft-bg);
+}
+
+.olympiacos-site-row a,
+.olympiacos-result-head a {
+  color: var(--brand);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.olympiacos-site-row a:hover,
+.olympiacos-result-head a:hover,
+.olympiacos-article-links a:hover span {
+  color: var(--accent);
+}
+
+.olympiacos-news-results {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.olympiacos-news-results #olympiacos-news-results {
+  display: grid;
+  gap: 14px;
+}
+
+.olympiacos-result-site {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--soft-bg);
+}
+
+.olympiacos-result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.olympiacos-result-head h3 {
+  margin: 0 0 5px;
+  font-size: 1rem;
+}
+
+.olympiacos-team-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.olympiacos-team-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px;
+  background: var(--panel);
+}
+
+.olympiacos-team-card h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.olympiacos-team-card p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.olympiacos-article-links {
+  display: grid;
+  gap: 8px;
+}
+
+.olympiacos-article-links a {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.olympiacos-article-links span {
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.olympiacos-article-links small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .betlog-time,
 .betlog-free {
   display: block;
@@ -1777,6 +1983,18 @@ iframe {
     padding: clamp(28px, 5vw, 48px) 0;
   }
 
+  .dashboard-page {
+    width: min(1120px, calc(100% - 32px));
+  }
+
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-findings {
+    min-height: auto;
+  }
+
 }
 
 .notelog-page {
@@ -2137,6 +2355,7 @@ iframe {
   .color-grid,
   .label-row,
   .combine-pdf-row,
+  .dashboard-layout,
   .month-summary-grid,
   .month-summary-metrics,
   .padelog-layout,
@@ -2145,6 +2364,9 @@ iframe {
   .notelog-tool-grid,
   .padelog-form-grid,
   .padelog-metrics,
+  .olympiacos-news-control,
+  .olympiacos-site-row,
+  .olympiacos-team-grid,
   .token-usage-grid,
   .token-metrics,
   .token-breakdown,
@@ -2160,6 +2382,9 @@ iframe {
   .betlog-import-head,
   .padelog-history-controls,
   .padelog-pagination,
+  .olympiacos-news-actions,
+  .olympiacos-site-form,
+  .olympiacos-result-head,
   .token-range-head,
   .result-head {
     flex-direction: column;
@@ -2175,6 +2400,7 @@ iframe {
   .page-head .button,
   .admin-section-head .button,
   .padelog-history-controls .field,
+  .olympiacos-site-form .field,
   .checkbox-field,
   .padelog-pagination .button,
   .tool-panel .button,
