@@ -135,10 +135,14 @@ async function loadAppVersion() {
 function formatAppVersion(version) {
   const cleanVersion = String(version || "")
     .replace(/-dirty$/, "")
-    .replace(/^v?/, "")
     .trim();
-  const [major = "4", minor = "5"] = cleanVersion.split(".");
-  return `v.${major}.${minor}`;
+  const tagVersion = cleanVersion.match(/^v?\d+(?:\.\d+)*/)?.[0];
+
+  if (tagVersion) {
+    return tagVersion.startsWith("v") ? tagVersion : `v${tagVersion}`;
+  }
+
+  return cleanVersion || "Version unavailable";
 }
 
 async function loadSession() {
