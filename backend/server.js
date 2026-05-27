@@ -1,5 +1,5 @@
 const crypto = require("node:crypto");
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
@@ -21,6 +21,8 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const MAX_JSON_BODY_BYTES = 200 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
 const DATA_DIR = path.join(__dirname, "..", "data");
+const DATABASE_PATH = process.env.OPTIMUS_DATABASE_PATH || path.join(DATA_DIR, "optimus.db");
+const SQLITE_BIN = process.env.SQLITE_BIN || "sqlite3";
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
 const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
 const BETLOG_BETS_PATH = path.join(DATA_DIR, "betlog-bets.json");
@@ -112,6 +114,17 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
 };
 
 const sessions = new Map();
+let databaseReadyPromise = null;
+let databaseQueue = Promise.resolve();
+
+const DATA_STORES = {
+  toolCatalog: "tool_catalog",
+  padelogMatches: "padelog_matches",
+  betlogBets: "betlog_bets",
+  notelogNotes: "notelog_notes",
+  performanceInsights: "performance_insights",
+  olympiacosNews: "olympiacos_news",
+};
 
 function loadEnvFile(filePath) {
   try {
@@ -140,6 +153,117 @@ function loadEnvFile(filePath) {
       throw error;
     }
   }
+}
+
+async function runDatabaseSql(sql) {
+  await fs.mkdir(path.dirname(DATABASE_PATH), { recursive: true });
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(SQLITE_BIN, [DATABASE_PATH], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      reject(new Error(`Could not start SQLite (${SQLITE_BIN}): ${error.message}`));
+    });
+    child.on("close", (code) => {
+      if (code) {
+        reject(new Error(stderr.trim() || `SQLite exited with status ${code}`));
+        return;
+      }
+
+      resolve(stdout);
+    });
+
+    child.stdin.end(sql);
+  });
+}
+
+function queueDatabaseOperation(operation) {
+  const run = databaseQueue.then(operation, operation);
+  databaseQueue = run.catch(() => {});
+  return run;
+}
+
+async function ensureDatabase() {
+  if (!databaseReadyPromise) {
+    databaseReadyPromise = runDatabaseSql(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS app_data (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  }
+
+  await databaseReadyPromise;
+}
+
+function sqlString(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function sqlTextLiteral(value) {
+  return `CAST(X'${Buffer.from(String(value), "utf8").toString("hex")}' AS TEXT)`;
+}
+
+async function readStoreValue(storeKey) {
+  await ensureDatabase();
+  const stdout = await runDatabaseSql(`
+    SELECT value
+    FROM app_data
+    WHERE key = ${sqlString(storeKey)}
+    LIMIT 1;
+  `);
+
+  return stdout ? stdout.replace(/\n$/, "") : null;
+}
+
+async function writeStoreValue(storeKey, value) {
+  await ensureDatabase();
+  await queueDatabaseOperation(() =>
+    runDatabaseSql(`
+      INSERT INTO app_data (key, value, updated_at)
+      VALUES (${sqlString(storeKey)}, ${sqlTextLiteral(value)}, datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at;
+    `),
+  );
+}
+
+async function loadJsonStore(storeKey, legacyPath, fallbackValue) {
+  const storedValue = await readStoreValue(storeKey);
+  if (storedValue !== null) {
+    return JSON.parse(storedValue);
+  }
+
+  try {
+    const contents = await fs.readFile(legacyPath, "utf8");
+    const parsed = JSON.parse(contents);
+    await saveJsonStore(storeKey, parsed);
+    return parsed;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return fallbackValue;
+    }
+    throw error;
+  }
+}
+
+async function saveJsonStore(storeKey, value) {
+  await writeStoreValue(storeKey, JSON.stringify(value));
 }
 
 function sendJson(response, status, payload, headers = {}) {
@@ -304,21 +428,13 @@ async function adminToolCatalog() {
 }
 
 async function loadToolCatalogConfig() {
-  try {
-    const contents = await fs.readFile(TOOL_CATALOG_PATH, "utf8");
-    return normalizeToolCatalogConfig(JSON.parse(contents));
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return normalizeToolCatalogConfig(DEFAULT_TOOL_CATALOG_CONFIG);
-    }
-    throw error;
-  }
+  const parsed = await loadJsonStore(DATA_STORES.toolCatalog, TOOL_CATALOG_PATH, DEFAULT_TOOL_CATALOG_CONFIG);
+  return normalizeToolCatalogConfig(parsed);
 }
 
 async function saveToolCatalogConfig(payload) {
   const catalog = normalizeToolCatalogConfig(payload, { strict: true });
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(TOOL_CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+  await saveJsonStore(DATA_STORES.toolCatalog, catalog);
   return adminToolCatalog();
 }
 
@@ -369,8 +485,7 @@ async function restoreBackupArchive(payload) {
     ? normalizeOlympiacosNewsStore(JSON.parse(filesByName.get("olympiacos-news.json")))
     : defaultOlympiacosNewsStore();
 
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(TOOL_CATALOG_PATH, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+  await saveJsonStore(DATA_STORES.toolCatalog, catalog);
   await savePadelogMatches(padelog);
   await saveBetlogBets(betlog);
   await saveNotelogNotes(notelog);
@@ -1433,26 +1548,13 @@ function isModelOnlyInsight(text) {
 }
 
 async function loadPerformanceInsights() {
-  try {
-    const contents = await fs.readFile(PERFORMANCE_INSIGHTS_PATH, "utf8");
-    const parsed = JSON.parse(contents);
-    const insights = Array.isArray(parsed?.insights) ? parsed.insights : Array.isArray(parsed) ? parsed : [];
-    return sortPerformanceInsights(insights.map(normalizePerformanceInsight));
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
+  const parsed = await loadJsonStore(DATA_STORES.performanceInsights, PERFORMANCE_INSIGHTS_PATH, { insights: [] });
+  const insights = Array.isArray(parsed?.insights) ? parsed.insights : Array.isArray(parsed) ? parsed : [];
+  return sortPerformanceInsights(insights.map(normalizePerformanceInsight));
 }
 
 async function savePerformanceInsights(insights) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(
-    PERFORMANCE_INSIGHTS_PATH,
-    `${JSON.stringify({ insights: sortPerformanceInsights(insights) }, null, 2)}\n`,
-    "utf8",
-  );
+  await saveJsonStore(DATA_STORES.performanceInsights, { insights: sortPerformanceInsights(insights) });
 }
 
 function sortPerformanceInsights(insights) {
@@ -1504,21 +1606,13 @@ function defaultOlympiacosNewsStore() {
 }
 
 async function loadOlympiacosNewsStore() {
-  try {
-    const contents = await fs.readFile(OLYMPIACOS_NEWS_PATH, "utf8");
-    return normalizeOlympiacosNewsStore(JSON.parse(contents));
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return defaultOlympiacosNewsStore();
-    }
-    throw error;
-  }
+  const parsed = await loadJsonStore(DATA_STORES.olympiacosNews, OLYMPIACOS_NEWS_PATH, defaultOlympiacosNewsStore());
+  return normalizeOlympiacosNewsStore(parsed);
 }
 
 async function saveOlympiacosNewsStore(store) {
   const normalizedStore = normalizeOlympiacosNewsStore(store);
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(OLYMPIACOS_NEWS_PATH, `${JSON.stringify(normalizedStore, null, 2)}\n`, "utf8");
+  await saveJsonStore(DATA_STORES.olympiacosNews, normalizedStore);
   return normalizedStore;
 }
 
@@ -1889,26 +1983,13 @@ function sortPadelogMatches(matches) {
 }
 
 async function loadPadelogMatches() {
-  try {
-    const contents = await fs.readFile(PADELOG_MATCHES_PATH, "utf8");
-    const parsed = JSON.parse(contents);
-    const matches = Array.isArray(parsed?.matches) ? parsed.matches : Array.isArray(parsed) ? parsed : [];
-    return sortPadelogMatches(matches.map(normalizePadelogMatch));
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
+  const parsed = await loadJsonStore(DATA_STORES.padelogMatches, PADELOG_MATCHES_PATH, { matches: [] });
+  const matches = Array.isArray(parsed?.matches) ? parsed.matches : Array.isArray(parsed) ? parsed : [];
+  return sortPadelogMatches(matches.map(normalizePadelogMatch));
 }
 
 async function savePadelogMatches(matches) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(
-    PADELOG_MATCHES_PATH,
-    `${JSON.stringify({ matches: sortPadelogMatches(matches) }, null, 2)}\n`,
-    "utf8",
-  );
+  await saveJsonStore(DATA_STORES.padelogMatches, { matches: sortPadelogMatches(matches) });
 }
 
 async function addPadelogMatches(payload) {
@@ -2129,26 +2210,13 @@ function sortBetlogBets(bets) {
 }
 
 async function loadBetlogBets() {
-  try {
-    const contents = await fs.readFile(BETLOG_BETS_PATH, "utf8");
-    const parsed = JSON.parse(contents);
-    const bets = Array.isArray(parsed?.bets) ? parsed.bets : Array.isArray(parsed) ? parsed : [];
-    return sortBetlogBets(bets.map(normalizeBetlogBet));
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
+  const parsed = await loadJsonStore(DATA_STORES.betlogBets, BETLOG_BETS_PATH, { bets: [] });
+  const bets = Array.isArray(parsed?.bets) ? parsed.bets : Array.isArray(parsed) ? parsed : [];
+  return sortBetlogBets(bets.map(normalizeBetlogBet));
 }
 
 async function saveBetlogBets(bets) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(
-    BETLOG_BETS_PATH,
-    `${JSON.stringify({ bets: sortBetlogBets(bets) }, null, 2)}\n`,
-    "utf8",
-  );
+  await saveJsonStore(DATA_STORES.betlogBets, { bets: sortBetlogBets(bets) });
 }
 
 async function addBetlogBets(payload) {
@@ -2443,26 +2511,13 @@ function sortNotelogNotes(notes) {
 }
 
 async function loadNotelogNotes() {
-  try {
-    const contents = await fs.readFile(NOTELOG_NOTES_PATH, "utf8");
-    const parsed = JSON.parse(contents);
-    const notes = Array.isArray(parsed?.notes) ? parsed.notes : Array.isArray(parsed) ? parsed : [];
-    return sortNotelogNotes(notes.map(normalizeNotelogNote));
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
+  const parsed = await loadJsonStore(DATA_STORES.notelogNotes, NOTELOG_NOTES_PATH, { notes: [] });
+  const notes = Array.isArray(parsed?.notes) ? parsed.notes : Array.isArray(parsed) ? parsed : [];
+  return sortNotelogNotes(notes.map(normalizeNotelogNote));
 }
 
 async function saveNotelogNotes(notes) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(
-    NOTELOG_NOTES_PATH,
-    `${JSON.stringify({ notes: sortNotelogNotes(notes) }, null, 2)}\n`,
-    "utf8",
-  );
+  await saveJsonStore(DATA_STORES.notelogNotes, { notes: sortNotelogNotes(notes) });
 }
 
 async function upsertNotelogNote(payload = {}) {
