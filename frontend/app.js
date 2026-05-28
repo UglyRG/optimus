@@ -18,6 +18,8 @@ let olympiacosNewsSites = [];
 let olympiacosNewsRuns = [];
 let olympiacosNewsRunIndex = 0;
 let olympiacosNewsIsRunning = false;
+let knowledgeExpertEntries = [];
+let knowledgeExpertTurns = [];
 let performanceInsightModalState = {
   toolId: "",
   insights: [],
@@ -56,8 +58,10 @@ const TOOL_RENDERERS = {
   "html-base64": renderHtmlBase64Tool,
   "pdf-base64": renderPdfBase64Tool,
   "combine-pdfs": renderCombinePdfsTool,
+  "csv-json-rows": renderCsvJsonRowsTool,
   "token-usage": renderTokenUsageTool,
   "olympiacos-news": renderOlympiacosNewsTool,
+  "knowledge-expert": renderKnowledgeExpertTool,
 };
 const TOKEN_USAGE_EXPLAINERS = {
   totalTokens: {
@@ -258,27 +262,39 @@ async function renderMonthlyPerformanceSummary() {
     return;
   }
 
-  try {
-    const [padelogPayload, betlogPayload] = await Promise.all([
-      request("/tools/padelog/matches"),
-      request("/tools/betlog/bets"),
-    ]);
+  const [padelogResult, betlogResult] = await Promise.allSettled([
+    request("/tools/padelog/matches"),
+    request("/tools/betlog/bets"),
+  ]);
+  const currentRange = currentMonthDateRange();
+  const previousRange = previousMonthDateRange();
+  const summaryGroups = [];
+
+  if (padelogResult.status === "fulfilled") {
+    const padelogPayload = padelogResult.value;
     const matches = padelogPayload.matches || [];
-    const bets = betlogPayload.bets || [];
-    const currentRange = currentMonthDateRange();
-    const previousRange = previousMonthDateRange();
     const currentPadel = summarizePadelogMatches(matches.filter((match) => isDateInRange(match.date, currentRange)));
     const previousPadel = summarizePadelogMatches(matches.filter((match) => isDateInRange(match.date, previousRange)));
-    const currentBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, currentRange)));
-    const previousBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, previousRange)));
 
-    grid.innerHTML = [
+    summaryGroups.push(
       renderMonthSummaryGroup("Padel performance", "padel", "padelog", [
         monthMetric("Matches", currentPadel.matches, previousPadel.matches, { suffix: "", higherIsGood: true }),
         monthMetric("Wins", currentPadel.wins, previousPadel.wins, { suffix: "", higherIsGood: true }),
         monthMetric("Win rate", currentPadel.winRate, previousPadel.winRate, { suffix: "%", higherIsGood: true }),
         monthMetric("Losses", currentPadel.losses, previousPadel.losses, { suffix: "", higherIsGood: false }),
       ]),
+    );
+  } else {
+    summaryGroups.push(renderMonthSummaryError("Padel performance", "padel", padelogResult.reason));
+  }
+
+  if (betlogResult.status === "fulfilled") {
+    const betlogPayload = betlogResult.value;
+    const bets = betlogPayload.bets || [];
+    const currentBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, currentRange)));
+    const previousBetting = summarizeBetlogBets(bets.filter((bet) => isDateInRange(bet.date, previousRange)));
+
+    summaryGroups.push(
       renderMonthSummaryGroup("Betting performance", "betting", "betlog", [
         monthMetric("Profit", currentBetting.profit, previousBetting.profit, {
           formatter: formatMoney,
@@ -288,11 +304,13 @@ async function renderMonthlyPerformanceSummary() {
         monthMetric("Win rate", currentBetting.winRate, previousBetting.winRate, { suffix: "%", higherIsGood: true }),
         monthMetric("Bets", currentBetting.uniqueBets, previousBetting.uniqueBets, { suffix: "", higherIsGood: true }),
       ]),
-    ].join("");
-    attachMonthSummaryInsightHandlers();
-  } catch (error) {
-    grid.innerHTML = `<p class="error is-visible">Could not load summary: ${escapeHtml(error.message)}</p>`;
+    );
+  } else {
+    summaryGroups.push(renderMonthSummaryError("Betting performance", "betting", betlogResult.reason));
   }
+
+  grid.innerHTML = summaryGroups.join("");
+  attachMonthSummaryInsightHandlers();
 }
 
 async function renderDashboardOlympiacosFindings() {
@@ -356,6 +374,17 @@ function renderMonthSummaryGroup(title, variant, toolId, metrics) {
       <div class="month-summary-metrics">
         ${metrics.map(renderMonthSummaryMetric).join("")}
       </div>
+    </article>
+  `;
+}
+
+function renderMonthSummaryError(title, variant, error) {
+  return `
+    <article class="month-summary-group ${escapeAttribute(`is-${variant}`)}">
+      <div class="month-summary-group-head">
+        <h3>${escapeHtml(title)}</h3>
+      </div>
+      <p class="error is-visible">Could not load this summary: ${escapeHtml(error?.message || "Unknown error")}</p>
     </article>
   `;
 }
@@ -823,6 +852,595 @@ function base64ToBytes(base64) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+async function renderKnowledgeExpertTool() {
+  knowledgeExpertEntries = [];
+  knowledgeExpertTurns = [];
+
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page knowledge-expert-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>Knowledge Expert</h1>
+          <p>Ask questions against an uploaded knowledge base. Answers are grounded and cited.</p>
+        </div>
+        <div class="knowledge-page-actions">
+          <button class="button button-secondary" id="knowledge-how-button" type="button">How it works</button>
+          <button class="button button-secondary" id="back-button" type="button">Back</button>
+        </div>
+      </div>
+
+      <section class="knowledge-expert-layout">
+        <aside class="tool-panel knowledge-expert-sidebar">
+          <div class="panel-title">
+            <h2>Dataset</h2>
+            <p id="knowledge-expert-dataset-meta">Loading entries...</p>
+          </div>
+          <form class="form-stack" id="knowledge-expert-upload-form">
+            <div class="field">
+              <label for="knowledge-expert-file">Knowledge files</label>
+              <input id="knowledge-expert-file" type="file" accept=".csv,.html,.htm,.txt,.md,.markdown,.json,.pdf,.docx,text/*,text/html,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple required />
+            </div>
+            <fieldset class="knowledge-upload-mode">
+              <legend>Upload mode</legend>
+              <label>
+                <input type="radio" name="knowledgeUploadMode" value="append" checked />
+                <span>Append to current dataset</span>
+              </label>
+              <label>
+                <input type="radio" name="knowledgeUploadMode" value="replace" />
+                <span>Replace whole dataset</span>
+              </label>
+            </fieldset>
+            <button class="button button-primary" type="submit">Upload files</button>
+          </form>
+          <details class="knowledge-template-box" open>
+            <summary>Upload templates</summary>
+            <div class="knowledge-template-body">
+              <p>Best results come from one row per question the assistant should be able to answer. You can upload one file or many mixed files, including PDF and DOCX.</p>
+              <div class="knowledge-template-actions">
+                <button class="button button-secondary" type="button" data-knowledge-template="csv">Download CSV</button>
+                <button class="button button-secondary" type="button" data-knowledge-template="json">Download JSON</button>
+              </div>
+              <div class="knowledge-template-example">
+                <strong>CSV columns</strong>
+                <code>category,question,answer,link</code>
+              </div>
+              <div class="knowledge-template-example">
+                <strong>JSON shape</strong>
+                <code>{ "entries": [{ "category": "...", "question": "...", "answer": "...", "link": "..." }] }</code>
+              </div>
+            </div>
+          </details>
+          <p class="success" id="knowledge-expert-success"></p>
+          <p class="error" id="knowledge-expert-error"></p>
+          <details class="knowledge-template-box">
+            <summary>Admin reports</summary>
+            <div class="knowledge-template-body">
+              <div class="knowledge-template-actions">
+                <button class="button button-secondary" type="button" data-knowledge-report="conversations">Conversations</button>
+                <button class="button button-secondary" type="button" data-knowledge-report="errors">Errors</button>
+                <button class="button button-secondary" type="button" data-knowledge-report="dead">Dead entries</button>
+                <button class="button button-secondary" type="button" data-knowledge-report="gaps">Knowledge gaps</button>
+              </div>
+            </div>
+          </details>
+          <details class="knowledge-template-box">
+            <summary>Knowledge entries</summary>
+            <div class="knowledge-template-body">
+              <div class="knowledge-entry-list" id="knowledge-entry-list"></div>
+            </div>
+          </details>
+        </aside>
+
+        <main class="tool-panel knowledge-expert-chat-panel">
+          <div class="knowledge-chat-head">
+            <div>
+              <h2>Chat</h2>
+              <p>Knowledge Expert declines when the dataset does not support an answer.</p>
+            </div>
+            <span id="knowledge-expert-model"></span>
+          </div>
+          <div class="knowledge-chat-log" id="knowledge-chat-log"></div>
+          <form class="knowledge-chat-form" id="knowledge-chat-form">
+            <input id="knowledge-chat-input" autocomplete="off" placeholder="Ask a question..." required />
+            <button class="button button-primary" type="submit">Send</button>
+          </form>
+        </main>
+      </section>
+
+      <div class="ai-modal knowledge-how-modal" id="knowledge-how-modal" hidden>
+        <div class="ai-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-how-title">
+          <div class="ai-modal-head">
+            <div>
+              <h2 id="knowledge-how-title">How Knowledge Expert works</h2>
+              <p>Grounded answers from a local, curated knowledge base.</p>
+            </div>
+            <button class="button button-secondary" id="knowledge-how-close" type="button">Close</button>
+          </div>
+          <div class="ai-modal-body knowledge-how-body">
+            <section>
+              <h3>1. Upload trusted content</h3>
+              <p>Upload one or more CSV, JSON, HTML, TXT, Markdown, PDF, or DOCX files. Append adds new entries to the active dataset; Replace starts from a clean dataset.</p>
+            </section>
+            <section>
+              <h3>2. Optimus prepares entries</h3>
+              <p>The file is parsed into knowledge entries. Messy prose chunks can get synthesized questions when an Anthropic key is available. OpenAI embeddings enable semantic search; otherwise the tool uses keyword matching.</p>
+            </section>
+            <section>
+              <h3>3. Questions retrieve matching entries</h3>
+              <p>For each chat turn, Optimus searches the active dataset, combines semantic and keyword matches, and sends only those retrieved entries to the model.</p>
+            </section>
+            <section>
+              <h3>4. The answer must cite sources</h3>
+              <p>The assistant is instructed to answer only from retrieved entries and to include citation IDs. Optimus validates those citations and shows them as source chips.</p>
+            </section>
+            <section>
+              <h3>5. Unsupported questions are declined</h3>
+              <p>If the dataset does not contain the answer, Knowledge Expert returns the decline message instead of guessing.</p>
+            </section>
+          </div>
+        </div>
+      </div>
+      <div class="ai-modal knowledge-report-modal" id="knowledge-report-modal" hidden>
+        <div class="ai-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-report-title">
+          <div class="ai-modal-head">
+            <div>
+              <h2 id="knowledge-report-title">Report</h2>
+              <p id="knowledge-report-subtitle">Knowledge Expert admin report.</p>
+            </div>
+            <button class="button button-secondary" id="knowledge-report-close" type="button">Close</button>
+          </div>
+          <div class="ai-modal-body">
+            <div class="knowledge-report-output" id="knowledge-report-output"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+
+  attachTopbarHandlers();
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#knowledge-expert-upload-form").addEventListener("submit", handleKnowledgeExpertUpload);
+  document.querySelector("#knowledge-chat-form").addEventListener("submit", handleKnowledgeExpertChat);
+  document.querySelector("#knowledge-chat-log").addEventListener("click", handleKnowledgeExpertChatClick);
+  document.querySelector("#knowledge-how-button").addEventListener("click", openKnowledgeHowModal);
+  document.querySelector("#knowledge-how-close").addEventListener("click", closeKnowledgeHowModal);
+  document.querySelector("#knowledge-how-modal").addEventListener("click", (event) => {
+    if (event.target.id === "knowledge-how-modal") {
+      closeKnowledgeHowModal();
+    }
+  });
+  document.querySelector("#knowledge-report-close").addEventListener("click", closeKnowledgeReportModal);
+  document.querySelector("#knowledge-report-modal").addEventListener("click", (event) => {
+    if (event.target.id === "knowledge-report-modal") {
+      closeKnowledgeReportModal();
+    }
+  });
+  document.querySelector(".knowledge-template-box").addEventListener("click", handleKnowledgeTemplateClick);
+  document.querySelector("[data-knowledge-report]").closest(".knowledge-template-box").addEventListener("click", handleKnowledgeReportClick);
+
+  await loadKnowledgeExpertTool();
+}
+
+async function loadKnowledgeExpertTool() {
+  try {
+    const payload = await request("/tools/knowledge-expert");
+    knowledgeExpertEntries = payload.entries || [];
+    knowledgeExpertTurns = (payload.turns || []).slice().reverse();
+    document.querySelector("#knowledge-expert-model").textContent = payload.models?.chat || "";
+    renderKnowledgeExpertDataset(payload.uploads || []);
+    renderKnowledgeExpertChat();
+  } catch (error) {
+    showScopedMessage("#knowledge-expert-error", `Could not load Knowledge Expert: ${error.message}`);
+  }
+}
+
+function openKnowledgeHowModal() {
+  const modal = document.querySelector("#knowledge-how-modal");
+  if (modal) {
+    modal.hidden = false;
+  }
+}
+
+function closeKnowledgeHowModal() {
+  const modal = document.querySelector("#knowledge-how-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+function openKnowledgeReportModal(title, subtitle = "Knowledge Expert admin report.") {
+  const modal = document.querySelector("#knowledge-report-modal");
+  if (!modal) {
+    return;
+  }
+  document.querySelector("#knowledge-report-title").textContent = title;
+  document.querySelector("#knowledge-report-subtitle").textContent = subtitle;
+  modal.hidden = false;
+}
+
+function closeKnowledgeReportModal() {
+  const modal = document.querySelector("#knowledge-report-modal");
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+function handleKnowledgeTemplateClick(event) {
+  const button = event.target.closest("[data-knowledge-template]");
+  if (!button) {
+    return;
+  }
+  downloadKnowledgeTemplate(button.dataset.knowledgeTemplate);
+}
+
+async function handleKnowledgeReportClick(event) {
+  const button = event.target.closest("[data-knowledge-report]");
+  if (!button) {
+    return;
+  }
+  const output = document.querySelector("#knowledge-report-output");
+  const report = button.dataset.knowledgeReport;
+  const labels = {
+    conversations: ["Conversations", "Recent chat turns, grounded status, and response text."],
+    errors: ["Errors", "Persisted Knowledge Expert errors and failed turns."],
+    dead: ["Dead entries", "Knowledge entries that were never retrieved or never cited."],
+    gaps: ["Knowledge gaps", "Similar declined questions grouped together."],
+  };
+  const paths = {
+    conversations: "/tools/knowledge-expert/admin/conversations",
+    errors: "/tools/knowledge-expert/admin/reports/errors",
+    dead: "/tools/knowledge-expert/admin/reports/dead-entries",
+    gaps: "/tools/knowledge-expert/admin/reports/knowledge-gaps",
+  };
+  openKnowledgeReportModal(labels[report]?.[0] || "Report", labels[report]?.[1] || "Knowledge Expert admin report.");
+  output.innerHTML = '<div class="tool-list-state">Loading report...</div>';
+  try {
+    const payload = await request(paths[report]);
+    output.innerHTML = renderKnowledgeReport(report, payload);
+  } catch (error) {
+    output.innerHTML = `<p class="error is-visible">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function renderKnowledgeReport(report, payload) {
+  if (report === "conversations") {
+    const turns = payload.turns || [];
+    return `
+      <div class="knowledge-report-summary">
+        <span>${formatInteger(payload.totals?.turns)} turns</span>
+        <span>${formatInteger(payload.totals?.grounded)} grounded</span>
+        <span>${formatInteger(payload.totals?.declined)} declined</span>
+      </div>
+      ${turns.slice(0, 12).map((turn) => `<article><strong>${escapeHtml(turn.userMessage)}</strong><p>${escapeHtml(turn.assistantResponse)}</p></article>`).join("")}
+    `;
+  }
+  if (report === "errors") {
+    const turns = payload.turns || [];
+    return turns.length
+      ? turns.slice(0, 12).map((turn) => `<article><strong>${escapeHtml(turn.userMessage)}</strong><p>${escapeHtml(turn.error || "Error")}</p></article>`).join("")
+      : '<div class="tool-list-state">No persisted errors.</div>';
+  }
+  if (report === "dead") {
+    const entries = payload.entries || [];
+    return entries.length
+      ? entries.slice(0, 20).map((entry) => `<article><strong>${escapeHtml(entry.question)}</strong><p>${entry.retrieved ? "Retrieved" : "Never retrieved"} · ${entry.cited ? "Cited" : "Never cited"}</p></article>`).join("")
+      : '<div class="tool-list-state">No dead entries yet.</div>';
+  }
+  const clusters = payload.clusters || [];
+  return clusters.length
+    ? clusters.slice(0, 12).map((cluster) => `<article><strong>${escapeHtml(cluster.centroidQuestion)}</strong><p>${formatInteger(cluster.memberCount)} similar declined question(s)</p></article>`).join("")
+    : '<div class="tool-list-state">No knowledge gaps yet.</div>';
+}
+
+function downloadKnowledgeTemplate(type) {
+  const templates = {
+    csv: {
+      fileName: "knowledge-expert-template.csv",
+      mimeType: "text/csv;charset=utf-8",
+      contents: [
+        "category,question,answer,link",
+        "Product,What is Optimus?,Optimus is a local personal tools dashboard.,https://example.com/optimus",
+        "Policy,Who can use the tool?,Only signed-in Optimus users with the local access key can use it,",
+      ].join("\n"),
+    },
+    json: {
+      fileName: "knowledge-expert-template.json",
+      mimeType: "application/json;charset=utf-8",
+      contents: `${JSON.stringify(
+        {
+          entries: [
+            {
+              category: "Product",
+              question: "What is Optimus?",
+              answer: "Optimus is a local personal tools dashboard.",
+              link: "https://example.com/optimus",
+            },
+            {
+              category: "Policy",
+              question: "Who can use the tool?",
+              answer: "Only signed-in Optimus users with the local access key can use it.",
+              link: "",
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    },
+  };
+  const template = templates[type];
+  if (!template) {
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([template.contents], { type: template.mimeType }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = template.fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function renderKnowledgeExpertDataset(uploads = []) {
+  const meta = document.querySelector("#knowledge-expert-dataset-meta");
+  const list = document.querySelector("#knowledge-entry-list");
+  const latest = uploads[0];
+  meta.textContent = latest
+    ? `${knowledgeExpertEntries.length} entries from ${latest.fileName}, uploaded ${formatDateTime(latest.uploadedAt)}`
+    : "No dataset uploaded yet.";
+  list.innerHTML = knowledgeExpertEntries.length
+    ? knowledgeExpertEntries.slice(0, 80).map(renderKnowledgeEntryRow).join("")
+    : '<div class="tool-list-state">Upload CSV, HTML, TXT, Markdown, or JSON to begin.</div>';
+}
+
+function renderKnowledgeEntryRow(entry) {
+  return `
+    <article class="knowledge-entry-row">
+      <strong>${escapeHtml(entry.question)}</strong>
+      <span>${escapeHtml(entry.category || "General")}${entry.hasEmbedding ? " · embedded" : " · keyword only"}</span>
+      <p>${escapeHtml(entry.answerPreview || "")}</p>
+    </article>
+  `;
+}
+
+function renderKnowledgeExpertChat() {
+  const log = document.querySelector("#knowledge-chat-log");
+  if (!knowledgeExpertTurns.length) {
+    log.innerHTML = '<div class="tool-list-state">Ask a question after uploading a dataset.</div>';
+    return;
+  }
+
+  log.innerHTML = knowledgeExpertTurns.map(renderKnowledgeTurn).join("");
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderKnowledgeTurn(turn) {
+  return `
+    <article class="knowledge-turn" data-turn-id="${escapeAttribute(turn.id)}">
+      <div class="knowledge-message knowledge-message-user">${escapeHtml(turn.userMessage)}</div>
+      <div class="knowledge-message knowledge-message-assistant">
+        <div class="knowledge-answer">${escapeHtml(turn.assistantResponse || "").replace(/\n/g, "<br>")}</div>
+        ${renderKnowledgeCitations(turn.citations || [])}
+        <div class="knowledge-turn-actions">
+          <span>${turn.grounded ? "Grounded" : "Declined"} · ${escapeHtml(formatDateTime(turn.createdAt))}</span>
+          <button type="button" data-knowledge-feedback="1" class="${turn.feedbackRating === 1 ? "is-active" : ""}">Good</button>
+          <button type="button" data-knowledge-feedback="-1" class="${turn.feedbackRating === -1 ? "is-active" : ""}">Bad</button>
+          <button type="button" data-knowledge-trace="${escapeAttribute(turn.id)}">Trace</button>
+        </div>
+        <div class="knowledge-trace" id="knowledge-trace-${escapeAttribute(turn.id)}" hidden>
+          ${(turn.traceEvents || []).map(renderKnowledgeTraceEvent).join("")}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderKnowledgeCitations(citations) {
+  if (!citations.length) {
+    return "";
+  }
+  return `
+    <div class="knowledge-citations">
+      ${citations
+        .map(
+          (citation) => `
+            <a class="knowledge-citation-chip" href="${escapeAttribute(citation.link || "#")}" ${citation.link ? 'target="_blank" rel="noreferrer"' : ""}>
+              ${escapeHtml(citation.label || citation.id)}
+            </a>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderKnowledgeTraceEvent(event) {
+  return `
+    <div class="knowledge-trace-row">
+      <code>${escapeHtml(event.type || "event")}</code>
+      <span>${escapeHtml(event.summary || "")}</span>
+      <small>${formatInteger(event.tsMsOffset || 0)}ms</small>
+    </div>
+  `;
+}
+
+async function handleKnowledgeExpertUpload(event) {
+  event.preventDefault();
+  const input = document.querySelector("#knowledge-expert-file");
+  const files = Array.from(input.files || []);
+  if (!files.length) {
+    showScopedMessage("#knowledge-expert-error", "Choose at least one file first.");
+    return;
+  }
+
+  const submitButton = event.currentTarget.querySelector("button[type='submit']");
+  const mode = new FormData(event.currentTarget).get("knowledgeUploadMode") === "replace" ? "replace" : "append";
+  clearScopedMessage("#knowledge-expert-error");
+  showScopedMessage("#knowledge-expert-success", `${mode === "append" ? "Appending" : "Replacing"} and embedding...`);
+  submitButton.disabled = true;
+
+  try {
+    const uploadedFiles = await Promise.all(
+      files.map(async (file) => ({
+        fileName: file.name,
+        base64: await fileToBase64(file),
+      })),
+    );
+    const result = await request("/tools/knowledge-expert/upload", {
+      method: "POST",
+      body: JSON.stringify({
+        mode,
+        files: uploadedFiles,
+      }),
+    });
+    showScopedMessage(
+      "#knowledge-expert-success",
+      `${mode === "append" ? "Added" : "Loaded"} ${result.addedEntryCount} entries from ${result.fileCount} file(s). Dataset now has ${result.entryCount}.`,
+    );
+    input.value = "";
+    await loadKnowledgeExpertTool();
+  } catch (error) {
+    showScopedMessage("#knowledge-expert-error", error.message);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function handleKnowledgeExpertChat(event) {
+  event.preventDefault();
+  const input = document.querySelector("#knowledge-chat-input");
+  const message = input.value.trim();
+  if (!message) {
+    return;
+  }
+  const submitButton = event.currentTarget.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  input.disabled = true;
+  knowledgeExpertTurns.push({
+    id: `pending-${Date.now()}`,
+    userMessage: message,
+    assistantResponse: "Thinking...",
+    citations: [],
+    traceEvents: [],
+    createdAt: new Date().toISOString(),
+  });
+  renderKnowledgeExpertChat();
+  input.value = "";
+
+  try {
+    const turn = await streamKnowledgeExpertChat(message);
+    knowledgeExpertTurns = knowledgeExpertTurns.filter((turnItem) => !String(turnItem.id).startsWith("pending-"));
+    knowledgeExpertTurns.push(turn);
+    renderKnowledgeExpertChat();
+  } catch (error) {
+    knowledgeExpertTurns = knowledgeExpertTurns.filter((turnItem) => !String(turnItem.id).startsWith("pending-"));
+    showScopedMessage("#knowledge-expert-error", error.message);
+    renderKnowledgeExpertChat();
+  } finally {
+    submitButton.disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+async function streamKnowledgeExpertChat(message) {
+  const response = await fetch(`${API_BASE}/tools/knowledge-expert/chat/stream`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      history: knowledgeExpertTurns.slice(-6),
+    }),
+  });
+  if (!response.ok || !response.body) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "Could not answer with Knowledge Expert");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamedText = "";
+  let finalTurn = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+    for (const rawEvent of events) {
+      const parsed = parseSseEvent(rawEvent);
+      if (parsed.event === "text_delta") {
+        streamedText += parsed.data.delta || "";
+        const pending = knowledgeExpertTurns.find((turn) => String(turn.id).startsWith("pending-"));
+        if (pending) {
+          pending.assistantResponse = streamedText || "Thinking...";
+          renderKnowledgeExpertChat();
+        }
+      } else if (parsed.event === "meta") {
+        finalTurn = parsed.data.turn;
+      } else if (parsed.event === "error") {
+        throw new Error(parsed.data.message || "Could not answer with Knowledge Expert");
+      }
+    }
+  }
+
+  if (!finalTurn) {
+    throw new Error("Knowledge Expert stream ended without a final answer.");
+  }
+  return finalTurn;
+}
+
+function parseSseEvent(rawEvent) {
+  const lines = rawEvent.split("\n");
+  const event = (lines.find((line) => line.startsWith("event:")) || "event: message").slice(6).trim();
+  const data = lines
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .join("\n");
+  return {
+    event,
+    data: data ? JSON.parse(data) : {},
+  };
+}
+
+async function handleKnowledgeExpertChatClick(event) {
+  const traceButton = event.target.closest("[data-knowledge-trace]");
+  if (traceButton) {
+    const trace = document.querySelector(`#knowledge-trace-${CSS.escape(traceButton.dataset.knowledgeTrace)}`);
+    if (trace) {
+      trace.hidden = !trace.hidden;
+    }
+    return;
+  }
+
+  const feedbackButton = event.target.closest("[data-knowledge-feedback]");
+  if (!feedbackButton) {
+    return;
+  }
+  const turnElement = feedbackButton.closest(".knowledge-turn");
+  const traceId = turnElement?.dataset.turnId || "";
+  const rating = Number(feedbackButton.dataset.knowledgeFeedback);
+  try {
+    const result = await request("/tools/knowledge-expert/feedback", {
+      method: "POST",
+      body: JSON.stringify({ traceId, rating }),
+    });
+    knowledgeExpertTurns = knowledgeExpertTurns.map((turn) => (turn.id === traceId ? result.turn : turn));
+    renderKnowledgeExpertChat();
+  } catch (error) {
+    showScopedMessage("#knowledge-expert-error", error.message);
+  }
 }
 
 async function renderOlympiacosNewsTool() {
@@ -1785,6 +2403,15 @@ function showScopedMessage(selector, message) {
   window.setTimeout(() => {
     element.classList.remove("is-visible");
   }, 2600);
+}
+
+function clearScopedMessage(selector) {
+  const element = document.querySelector(selector);
+  if (!element) {
+    return;
+  }
+  element.textContent = "";
+  element.classList.remove("is-visible");
 }
 
 async function openPerformanceInsightsModal(toolId) {
@@ -3840,6 +4467,47 @@ function renderCombinePdfsTool() {
   renderCombinePdfList();
 }
 
+function renderCsvJsonRowsTool() {
+  app.innerHTML = `
+    ${renderTopbar()}
+
+    <section class="index-page">
+      <div class="page-head">
+        <div class="page-title">
+          <h1>CSV to JSON Rows</h1>
+          <p>Select a CSV file and save one JSON file per data row inside Outputs.</p>
+        </div>
+        <button class="button button-secondary" id="back-button" type="button">Back</button>
+      </div>
+
+      <form class="tool-panel" id="csv-json-rows-form">
+        <div class="field">
+          <label for="csv-json-file">CSV file</label>
+          <input id="csv-json-file" name="csvFile" type="file" accept=".csv,text/csv" required />
+        </div>
+        <p class="error" id="tool-error"></p>
+        <button class="button button-primary" type="submit">Create JSON files</button>
+      </form>
+
+      <section class="result-panel" id="result-panel" hidden>
+        <div class="result-head">
+          <div>
+            <h2>Output</h2>
+            <p id="saved-path"></p>
+          </div>
+        </div>
+        <div class="json-preview" id="csv-json-file-list"></div>
+      </section>
+    </section>
+  `;
+
+  attachTopbarHandlers();
+  document.querySelector("#back-button").addEventListener("click", () => {
+    renderIndex({ user: activeUser, expiresAt: activeExpiresAt });
+  });
+  document.querySelector("#csv-json-rows-form").addEventListener("submit", handleCsvJsonRowsSubmit);
+}
+
 function renderTokenUsageTool() {
   app.innerHTML = `
     ${renderTopbar()}
@@ -4401,6 +5069,41 @@ async function handleCombinePdfsSubmit(event) {
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Create combined PDF";
+  }
+}
+
+async function handleCsvJsonRowsSubmit(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const submitButton = form.querySelector('button[type="submit"]');
+  const fileInput = document.querySelector("#csv-json-file");
+  const [file] = fileInput.files;
+  clearToolError();
+
+  if (!file) {
+    showToolError("Choose a CSV file first.");
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = "Creating...";
+
+  try {
+    const result = await request("/tools/csv-json-rows", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.name,
+        csv: await file.text(),
+      }),
+    });
+
+    showCsvJsonRowsResult(result);
+  } catch (error) {
+    showToolError(error.message);
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = "Create JSON files";
   }
 }
 
@@ -5169,6 +5872,28 @@ function showCombinePdfResult(result) {
   preview.src = result.pdfSource;
   download.href = result.pdfSource;
   download.download = result.fileName;
+  panel.hidden = false;
+}
+
+function showCsvJsonRowsResult(result) {
+  const panel = document.querySelector("#result-panel");
+  const savedPath = document.querySelector("#saved-path");
+  const fileList = document.querySelector("#csv-json-file-list");
+  const files = Array.isArray(result.files) ? result.files : [];
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+
+  clearToolError();
+  savedPath.textContent = `Saved ${result.rowCount} JSON files with ${result.columnCount} columns in Outputs/${result.fileName}.`;
+  fileList.innerHTML = [
+    ...warnings.map((warning) => `<div class="json-preview-row json-preview-warning">${escapeHtml(warning)}</div>`),
+    ...files.slice(0, 200).map((fileName) => `<div class="json-preview-row">${escapeHtml(fileName)}</div>`),
+  ].join("");
+  if (files.length > 200) {
+    fileList.insertAdjacentHTML(
+      "beforeend",
+      `<div class="json-preview-row">...and ${escapeHtml(files.length - 200)} more files</div>`,
+    );
+  }
   panel.hidden = false;
 }
 

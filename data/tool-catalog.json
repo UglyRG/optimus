@@ -42,6 +42,12 @@
       "enabled": true
     },
     {
+      "id": "knowledge-expert",
+      "groupId": "utilities",
+      "displayOrder": 5,
+      "enabled": true
+    },
+    {
       "id": "demo-builder",
       "groupId": "builders",
       "displayOrder": 1,
@@ -72,9 +78,15 @@
       "enabled": true
     },
     {
-      "id": "token-usage",
+      "id": "csv-json-rows",
       "groupId": "new-group",
       "displayOrder": 2,
+      "enabled": true
+    },
+    {
+      "id": "token-usage",
+      "groupId": "new-group",
+      "displayOrder": 3,
       "enabled": true
     }
   ]

@@ -65,6 +65,14 @@ Search for the most recent and important Olympiacos FC football and Olympiacos B
 
 Each run searches a 24-hour window, saves a Greek combined summary for football and basketball, and stores supporting source links separately. Runs are persisted locally in `data/optimus.db` and can be browsed with previous/next controls. The main dashboard also shows the latest saved Olympiacos findings as a right-side column. Configure the model with `OPENAI_OLYMPIACOS_NEWS_MODEL` or `OPENAI_SEARCH_MODEL`; if neither is set, the tool defaults to `gpt-5`.
 
+### Knowledge Expert
+
+Upload a small curated knowledge base from the Personal tools group and ask grounded questions with source citations. Knowledge Expert accepts one or more CSV, HTML, TXT, Markdown, JSON, PDF, or DOCX files in a single upload. CSV headers support `category`, `question`, `answer`, and `link`; JSON can be an array of similar objects or `{ "entries": [...] }`. Uploads can append new entries to the active dataset or replace the whole dataset atomically, while prior chat turns remain saved.
+
+Knowledge Expert uses `OPENAI_API_KEY` with `KNOWLEDGE_EXPERT_EMBED_MODEL` or `text-embedding-3-small` for embeddings. If no OpenAI key is set, it stores entries and falls back to keyword retrieval. Answers use `ANTHROPIC_API_KEY` with `KNOWLEDGE_EXPERT_CHAT_MODEL`, `ANTHROPIC_MODEL`, or `ANTHROPIC_ANALYSIS_MODEL`. The assistant declines when the retrieved dataset does not support an answer and shows citation chips for grounded answers. Set `KNOWLEDGE_EXPERT_QUERY_REWRITE_ENABLED=true` to rewrite follow-up questions for retrieval, and `KNOWLEDGE_EXPERT_SYNTHESIZE_QUESTIONS=always|auto|never` to control synthetic questions for prose chunks.
+
+The tool includes a "How it works" modal, downloadable CSV/JSON templates, streaming chat responses, feedback, traces, and admin reports for conversations, errors, dead entries, and knowledge gaps.
+
 ### Demo Builder
 
 Build a branded, configurable agent demo from uploaded or pasted JSON files for content, sizing/prerequisites, and per-scenario glossary terms. The generated demo supports scenario selection, progressive chat playback, document reveal, grouped agent logs, glossary modal, simulation speed controls, pause/resume, and a chat-style interface with avatars. Outputs are saved locally in `Outputs/` as the requested `.html` file.

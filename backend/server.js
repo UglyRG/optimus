@@ -6,6 +6,8 @@ const path = require("node:path");
 const { promisify } = require("node:util");
 const zlib = require("node:zlib");
 const { PDFDocument } = require("pdf-lib");
+const { PDFParse } = require("pdf-parse");
+const mammoth = require("mammoth");
 
 loadEnvFile(path.join(__dirname, "..", ".env"));
 
@@ -17,6 +19,15 @@ const ANTHROPIC_ANALYSIS_MODEL =
   process.env.ANTHROPIC_ANALYSIS_MODEL || process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
 const OPENAI_OLYMPIACOS_NEWS_MODEL =
   process.env.OPENAI_OLYMPIACOS_NEWS_MODEL || process.env.OPENAI_SEARCH_MODEL || "gpt-5";
+const KNOWLEDGE_EXPERT_CHAT_MODEL =
+  process.env.KNOWLEDGE_EXPERT_CHAT_MODEL || process.env.ANTHROPIC_MODEL || ANTHROPIC_ANALYSIS_MODEL;
+const KNOWLEDGE_EXPERT_EMBED_MODEL = process.env.KNOWLEDGE_EXPERT_EMBED_MODEL || "text-embedding-3-small";
+const KNOWLEDGE_EXPERT_DECLINE = "I don't see that in the Knowledge Expert knowledge base.";
+const KNOWLEDGE_EXPERT_TOP_K = 5;
+const KNOWLEDGE_EXPERT_ENUMERATIVE_TOP_K = 15;
+const KNOWLEDGE_EXPERT_MAX_FILE_BYTES = 5 * 1024 * 1024;
+const KNOWLEDGE_EXPERT_SYNTHESIZE_QUESTIONS = process.env.KNOWLEDGE_EXPERT_SYNTHESIZE_QUESTIONS || "auto";
+const KNOWLEDGE_EXPERT_QUERY_REWRITE_ENABLED = process.env.KNOWLEDGE_EXPERT_QUERY_REWRITE_ENABLED === "true";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const MAX_JSON_BODY_BYTES = 200 * 1024 * 1024;
 const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
@@ -84,6 +95,11 @@ const HOSTED_TOOLS = [
     description: "Combine two to five PDF files into one new PDF while preserving page sizes.",
   },
   {
+    id: "csv-json-rows",
+    title: "CSV to JSON Rows",
+    description: "Convert every row in a CSV file into matching JSON files saved inside an Outputs subfolder.",
+  },
+  {
     id: "token-usage",
     title: "Check My Token Usage",
     description: "Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom range.",
@@ -92,6 +108,11 @@ const HOSTED_TOOLS = [
     id: "olympiacos-news",
     title: "Olympiacos News",
     description: "Search Greek sports sites for the latest Olympiacos FC and BC news in the last 24 hours.",
+  },
+  {
+    id: "knowledge-expert",
+    title: "Knowledge Expert",
+    description: "Upload a small knowledge base and ask grounded questions with source citations.",
   },
 ];
 const DEFAULT_TOOL_CATALOG_CONFIG = {
@@ -108,8 +129,10 @@ const DEFAULT_TOOL_CATALOG_CONFIG = {
     { id: "html-base64", groupId: "utilities", displayOrder: 4, enabled: true },
     { id: "pdf-base64", groupId: "utilities", displayOrder: 5, enabled: true },
     { id: "combine-pdfs", groupId: "utilities", displayOrder: 6, enabled: true },
-    { id: "token-usage", groupId: "utilities", displayOrder: 7, enabled: true },
-    { id: "olympiacos-news", groupId: "utilities", displayOrder: 8, enabled: true },
+    { id: "csv-json-rows", groupId: "utilities", displayOrder: 7, enabled: true },
+    { id: "token-usage", groupId: "utilities", displayOrder: 8, enabled: true },
+    { id: "olympiacos-news", groupId: "utilities", displayOrder: 9, enabled: true },
+    { id: "knowledge-expert", groupId: "utilities", displayOrder: 10, enabled: true },
   ],
 };
 
@@ -124,6 +147,7 @@ const DATA_STORES = {
   notelogNotes: "notelog_notes",
   performanceInsights: "performance_insights",
   olympiacosNews: "olympiacos_news",
+  knowledgeExpert: "knowledge_expert",
 };
 
 function loadEnvFile(filePath) {
@@ -273,6 +297,11 @@ function sendJson(response, status, payload, headers = {}) {
     ...headers,
   });
   response.end(JSON.stringify(payload));
+}
+
+function sendSse(response, event, payload = {}) {
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 async function appVersion() {
@@ -447,6 +476,7 @@ async function createBackupArchive() {
     { name: "data/notelog-notes.json", data: `${JSON.stringify({ notes: await loadNotelogNotes() }, null, 2)}\n` },
     { name: "data/performance-insights.json", data: `${JSON.stringify({ insights: await loadPerformanceInsights() }, null, 2)}\n` },
     { name: "data/olympiacos-news.json", data: `${JSON.stringify(await loadOlympiacosNewsStore(), null, 2)}\n` },
+    { name: "data/knowledge-expert.json", data: `${JSON.stringify(await loadKnowledgeExpertStore(), null, 2)}\n` },
   ];
   const date = new Date().toISOString().slice(0, 10);
 
@@ -484,6 +514,9 @@ async function restoreBackupArchive(payload) {
   const olympiacosNews = filesByName.has("olympiacos-news.json")
     ? normalizeOlympiacosNewsStore(JSON.parse(filesByName.get("olympiacos-news.json")))
     : defaultOlympiacosNewsStore();
+  const knowledgeExpert = filesByName.has("knowledge-expert.json")
+    ? normalizeKnowledgeExpertStore(JSON.parse(filesByName.get("knowledge-expert.json")))
+    : defaultKnowledgeExpertStore();
 
   await saveJsonStore(DATA_STORES.toolCatalog, catalog);
   await savePadelogMatches(padelog);
@@ -491,6 +524,7 @@ async function restoreBackupArchive(payload) {
   await saveNotelogNotes(notelog);
   await savePerformanceInsights(insights);
   await saveOlympiacosNewsStore(olympiacosNews);
+  await saveKnowledgeExpertStore(knowledgeExpert);
 
   return {
     ok: true,
@@ -500,6 +534,7 @@ async function restoreBackupArchive(payload) {
       notes: notelog.length,
       insights: insights.length,
       olympiacosNewsRuns: olympiacosNews.runs.length,
+      knowledgeExpertEntries: knowledgeExpert.entries.length,
     },
     catalog: await adminToolCatalog(),
   };
@@ -764,6 +799,18 @@ function outputCombinedPdfFileName(fileName) {
     .slice(0, 120);
 
   return `${safeBaseName || "combined"}.pdf`;
+}
+
+function outputCsvJsonBaseName(fileName) {
+  const parsed = path.parse(fileName || "table.csv");
+  const baseName = parsed.name || "table";
+  const safeBaseName = baseName
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+
+  return safeBaseName || "table";
 }
 
 function hasPdfHeader(buffer) {
@@ -1516,6 +1563,841 @@ function extractAnthropicText(payload = {}) {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function defaultKnowledgeExpertStore() {
+  return {
+    entries: [],
+    uploads: [],
+    turns: [],
+  };
+}
+
+async function loadKnowledgeExpertStore() {
+  const parsed = await loadJsonStore(DATA_STORES.knowledgeExpert, path.join(DATA_DIR, "knowledge-expert.json"), defaultKnowledgeExpertStore());
+  return normalizeKnowledgeExpertStore(parsed);
+}
+
+async function saveKnowledgeExpertStore(store) {
+  await saveJsonStore(DATA_STORES.knowledgeExpert, normalizeKnowledgeExpertStore(store));
+}
+
+function normalizeKnowledgeExpertStore(store = {}) {
+  return {
+    entries: Array.isArray(store.entries) ? store.entries.map(normalizeKnowledgeEntry) : [],
+    uploads: Array.isArray(store.uploads) ? store.uploads.map(normalizeKnowledgeUpload) : [],
+    turns: Array.isArray(store.turns) ? store.turns.map(normalizeKnowledgeTurn).slice(0, 500) : [],
+  };
+}
+
+function normalizeKnowledgeEntry(rawEntry = {}) {
+  return {
+    id: cleanText(rawEntry.id, crypto.randomUUID(), 80),
+    category: cleanText(rawEntry.category, "General", 200),
+    question: cleanText(rawEntry.question, "", 500),
+    answer: cleanText(rawEntry.answer, "", 8000),
+    link: cleanText(rawEntry.link, "", 1000),
+    sourceDoc: cleanText(rawEntry.sourceDoc || rawEntry.source_doc, "", 300),
+    sourcePage: rawEntry.sourcePage || rawEntry.source_page || null,
+    questionSource: cleanText(rawEntry.questionSource || rawEntry.question_source, "original", 40),
+    sortOrder: cleanPositiveInteger(rawEntry.sortOrder || rawEntry.sort_order, 1),
+    embedding: Array.isArray(rawEntry.embedding) ? rawEntry.embedding.map(Number).filter(Number.isFinite) : null,
+    createdAt: cleanText(rawEntry.createdAt, new Date().toISOString(), 40),
+  };
+}
+
+function normalizeKnowledgeUpload(rawUpload = {}) {
+  return {
+    id: cleanText(rawUpload.id, crypto.randomUUID(), 80),
+    fileName: cleanText(rawUpload.fileName, "knowledge-base", 300),
+    fileType: cleanText(rawUpload.fileType, "text", 20),
+    rowCount: cleanPositiveInteger(rawUpload.rowCount, 0),
+    uploadedBy: cleanText(rawUpload.uploadedBy, "", 120),
+    uploadedAt: cleanText(rawUpload.uploadedAt, new Date().toISOString(), 40),
+  };
+}
+
+function normalizeKnowledgeTurn(rawTurn = {}) {
+  return {
+    id: cleanText(rawTurn.id, crypto.randomUUID(), 80),
+    userName: cleanText(rawTurn.userName, "", 120),
+    userMessage: cleanText(rawTurn.userMessage, "", 4000),
+    assistantResponse: cleanText(rawTurn.assistantResponse, "", 12000),
+    grounded: Boolean(rawTurn.grounded),
+    error: cleanText(rawTurn.error, "", 1000),
+    citations: Array.isArray(rawTurn.citations) ? rawTurn.citations : [],
+    retrievedEntryIds: Array.isArray(rawTurn.retrievedEntryIds) ? rawTurn.retrievedEntryIds.map(String) : [],
+    userMessageEmbedding: Array.isArray(rawTurn.userMessageEmbedding)
+      ? rawTurn.userMessageEmbedding.map(Number).filter(Number.isFinite)
+      : null,
+    traceEvents: Array.isArray(rawTurn.traceEvents) ? rawTurn.traceEvents : [],
+    feedbackRating: Number(rawTurn.feedbackRating) || 0,
+    createdAt: cleanText(rawTurn.createdAt, new Date().toISOString(), 40),
+    durationMs: cleanPositiveInteger(rawTurn.durationMs, 0),
+    chatModel: cleanText(rawTurn.chatModel, KNOWLEDGE_EXPERT_CHAT_MODEL, 140),
+    embedModel: cleanText(rawTurn.embedModel, KNOWLEDGE_EXPERT_EMBED_MODEL, 140),
+  };
+}
+
+async function knowledgeExpertSnapshot() {
+  const store = await loadKnowledgeExpertStore();
+  return {
+    entries: store.entries.map(({ embedding, answer, ...entry }) => ({
+      ...entry,
+      answerPreview: answer.slice(0, 320),
+      hasEmbedding: Array.isArray(embedding) && embedding.length > 0,
+    })),
+    uploads: store.uploads,
+    turns: store.turns.slice(0, 30),
+    models: {
+      chat: KNOWLEDGE_EXPERT_CHAT_MODEL,
+      embed: KNOWLEDGE_EXPERT_EMBED_MODEL,
+    },
+  };
+}
+
+async function replaceKnowledgeExpertDataset(payload = {}, userName = "") {
+  const mode = payload.mode === "append" ? "append" : "replace";
+  const incomingFiles = knowledgeExpertPayloadFiles(payload);
+  const parsedFiles = await Promise.all(incomingFiles.map(parseKnowledgeExpertFile));
+  const entries = parsedFiles.flatMap((file) => file.entries);
+  const polishedEntries = await synthesizeKnowledgeQuestions(entries);
+  const texts = polishedEntries.map((entry) => knowledgeExpertEmbeddingText(entry));
+  const embeddings = await embedKnowledgeTexts(texts);
+  const now = new Date().toISOString();
+  const store = await loadKnowledgeExpertStore();
+  const existingCount = mode === "append" ? store.entries.length : 0;
+  const normalizedEntries = polishedEntries.map((entry, index) =>
+    normalizeKnowledgeEntry({
+      ...entry,
+      id: crypto.randomUUID(),
+      sortOrder: existingCount + index + 1,
+      embedding: embeddings[index] || null,
+      createdAt: now,
+    }),
+  );
+  const uploadFileName = parsedFiles.length === 1
+    ? parsedFiles[0].fileName
+    : `${parsedFiles.length} files`;
+  const uploadFileType = parsedFiles.length === 1
+    ? parsedFiles[0].fileType
+    : "mixed";
+  const upload = normalizeKnowledgeUpload({
+    id: crypto.randomUUID(),
+    fileName: uploadFileName,
+    fileType: uploadFileType,
+    rowCount: normalizedEntries.length,
+    uploadedBy: userName,
+    uploadedAt: now,
+  });
+  const nextStore = {
+    entries: mode === "append" ? [...store.entries, ...normalizedEntries] : normalizedEntries,
+    uploads: [upload, ...store.uploads].slice(0, 20),
+    turns: store.turns,
+  };
+  await saveKnowledgeExpertStore(nextStore);
+
+  return {
+    mode,
+    upload,
+    fileCount: parsedFiles.length,
+    addedEntryCount: normalizedEntries.length,
+    entryCount: nextStore.entries.length,
+    embeddedCount: normalizedEntries.filter((entry) => Array.isArray(entry.embedding)).length,
+    entries: nextStore.entries.map(({ embedding, answer, ...entry }) => ({
+      ...entry,
+      answerPreview: answer.slice(0, 320),
+      hasEmbedding: Array.isArray(embedding),
+    })),
+  };
+}
+
+async function parseKnowledgeExpertFile(filePayload = {}) {
+  const fileName = cleanText(filePayload.fileName, "knowledge-base.txt", 300);
+  const fileType = knowledgeExpertFileType(fileName);
+  const fileBuffer = knowledgeExpertPayloadBuffer(filePayload);
+  const rawText = await knowledgeExpertPayloadText(filePayload, fileType, fileBuffer);
+  return {
+    fileName,
+    fileType,
+    entries: parseKnowledgeExpertEntries(rawText, fileName, fileType),
+  };
+}
+
+function knowledgeExpertPayloadFiles(payload = {}) {
+  const files = Array.isArray(payload.files) && payload.files.length
+    ? payload.files
+    : [{ fileName: payload.fileName, base64: payload.base64, text: payload.text }];
+  if (!files.length || files.length > 20) {
+    throw new Error("Choose between 1 and 20 knowledge-base files.");
+  }
+  return files;
+}
+
+function knowledgeExpertFileType(fileName) {
+  const ext = path.extname(String(fileName || "")).toLowerCase();
+  if (ext === ".pdf") {
+    return "pdf";
+  }
+  if (ext === ".docx") {
+    return "docx";
+  }
+  if ([".csv"].includes(ext)) {
+    return "csv";
+  }
+  if ([".html", ".htm"].includes(ext)) {
+    return "html";
+  }
+  if ([".json"].includes(ext)) {
+    return "json";
+  }
+  if ([".md", ".markdown"].includes(ext)) {
+    return "markdown";
+  }
+  return "text";
+}
+
+function knowledgeExpertPayloadBuffer(payload = {}) {
+  if (typeof payload.text === "string") {
+    return Buffer.from(payload.text, "utf8");
+  }
+  const compactBase64 = String(payload.base64 || "").replace(/^data:[^,]+,/, "").trim();
+  if (!compactBase64) {
+    throw new Error("Choose a knowledge-base file first.");
+  }
+  const buffer = Buffer.from(compactBase64, "base64");
+  if (buffer.length > KNOWLEDGE_EXPERT_MAX_FILE_BYTES) {
+    throw new Error("Knowledge base files must be 5 MB or smaller.");
+  }
+  return buffer;
+}
+
+async function knowledgeExpertPayloadText(payload, fileType, fileBuffer = null) {
+  if (typeof payload.text === "string") {
+    return payload.text;
+  }
+  const buffer = fileBuffer || knowledgeExpertPayloadBuffer(payload);
+  if (fileType === "pdf") {
+    return extractKnowledgePdfText(buffer);
+  }
+  if (fileType === "docx") {
+    return extractKnowledgeDocxText(buffer);
+  }
+  if (fileType === "text" && hasPdfHeader(buffer)) {
+    throw new Error("PDF parsing is not in this MVP yet. Upload CSV, HTML, TXT, Markdown, or JSON.");
+  }
+  return buffer.toString("utf8");
+}
+
+async function extractKnowledgePdfText(buffer) {
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    return result.text || "";
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
+}
+
+async function extractKnowledgeDocxText(buffer) {
+  const result = await mammoth.extractRawText({ buffer });
+  return result.value || "";
+}
+
+function parseKnowledgeExpertEntries(rawText, fileName, fileType) {
+  const text = String(rawText || "").trim();
+  if (!text) {
+    throw new Error("The knowledge base file is empty.");
+  }
+
+  let entries;
+  if (fileType === "csv") {
+    entries = parseKnowledgeCsv(text, fileName);
+  } else if (fileType === "html") {
+    entries = parseKnowledgeHtml(text, fileName);
+  } else if (fileType === "json") {
+    entries = parseKnowledgeJson(text, fileName);
+  } else {
+    entries = parseKnowledgeText(text, fileName);
+  }
+
+  const validEntries = entries
+    .map((entry, index) =>
+      normalizeKnowledgeEntry({
+        ...entry,
+        sortOrder: index + 1,
+        sourceDoc: entry.sourceDoc || fileName,
+      }),
+    )
+    .filter((entry) => entry.question && entry.answer);
+
+  if (!validEntries.length) {
+    throw new Error("No usable knowledge entries were found.");
+  }
+  return validEntries.slice(0, 1000);
+}
+
+function parseKnowledgeCsv(csv, fileName) {
+  const rows = parseCsvRows(csv);
+  if (rows.length < 2) {
+    throw new Error("CSV needs a header row and at least one data row.");
+  }
+  const headers = rows[0].map((header) => String(header || "").trim().toLowerCase());
+  const findHeader = (aliases) => aliases.map((alias) => headers.indexOf(alias)).find((index) => index >= 0) ?? -1;
+  const categoryIndex = findHeader(["category", "cat"]);
+  const questionIndex = findHeader(["question", "q"]);
+  const answerIndex = findHeader(["answer", "a", "text"]);
+  const linkIndex = findHeader(["link", "url", "resource"]);
+  if (questionIndex === -1) {
+    throw new Error("CSV needs a question column.");
+  }
+  return rows.slice(1).map((row) => ({
+    category: categoryIndex >= 0 ? row[categoryIndex] : "General",
+    question: row[questionIndex],
+    answer: answerIndex >= 0 ? row[answerIndex] : "",
+    link: linkIndex >= 0 ? row[linkIndex] : "",
+    sourceDoc: fileName,
+    questionSource: "original",
+  }));
+}
+
+function parseKnowledgeJson(text, fileName) {
+  const parsed = JSON.parse(text);
+  const rows = Array.isArray(parsed) ? parsed : Array.isArray(parsed.entries) ? parsed.entries : [];
+  if (!rows.length) {
+    throw new Error("JSON must be an array or an object with an entries array.");
+  }
+  return rows.map((row) => ({
+    category: row.category || "General",
+    question: row.question || row.q || row.title || "",
+    answer: row.answer || row.a || row.text || "",
+    link: row.link || row.url || "",
+    sourceDoc: fileName,
+    questionSource: row.question || row.q ? "original" : "heuristic",
+  }));
+}
+
+function parseKnowledgeHtml(html, fileName) {
+  const stripped = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<(h[1-4])[^>]*>/gi, "\n\n## ")
+    .replace(/<\/h[1-4]>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|li|tr|div|section|article)>/gi, "\n")
+    .replace(/<a\s+[^>]*href=(["'])(.*?)\1[^>]*>(.*?)<\/a>/gi, "$3 ($2)")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"');
+  return parseKnowledgeText(stripped, fileName);
+}
+
+function parseKnowledgeText(text, fileName) {
+  const blocks = String(text)
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const entries = [];
+  let currentHeading = "General";
+
+  for (const block of blocks) {
+    const heading = block.replace(/^#+\s*/, "").trim();
+    if (/^#+\s+/.test(block) || (block.length <= 120 && !/[.!?]\s/.test(block) && !block.includes(":"))) {
+      currentHeading = heading || currentHeading;
+      continue;
+    }
+
+    const qaMatch = block.match(/^(?:q(?:uestion)?[:.)]\s*)([\s\S]*?)(?:\n|$)(?:a(?:nswer)?[:.)]\s*)([\s\S]*)$/i);
+    if (qaMatch) {
+      entries.push({
+        category: currentHeading,
+        question: qaMatch[1].trim(),
+        answer: qaMatch[2].trim(),
+        sourceDoc: fileName,
+        questionSource: "extracted",
+      });
+      continue;
+    }
+
+    const [firstLine, ...rest] = block.split("\n");
+    const question = firstLine.endsWith("?") || firstLine.length <= 140 ? firstLine : firstSentence(firstLine);
+    const answer = rest.length ? rest.join("\n").trim() : block;
+    entries.push({
+      category: currentHeading,
+      question,
+      answer,
+      sourceDoc: fileName,
+      questionSource: "heuristic",
+    });
+  }
+
+  return entries;
+}
+
+function firstSentence(text) {
+  const match = String(text || "").match(/^(.{20,180}?[.!?])\s/);
+  return (match ? match[1] : String(text || "").slice(0, 140)).trim();
+}
+
+function knowledgeExpertEmbeddingText(entry) {
+  return `${entry.category}\n${entry.question}\n${entry.answer}`;
+}
+
+async function embedKnowledgeTexts(texts) {
+  if (!String(process.env.OPENAI_API_KEY || "").trim()) {
+    return texts.map(() => null);
+  }
+  const payload = await fetchJson("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openAiModelKey()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: KNOWLEDGE_EXPERT_EMBED_MODEL,
+      input: texts.map((text) => text.slice(0, 12000)),
+    }),
+  });
+  const byIndex = new Map((payload.data || []).map((item) => [item.index, item.embedding]));
+  return texts.map((_, index) => byIndex.get(index) || null);
+}
+
+async function synthesizeKnowledgeQuestions(entries) {
+  if (KNOWLEDGE_EXPERT_SYNTHESIZE_QUESTIONS === "never" || !String(process.env.ANTHROPIC_API_KEY || "").trim()) {
+    return entries;
+  }
+  const shouldSynthesize = (entry) =>
+    KNOWLEDGE_EXPERT_SYNTHESIZE_QUESTIONS === "always" ||
+    (KNOWLEDGE_EXPERT_SYNTHESIZE_QUESTIONS === "auto" && entry.questionSource === "heuristic");
+
+  return Promise.all(
+    entries.map(async (entry) => {
+      if (!shouldSynthesize(entry)) {
+        return entry;
+      }
+      try {
+        const question = await fetchKnowledgeAnthropicMessage({
+          system: [
+            "Given a passage from a knowledge base, output one short natural-language question.",
+            "Use 12 words or fewer.",
+            "Return only the question. No preamble, no quotes, no answer.",
+          ].join(" "),
+          user: String(entry.answer || "").slice(0, 900),
+          maxTokens: 40,
+        });
+        const cleanQuestion = question.replace(/^["']|["']$/g, "").trim();
+        return cleanQuestion ? { ...entry, question: cleanQuestion, questionSource: "synthesized" } : entry;
+      } catch {
+        return entry;
+      }
+    }),
+  );
+}
+
+async function chatWithKnowledgeExpert(payload = {}, userName = "", options = {}) {
+  const startedAt = Date.now();
+  const trace = [];
+  const addTrace = (type, summary, metadata = {}) => {
+    const event = { seq: trace.length + 1, type, summary, tsMsOffset: Date.now() - startedAt, metadata };
+    trace.push(event);
+    if (typeof options.onTrace === "function") {
+      options.onTrace(event);
+    }
+  };
+  const userMessage = cleanText(payload.message, "", 4000);
+  if (!userMessage) {
+    throw new Error("Ask a question first.");
+  }
+
+  const store = await loadKnowledgeExpertStore();
+  if (!store.entries.length) {
+    addTrace("empty_kb", "No knowledge entries are available.");
+    return persistKnowledgeTurn(store, {
+      startedAt,
+      userName,
+      userMessage,
+      assistantResponse: KNOWLEDGE_EXPERT_DECLINE,
+      grounded: false,
+      citations: [],
+      retrievedEntryIds: [],
+      traceEvents: trace,
+    });
+  }
+
+  const rewrite = await rewriteKnowledgeQuery(userMessage, payload.history || []);
+  addTrace("rewrite_query", rewrite.mode === "rewritten" ? "Rewrote follow-up query for retrieval." : "Using original query for retrieval.", rewrite);
+  addTrace("embed_query", "Prepared search query.");
+  const [queryEmbedding] = await embedKnowledgeTexts([rewrite.query]);
+  const topK = inferKnowledgeTopK(userMessage);
+  const retrieval = retrieveKnowledgeEntries(store.entries, rewrite.query, queryEmbedding, topK);
+  addTrace("retrieve_kb", `Retrieved ${retrieval.entries.length} entries.`, {
+    topK,
+    vectorHits: retrieval.vectorHits,
+    keywordHits: retrieval.keywordHits,
+  });
+
+  if (!retrieval.entries.length) {
+    addTrace("decline", "No matching entries found.");
+    return persistKnowledgeTurn(store, {
+      startedAt,
+      userName,
+      userMessage,
+      assistantResponse: KNOWLEDGE_EXPERT_DECLINE,
+      grounded: false,
+      citations: [],
+      retrievedEntryIds: [],
+      traceEvents: trace,
+    });
+  }
+
+  const context = retrieval.entries.map(formatKnowledgeContextEntry).join("\n\n");
+  const system = [
+    "You are Knowledge Expert, a citation-enforced Q&A assistant.",
+    "Use only the provided knowledge base entries.",
+    `If the entries do not answer the question, reply exactly: ${KNOWLEDGE_EXPERT_DECLINE}`,
+    "Every grounded answer must end with one trailing citation block like [cite:uuid1,uuid2].",
+    "Only cite IDs that appear in the provided entries.",
+    "For list or count questions, include every relevant retrieved entry and state the actual count.",
+  ].join(" ");
+  const user = `KNOWLEDGE BASE ENTRIES:\n\n${context}\n\nUSER QUESTION:\n${userMessage}`;
+  addTrace("llm_call", "Asked Claude to answer from retrieved entries.");
+  const rawAnswer = await fetchKnowledgeAnthropicMessage({ system, user, maxTokens: 1600 });
+  const parsed = parseKnowledgeCitations(rawAnswer, new Set(retrieval.entries.map((entry) => entry.id)));
+  const grounded = parsed.citations.length > 0 && !parsed.text.includes(KNOWLEDGE_EXPERT_DECLINE);
+  const assistantResponse = grounded ? parsed.text : KNOWLEDGE_EXPERT_DECLINE;
+  const citations = parsed.citations.map((id) => citationForKnowledgeEntry(retrieval.entries.find((entry) => entry.id === id))).filter(Boolean);
+  addTrace("parse_citations", grounded ? `Validated ${citations.length} citation(s).` : "No valid citation found.");
+  if (typeof options.onTextDelta === "function") {
+    await emitKnowledgeTextDeltas(assistantResponse, options.onTextDelta);
+  }
+
+  return persistKnowledgeTurn(store, {
+    startedAt,
+    userName,
+    userMessage,
+    assistantResponse,
+    grounded,
+    citations,
+    retrievedEntryIds: retrieval.entries.map((entry) => entry.id),
+    userMessageEmbedding: queryEmbedding,
+    traceEvents: trace,
+  });
+}
+
+async function rewriteKnowledgeQuery(userMessage, history = []) {
+  if (!KNOWLEDGE_EXPERT_QUERY_REWRITE_ENABLED) {
+    return { mode: "disabled", query: userMessage };
+  }
+  const text = String(userMessage || "").trim();
+  const selfContained = text.split(/\s+/).length >= 8 && !/^(and|also|what about|how about|that|those|them|it|this)\b/i.test(text);
+  if (!Array.isArray(history) || !history.length || selfContained) {
+    return { mode: selfContained ? "passthrough_self_contained" : "passthrough_first_turn", query: userMessage };
+  }
+  try {
+    const recent = history.slice(-6).map((turn) => ({
+      user: cleanText(turn.userMessage || turn.user || "", "", 500),
+      assistant: cleanText(turn.assistantResponse || turn.assistant || "", "", 700),
+    }));
+    const query = await fetchKnowledgeAnthropicMessage({
+      system: "Rewrite the user's latest message into one self-contained search query using the prior turns. Return only the query.",
+      user: JSON.stringify({ recent, latest: userMessage }),
+      maxTokens: 80,
+    });
+    return { mode: "rewritten", query: query.trim() || userMessage };
+  } catch (error) {
+    return { mode: "fallback_error", query: userMessage, error: error.message || "rewrite failed" };
+  }
+}
+
+async function emitKnowledgeTextDeltas(text, onTextDelta) {
+  const chunks = String(text || "").match(/[\s\S]{1,80}/g) || [""];
+  for (const chunk of chunks) {
+    onTextDelta(chunk);
+    await new Promise((resolve) => setTimeout(resolve, 8));
+  }
+}
+
+async function fetchKnowledgeAnthropicMessage({ system, user, maxTokens }) {
+  const payload = await fetchJson("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+      "x-api-key": anthropicModelKey(),
+    },
+    body: JSON.stringify({
+      model: KNOWLEDGE_EXPERT_CHAT_MODEL,
+      max_tokens: maxTokens,
+      temperature: 0,
+      system,
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+  const text = extractAnthropicText(payload).trim();
+  if (!text) {
+    throw new Error("Anthropic returned an empty Knowledge Expert response.");
+  }
+  return text;
+}
+
+function inferKnowledgeTopK(query) {
+  const text = String(query || "").toLowerCase();
+  const numberMatch = text.match(/\b(?:list|show|give me|tell me)?\s*(\d{1,2})\b/);
+  const requested = numberMatch ? Number(numberMatch[1]) + 3 : 0;
+  const enumerative = /\b(how many|what are|list of|tell me all|give me all|all|list|every|each|many)\b/.test(text);
+  return Math.min(25, Math.max(KNOWLEDGE_EXPERT_TOP_K, requested, enumerative ? KNOWLEDGE_EXPERT_ENUMERATIVE_TOP_K : 0));
+}
+
+function retrieveKnowledgeEntries(entries, query, queryEmbedding, topK) {
+  const scoredVector = Array.isArray(queryEmbedding)
+    ? entries
+        .filter((entry) => Array.isArray(entry.embedding) && entry.embedding.length === queryEmbedding.length)
+        .map((entry) => ({ entry, score: cosineSimilarity(queryEmbedding, entry.embedding) }))
+        .filter((item) => item.score > 0)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, topK)
+    : [];
+  const keywordTokens = meaningfulTokens(query).slice(0, 5);
+  const keywordHits = entries
+    .map((entry) => ({ entry, score: keywordScore(entry, keywordTokens) }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.entry.sortOrder - right.entry.sortOrder)
+    .slice(0, topK);
+  const seen = new Set();
+  const merged = [];
+  for (const item of [...scoredVector, ...keywordHits]) {
+    if (!seen.has(item.entry.id)) {
+      seen.add(item.entry.id);
+      merged.push(item.entry);
+    }
+  }
+  return {
+    entries: merged.slice(0, Math.max(topK, KNOWLEDGE_EXPERT_TOP_K)),
+    vectorHits: scoredVector.length,
+    keywordHits: keywordHits.length,
+  };
+}
+
+function meaningfulTokens(text) {
+  const stopwords = new Set(["the", "and", "for", "with", "that", "this", "what", "how", "are", "can", "you", "about", "from", "into", "all"]);
+  return String(text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopwords.has(token));
+}
+
+function keywordScore(entry, tokens) {
+  if (!tokens.length) {
+    return 0;
+  }
+  const haystack = `${entry.category} ${entry.question} ${entry.answer}`.toLowerCase();
+  return tokens.reduce((score, token) => score + (haystack.includes(token) ? 1 : 0), 0);
+}
+
+function cosineSimilarity(left, right) {
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    dot += left[index] * right[index];
+    leftNorm += left[index] * left[index];
+    rightNorm += right[index] * right[index];
+  }
+  if (!leftNorm || !rightNorm) {
+    return 0;
+  }
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+}
+
+function formatKnowledgeContextEntry(entry) {
+  return [
+    `ID: ${entry.id}`,
+    `Category: ${entry.category}`,
+    `Question: ${entry.question}`,
+    `Answer: ${entry.answer}`,
+    entry.link ? `Link: ${entry.link}` : "",
+    entry.sourceDoc ? `Source: ${entry.sourceDoc}${entry.sourcePage ? ` page ${entry.sourcePage}` : ""}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function parseKnowledgeCitations(answer, allowedIds) {
+  const citeMatch = String(answer || "").match(/\[cite:\s*([0-9a-fA-F,\-\s]+)\]\s*$/);
+  const text = String(answer || "").replace(/\s*\[cite:\s*([0-9a-fA-F,\-\s]+)\]\s*$/, "").trim();
+  const citations = citeMatch
+    ? citeMatch[1].split(",").map((id) => id.trim()).filter((id) => allowedIds.has(id))
+    : [];
+  return { text, citations: Array.from(new Set(citations)) };
+}
+
+function citationForKnowledgeEntry(entry) {
+  if (!entry) {
+    return null;
+  }
+  return {
+    id: entry.id,
+    label: entry.question,
+    category: entry.category,
+    link: entry.link,
+    sourceDoc: entry.sourceDoc,
+    sourcePage: entry.sourcePage,
+  };
+}
+
+async function persistKnowledgeTurn(store, turnInput) {
+  const durationMs = Date.now() - turnInput.startedAt;
+  const turn = normalizeKnowledgeTurn({
+    id: crypto.randomUUID(),
+    userName: turnInput.userName,
+    userMessage: turnInput.userMessage,
+    assistantResponse: turnInput.assistantResponse,
+    grounded: turnInput.grounded,
+    error: turnInput.error || "",
+    citations: turnInput.citations,
+    retrievedEntryIds: turnInput.retrievedEntryIds,
+    traceEvents: [
+      ...(turnInput.traceEvents || []),
+      { seq: (turnInput.traceEvents || []).length + 1, type: "done", summary: "Knowledge Expert turn completed.", tsMsOffset: durationMs, metadata: {} },
+    ],
+    createdAt: new Date().toISOString(),
+    durationMs,
+    chatModel: KNOWLEDGE_EXPERT_CHAT_MODEL,
+    embedModel: KNOWLEDGE_EXPERT_EMBED_MODEL,
+  });
+  await saveKnowledgeExpertStore({
+    entries: store.entries,
+    uploads: store.uploads,
+    turns: [turn, ...store.turns].slice(0, 500),
+  });
+  return turn;
+}
+
+async function persistKnowledgeErrorTurn(userMessage, userName, error) {
+  const store = await loadKnowledgeExpertStore();
+  const startedAt = Date.now();
+  return persistKnowledgeTurn(store, {
+    startedAt,
+    userName,
+    userMessage,
+    assistantResponse: KNOWLEDGE_EXPERT_DECLINE,
+    grounded: false,
+    citations: [],
+    retrievedEntryIds: [],
+    traceEvents: [{ seq: 1, type: "error", summary: error.message || "Knowledge Expert error", tsMsOffset: 0, metadata: {} }],
+    error: error.message || "Knowledge Expert error",
+  });
+}
+
+async function rateKnowledgeExpertTurn(payload = {}, userName = "") {
+  const traceId = String(payload.traceId || payload.id || "").trim();
+  const rating = Math.max(-1, Math.min(1, Number(payload.rating) || 0));
+  if (!traceId) {
+    throw new Error("Choose a Knowledge Expert answer to rate.");
+  }
+  const store = await loadKnowledgeExpertStore();
+  const turnIndex = store.turns.findIndex((turn) => turn.id === traceId);
+  if (turnIndex === -1) {
+    throw new Error("Knowledge Expert answer not found.");
+  }
+  if (store.turns[turnIndex].userName && userName && store.turns[turnIndex].userName !== userName) {
+    throw new Error("You can only rate your own Knowledge Expert answers.");
+  }
+  store.turns[turnIndex] = {
+    ...store.turns[turnIndex],
+    feedbackRating: rating,
+    feedbackAt: new Date().toISOString(),
+  };
+  await saveKnowledgeExpertStore(store);
+  return { turn: store.turns[turnIndex] };
+}
+
+async function knowledgeExpertConversationsReport() {
+  const store = await loadKnowledgeExpertStore();
+  return {
+    turns: store.turns.slice(0, 200),
+    totals: {
+      turns: store.turns.length,
+      grounded: store.turns.filter((turn) => turn.grounded).length,
+      declined: store.turns.filter((turn) => !turn.grounded && !turn.error).length,
+      errors: store.turns.filter((turn) => turn.error).length,
+    },
+  };
+}
+
+async function knowledgeExpertErrorsReport() {
+  const store = await loadKnowledgeExpertStore();
+  return {
+    turns: store.turns.filter((turn) => turn.error || (turn.traceEvents || []).some((event) => event.type === "error")).slice(0, 200),
+  };
+}
+
+async function knowledgeExpertDeadEntriesReport() {
+  const store = await loadKnowledgeExpertStore();
+  const retrieved = new Set(store.turns.flatMap((turn) => turn.retrievedEntryIds || []));
+  const cited = new Set(store.turns.flatMap((turn) => (turn.citations || []).map((citation) => citation.id)));
+  return {
+    entries: store.entries
+      .map(({ embedding, answer, ...entry }) => ({
+        ...entry,
+        answerPreview: answer.slice(0, 280),
+        retrieved: retrieved.has(entry.id),
+        cited: cited.has(entry.id),
+      }))
+      .filter((entry) => !entry.retrieved || !entry.cited),
+  };
+}
+
+async function knowledgeExpertGapsReport() {
+  const store = await loadKnowledgeExpertStore();
+  const declinedTurns = store.turns.filter((turn) => !turn.grounded && !turn.error && turn.userMessage).slice(0, 300);
+  const clusters = [];
+  for (const turn of declinedTurns) {
+    const tokens = new Set(meaningfulTokens(turn.userMessage));
+    let bestCluster = null;
+    let bestScore = 0;
+    for (const cluster of clusters) {
+      const score = jaccardSimilarity(tokens, cluster.tokens);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCluster = cluster;
+      }
+    }
+    if (bestCluster && bestScore >= 0.35) {
+      bestCluster.turns.push(turn);
+      for (const token of tokens) {
+        bestCluster.tokens.add(token);
+      }
+    } else {
+      clusters.push({ id: crypto.randomUUID(), tokens, turns: [turn] });
+    }
+  }
+  return {
+    clusters: clusters
+      .map((cluster) => ({
+        id: cluster.id,
+        memberCount: cluster.turns.length,
+        centroidQuestion: cluster.turns[0].userMessage,
+        examples: cluster.turns.slice(0, 5),
+      }))
+      .sort((left, right) => right.memberCount - left.memberCount),
+  };
+}
+
+function jaccardSimilarity(left, right) {
+  if (!left.size || !right.size) {
+    return 0;
+  }
+  let intersection = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      intersection += 1;
+    }
+  }
+  return intersection / (left.size + right.size - intersection);
 }
 
 function normalizePerformanceInsight(rawInsight = {}) {
@@ -3813,6 +4695,213 @@ async function combinePdfDocuments({ fileName, files }) {
   };
 }
 
+async function saveCsvJsonRows({ fileName, csv }) {
+  if (!fileName || typeof csv !== "string") {
+    throw new Error("A CSV file is required");
+  }
+
+  if (path.extname(fileName).toLowerCase() !== ".csv") {
+    throw new Error("Choose a CSV file");
+  }
+
+  const baseName = outputCsvJsonBaseName(fileName);
+  const parsedRows = parseCsvRows(csv.replace(/^\uFEFF/, ""));
+  const dataset = normalizeCsvDataset(parsedRows);
+  const outputDir = path.join(OUTPUTS_DIR, baseName);
+  const tempOutputDir = path.join(OUTPUTS_DIR, `.csv-json-rows-${baseName}-${crypto.randomUUID()}`);
+
+  const files = [];
+  try {
+    await fs.mkdir(tempOutputDir, { recursive: true });
+
+    for (const [index, row] of dataset.rows.entries()) {
+      const record = {};
+      for (const [columnIndex, header] of dataset.headers.entries()) {
+        record[header] = row.values[columnIndex] ?? "";
+      }
+
+      const savedFileName = `${baseName}${index + 1}.json`;
+      await fs.writeFile(path.join(tempOutputDir, savedFileName), `${JSON.stringify(record, null, 2)}\n`, "utf8");
+      files.push(savedFileName);
+    }
+
+    await replaceOutputDirectory(tempOutputDir, outputDir);
+  } catch (error) {
+    await fs.rm(tempOutputDir, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    fileName: baseName,
+    outputPath: outputDir,
+    rowCount: files.length,
+    columnCount: dataset.headers.length,
+    skippedBlankRows: dataset.skippedBlankRows,
+    warnings: dataset.warnings,
+    files,
+  };
+}
+
+async function replaceOutputDirectory(tempOutputDir, outputDir) {
+  await fs.mkdir(OUTPUTS_DIR, { recursive: true });
+  const backupOutputDir = path.join(OUTPUTS_DIR, `.csv-json-rows-backup-${path.basename(outputDir)}-${crypto.randomUUID()}`);
+  let movedExisting = false;
+
+  try {
+    await fs.rename(outputDir, backupOutputDir);
+    movedExisting = true;
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  try {
+    await fs.rename(tempOutputDir, outputDir);
+  } catch (error) {
+    if (movedExisting) {
+      await fs.rename(backupOutputDir, outputDir).catch(() => {});
+    }
+    throw error;
+  }
+
+  if (movedExisting) {
+    await fs.rm(backupOutputDir, { recursive: true, force: true });
+  }
+}
+
+function normalizeCsvDataset(parsedRows) {
+  if (!parsedRows.length) {
+    throw new Error("The CSV file is empty");
+  }
+
+  const headerRow = parsedRows[0];
+  if (!headerRow.length || headerRow.every((value) => String(value || "").trim() === "")) {
+    throw new Error("The CSV file needs a header row");
+  }
+
+  const rows = [];
+  let skippedBlankRows = 0;
+  let maxColumnCount = headerRow.length;
+  let firstShortRow = null;
+  let firstLongRow = null;
+  let replacementCharacterCount = countReplacementCharacters(headerRow);
+
+  for (const [index, row] of parsedRows.slice(1).entries()) {
+    const csvRowNumber = index + 2;
+    if (row.every((value) => String(value || "").trim() === "")) {
+      skippedBlankRows += 1;
+      continue;
+    }
+
+    if (row.length < headerRow.length && !firstShortRow) {
+      firstShortRow = { rowNumber: csvRowNumber, columns: row.length };
+    }
+    if (row.length > headerRow.length && !firstLongRow) {
+      firstLongRow = { rowNumber: csvRowNumber, columns: row.length };
+    }
+
+    replacementCharacterCount += countReplacementCharacters(row);
+    maxColumnCount = Math.max(maxColumnCount, row.length);
+    rows.push({ csvRowNumber, values: row });
+  }
+
+  if (!rows.length) {
+    throw new Error("The CSV file does not contain any data rows");
+  }
+
+  const warnings = [];
+  if (firstShortRow) {
+    warnings.push(
+      `Row ${firstShortRow.rowNumber} has ${firstShortRow.columns} columns; missing values were exported as empty strings.`,
+    );
+  }
+  if (firstLongRow) {
+    warnings.push(
+      `Row ${firstLongRow.rowNumber} has ${firstLongRow.columns} columns; extra columns were kept as generated Column fields.`,
+    );
+  }
+  if (replacementCharacterCount > 0) {
+    warnings.push(
+      `${replacementCharacterCount} replacement characters were found. The CSV may not be UTF-8 encoded.`,
+    );
+  }
+  if (skippedBlankRows > 0) {
+    warnings.push(`${skippedBlankRows} blank rows were skipped.`);
+  }
+
+  return {
+    headers: normalizeCsvHeaders(headerRow, maxColumnCount),
+    rows,
+    skippedBlankRows,
+    warnings,
+  };
+}
+
+function countReplacementCharacters(values) {
+  return values.reduce((total, value) => total + (String(value || "").match(/\uFFFD/g) || []).length, 0);
+}
+
+function parseCsvRows(csv) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const character = csv[index];
+    const nextCharacter = csv[index + 1];
+
+    if (inQuotes) {
+      if (character === '"' && nextCharacter === '"') {
+        field += '"';
+        index += 1;
+      } else if (character === '"') {
+        inQuotes = false;
+      } else {
+        field += character;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inQuotes = true;
+    } else if (character === ",") {
+      row.push(field);
+      field = "";
+    } else if (character === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (character !== "\r") {
+      field += character;
+    }
+  }
+
+  if (inQuotes) {
+    throw new Error("The CSV file has an unclosed quoted field");
+  }
+
+  if (field || row.length || csv.endsWith(",")) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function normalizeCsvHeaders(headers, columnCount = headers.length) {
+  const seen = new Map();
+  return Array.from({ length: columnCount }, (_, index) => {
+    const header = headers[index];
+    const cleaned = String(header || "").trim() || `Column ${index + 1}`;
+    const count = seen.get(cleaned) || 0;
+    seen.set(cleaned, count + 1);
+    return count ? `${cleaned} (${count + 1})` : cleaned;
+  });
+}
+
 async function savePresentationSuite({ fileName, tabCount, labels, sourceFiles = [] }) {
   const count = Number(tabCount);
   if (!Number.isInteger(count) || count < 1 || count > 12) {
@@ -3989,7 +5078,12 @@ async function handleRequest(request, response) {
       return;
     }
 
-    sendJson(response, 200, await loadOlympiacosNewsStore());
+    try {
+      sendJson(response, 200, await loadOlympiacosNewsStore());
+    } catch (error) {
+      console.error("Could not load Olympiacos news store", error);
+      sendJson(response, 500, { error: error.message || "Could not load Olympiacos news" });
+    }
     return;
   }
 
@@ -4022,13 +5116,164 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/tools/knowledge-expert") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      sendJson(response, 200, await knowledgeExpertSnapshot());
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not load Knowledge Expert" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/upload") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await replaceKnowledgeExpertDataset(payload, session.name));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not upload Knowledge Expert dataset" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/chat") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await chatWithKnowledgeExpert(payload, session.name));
+    } catch (error) {
+      const payloadMessage = "";
+      await persistKnowledgeErrorTurn(payloadMessage, session.name, error).catch(() => {});
+      sendJson(response, 400, { error: error.message || "Could not answer with Knowledge Expert" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/chat/stream") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    let payload = {};
+    let streamedText = "";
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      ...corsHeaders(),
+    });
+
+    try {
+      payload = await readJson(request);
+      const turn = await chatWithKnowledgeExpert(payload, session.name, {
+        onTrace: (event) => sendSse(response, "trace", event),
+        onTextDelta: (delta) => {
+          streamedText += delta;
+          sendSse(response, "text_delta", { delta });
+        },
+      });
+      if (!streamedText && turn.assistantResponse) {
+        sendSse(response, "text_delta", { delta: turn.assistantResponse });
+      }
+      sendSse(response, "meta", {
+        traceId: turn.id,
+        citations: turn.citations,
+        grounded: turn.grounded,
+        durationMs: turn.durationMs,
+        turn,
+      });
+      sendSse(response, "done", {});
+      response.end();
+    } catch (error) {
+      await persistKnowledgeErrorTurn(payload.message || "", session.name, error).catch(() => {});
+      sendSse(response, "error", { message: error.message || "Could not answer with Knowledge Expert" });
+      sendSse(response, "done", {});
+      response.end();
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/feedback") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await rateKnowledgeExpertTurn(payload, session.name));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not save Knowledge Expert feedback" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/knowledge-expert/admin/conversations") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, await knowledgeExpertConversationsReport());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/knowledge-expert/admin/reports/errors") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, await knowledgeExpertErrorsReport());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/knowledge-expert/admin/reports/dead-entries") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, await knowledgeExpertDeadEntriesReport());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/tools/knowledge-expert/admin/reports/knowledge-gaps") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    sendJson(response, 200, await knowledgeExpertGapsReport());
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/tools/padelog/matches") {
     const session = requireSession(request, response);
     if (!session) {
       return;
     }
 
-    sendJson(response, 200, { matches: await loadPadelogMatches() });
+    try {
+      sendJson(response, 200, { matches: await loadPadelogMatches() });
+    } catch (error) {
+      console.error("Could not load Padelog matches", error);
+      sendJson(response, 500, { error: error.message || "Could not load Padelog matches" });
+    }
     return;
   }
 
@@ -4111,7 +5356,12 @@ async function handleRequest(request, response) {
       return;
     }
 
-    sendJson(response, 200, { bets: await loadBetlogBets() });
+    try {
+      sendJson(response, 200, { bets: await loadBetlogBets() });
+    } catch (error) {
+      console.error("Could not load Betlog bets", error);
+      sendJson(response, 500, { error: error.message || "Could not load Betlog bets" });
+    }
     return;
   }
 
@@ -4303,6 +5553,21 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/tools/csv-json-rows") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await saveCsvJsonRows(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not convert CSV" });
+    }
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/tools/token-usage") {
     const session = requireSession(request, response);
     if (!session) {
@@ -4378,7 +5643,8 @@ async function handleRequest(request, response) {
 }
 
 const server = http.createServer((request, response) => {
-  handleRequest(request, response).catch(() => {
+  handleRequest(request, response).catch((error) => {
+    console.error("Unhandled Optimus API error", error);
     sendJson(response, 500, { error: "Internal server error" });
   });
 });
