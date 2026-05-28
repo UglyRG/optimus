@@ -15,6 +15,7 @@ const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "localhost";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:4173";
 const ACCESS_KEY = process.env.OPTIMUS_ACCESS_KEY || "optimus";
+const PUBLIC_API_KEY = process.env.OPTIMUS_PUBLIC_API_KEY || process.env.OPTIMUS_API_KEY || ACCESS_KEY;
 const ANTHROPIC_ANALYSIS_MODEL =
   process.env.ANTHROPIC_ANALYSIS_MODEL || process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
 const OPENAI_OLYMPIACOS_NEWS_MODEL =
@@ -325,7 +326,7 @@ function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": FRONTEND_ORIGIN,
     "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   };
 }
@@ -367,6 +368,26 @@ function requireSession(request, response) {
   }
 
   return session;
+}
+
+function requirePublicApiKey(request, response) {
+  const suppliedKey = publicApiKeyFromRequest(request);
+  if (!PUBLIC_API_KEY || !suppliedKey || !constantTimeEqual(suppliedKey, PUBLIC_API_KEY)) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return false;
+  }
+
+  return true;
+}
+
+function publicApiKeyFromRequest(request) {
+  const authHeader = String(request.headers.authorization || "").trim();
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (bearerMatch) {
+    return bearerMatch[1].trim();
+  }
+
+  return String(request.headers["x-api-key"] || "").trim();
 }
 
 function parseCookies(header = "") {
@@ -3112,6 +3133,7 @@ async function addPadelogMatches(payload) {
 
   return {
     imported: normalizedMatches.length,
+    created: normalizedMatches,
     matches,
   };
 }
@@ -3339,6 +3361,7 @@ async function addBetlogBets(payload) {
 
   return {
     imported: normalizedBets.length,
+    created: normalizedBets,
     bets,
   };
 }
@@ -5194,6 +5217,306 @@ async function saveDemoBuilderTemplate(payload) {
   };
 }
 
+async function publicApiDocsPage() {
+  const version = await appVersion();
+  const openApiJson = JSON.stringify(optimusOpenApiSpec(version), null, 2);
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Optimus Public API Docs</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.5; }
+    body { margin: 0; background: Canvas; color: CanvasText; }
+    main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 56px; }
+    h1 { margin: 0 0 8px; font-size: clamp(2rem, 4vw, 3rem); letter-spacing: 0; }
+    h2 { margin-top: 36px; font-size: 1.25rem; }
+    p { max-width: 760px; }
+    code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 0.92rem; }
+    code { padding: 2px 5px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 5px; }
+    pre { overflow: auto; padding: 16px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 8px; background: color-mix(in srgb, CanvasText 6%, Canvas); }
+    .endpoint { display: grid; gap: 10px; margin-top: 16px; padding-top: 18px; border-top: 1px solid color-mix(in srgb, CanvasText 14%, transparent); }
+    .method { display: inline-flex; width: fit-content; padding: 2px 8px; border-radius: 5px; background: #166534; color: white; font-weight: 700; font-size: 0.78rem; letter-spacing: 0; }
+    a { color: LinkText; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Optimus Public API</h1>
+    <p>Use these endpoints to log Padelog matches and Betlog rows from scripts, Shortcuts, forms, or other tools. Authenticate with <code>Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY</code> or <code>X-API-Key</code>.</p>
+    <p>The OpenAPI JSON is available at <a href="/api/openapi.json"><code>/api/openapi.json</code></a>.</p>
+
+    <section class="endpoint">
+      <span class="method">POST</span>
+      <h2><code>/api/public/padelog/matches</code></h2>
+      <p>Logs one padel match with the same validation used by the Padelog UI.</p>
+      <pre><code>curl -X POST http://localhost:${PORT}/api/public/padelog/matches \\
+  -H "Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "club": "Padel Club",
+    "date": "2026-05-29",
+    "teammate": "Alex",
+    "opponents": "Nikos / Maria",
+    "result": "Won",
+    "sets": "2-1"
+  }'</code></pre>
+    </section>
+
+    <section class="endpoint">
+      <span class="method">POST</span>
+      <h2><code>/api/public/betlog/bets</code></h2>
+      <p>Logs one Betlog row. Combo bets can send multiple rows using the <code>bets</code> array and the same <code>betId</code>.</p>
+      <pre><code>curl -X POST http://localhost:${PORT}/api/public/betlog/bets \\
+  -H "Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "date": "2026-05-29",
+    "time": "21:00",
+    "betId": "BET-1001",
+    "betType": "Single",
+    "stake": 10,
+    "freeBet": false,
+    "status": "Open",
+    "returnAmount": 0,
+    "selection": "Team A win",
+    "odds": 1.85,
+    "market": "Match winner",
+    "match": "Team A vs Team B",
+    "score": "",
+    "outcomeType": "single",
+    "legs": 1
+  }'</code></pre>
+    </section>
+
+    <h2>OpenAPI</h2>
+    <pre><code>${escapeHtmlText(openApiJson)}</code></pre>
+  </main>
+</body>
+</html>`;
+}
+
+function escapeHtmlText(value) {
+  return String(value).replace(
+    /[&<>"']/g,
+    (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character],
+  );
+}
+
+function optimusOpenApiSpec(version = "unknown") {
+  return {
+    openapi: "3.0.3",
+    info: {
+      title: "Optimus Public API",
+      version,
+      description: "Public endpoints for logging Padelog matches and Betlog bet rows.",
+    },
+    servers: [{ url: `http://${HOST}:${PORT}` }],
+    tags: [
+      { name: "Padelog", description: "Padel match logging" },
+      { name: "Betlog", description: "Bet row logging" },
+    ],
+    components: {
+      securitySchemes: {
+        bearerApiKey: {
+          type: "http",
+          scheme: "bearer",
+          description: "Use OPTIMUS_PUBLIC_API_KEY, OPTIMUS_API_KEY, or the Optimus access key fallback.",
+        },
+        headerApiKey: {
+          type: "apiKey",
+          in: "header",
+          name: "X-API-Key",
+        },
+      },
+      schemas: {
+        Error: {
+          type: "object",
+          properties: { error: { type: "string" } },
+          required: ["error"],
+        },
+        PadelogMatchInput: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "Optional client-provided id. A UUID is generated when omitted." },
+            club: { type: "string", example: "Padel Club" },
+            date: { type: "string", example: "2026-05-29", description: "YYYY-MM-DD or day/month format." },
+            teammate: { type: "string", example: "Alex" },
+            opponents: { type: "string", example: "Nikos / Maria" },
+            result: { type: "string", enum: ["Won", "Lost", "Draw"] },
+            sets: { type: "string", example: "2-1" },
+          },
+          required: ["date", "result", "sets"],
+        },
+        PadelogLogRequest: {
+          oneOf: [
+            { $ref: "#/components/schemas/PadelogMatchInput" },
+            {
+              type: "object",
+              properties: { match: { $ref: "#/components/schemas/PadelogMatchInput" } },
+              required: ["match"],
+            },
+            {
+              type: "object",
+              properties: {
+                matches: { type: "array", items: { $ref: "#/components/schemas/PadelogMatchInput" } },
+              },
+              required: ["matches"],
+            },
+          ],
+        },
+        PadelogMatch: {
+          allOf: [
+            { $ref: "#/components/schemas/PadelogMatchInput" },
+            {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                createdAt: { type: "string", format: "date-time" },
+              },
+              required: ["id", "club", "date", "teammate", "opponents", "result", "sets", "createdAt"],
+            },
+          ],
+        },
+        PadelogLogResponse: {
+          type: "object",
+          properties: {
+            imported: { type: "integer" },
+            total: { type: "integer", description: "Total saved Padelog matches after this request." },
+            created: { type: "array", items: { $ref: "#/components/schemas/PadelogMatch" } },
+          },
+          required: ["imported", "total", "created"],
+        },
+        BetlogBetInput: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "Optional client-provided row id. A UUID is generated when omitted." },
+            date: { type: "string", example: "2026-05-29", description: "YYYY-MM-DD or day/month format." },
+            time: { type: "string", example: "21:00", description: "HH:MM." },
+            betId: { type: "string", example: "BET-1001" },
+            betType: { type: "string", example: "Single" },
+            stake: { type: "number", minimum: 0, example: 10 },
+            freeBet: { type: "boolean", example: false },
+            status: { type: "string", example: "Open" },
+            returnAmount: { type: "number", minimum: 0, example: 0 },
+            selection: { type: "string", example: "Team A win" },
+            odds: { type: "number", exclusiveMinimum: 0, example: 1.85 },
+            market: { type: "string", example: "Match winner" },
+            match: { type: "string", example: "Team A vs Team B" },
+            score: { type: "string", example: "" },
+            outcomeType: { type: "string", example: "single" },
+            legs: { type: "integer", minimum: 1, example: 1 },
+          },
+          required: ["date", "time", "stake", "odds"],
+        },
+        BetlogLogRequest: {
+          oneOf: [
+            { $ref: "#/components/schemas/BetlogBetInput" },
+            {
+              type: "object",
+              properties: { bet: { $ref: "#/components/schemas/BetlogBetInput" } },
+              required: ["bet"],
+            },
+            {
+              type: "object",
+              properties: {
+                bets: { type: "array", items: { $ref: "#/components/schemas/BetlogBetInput" } },
+              },
+              required: ["bets"],
+            },
+          ],
+        },
+        BetlogBet: {
+          allOf: [
+            { $ref: "#/components/schemas/BetlogBetInput" },
+            {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                createdAt: { type: "string", format: "date-time" },
+              },
+              required: [
+                "id",
+                "date",
+                "time",
+                "betId",
+                "betType",
+                "stake",
+                "freeBet",
+                "status",
+                "returnAmount",
+                "selection",
+                "odds",
+                "market",
+                "match",
+                "score",
+                "outcomeType",
+                "legs",
+                "createdAt",
+              ],
+            },
+          ],
+        },
+        BetlogLogResponse: {
+          type: "object",
+          properties: {
+            imported: { type: "integer" },
+            total: { type: "integer", description: "Total saved Betlog rows after this request." },
+            created: { type: "array", items: { $ref: "#/components/schemas/BetlogBet" } },
+          },
+          required: ["imported", "total", "created"],
+        },
+      },
+    },
+    security: [{ bearerApiKey: [] }, { headerApiKey: [] }],
+    paths: {
+      "/api/public/padelog/matches": {
+        post: {
+          tags: ["Padelog"],
+          summary: "Log Padelog matches",
+          description: "Create one or more Padelog matches using the same validation as the UI.",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { $ref: "#/components/schemas/PadelogLogRequest" } } },
+          },
+          responses: publicApiResponses("#/components/schemas/PadelogLogResponse", "Match rows were logged."),
+        },
+      },
+      "/api/public/betlog/bets": {
+        post: {
+          tags: ["Betlog"],
+          summary: "Log Betlog bet rows",
+          description: "Create one or more Betlog rows using the same validation as the UI.",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { $ref: "#/components/schemas/BetlogLogRequest" } } },
+          },
+          responses: publicApiResponses("#/components/schemas/BetlogLogResponse", "Bet rows were logged."),
+        },
+      },
+    },
+  };
+}
+
+function publicApiResponses(schemaRef, createdDescription) {
+  return {
+    201: {
+      description: createdDescription,
+      content: { "application/json": { schema: { $ref: schemaRef } } },
+    },
+    400: {
+      description: "Validation error.",
+      content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+    },
+    401: {
+      description: "Missing or invalid API key.",
+      content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+    },
+  };
+}
+
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
@@ -5210,6 +5533,59 @@ async function handleRequest(request, response) {
 
   if (request.method === "GET" && url.pathname === "/api/version") {
     sendJson(response, 200, { version: await appVersion() });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/openapi.json") {
+    sendJson(response, 200, optimusOpenApiSpec(await appVersion()));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/docs") {
+    const html = await publicApiDocsPage();
+    response.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      ...corsHeaders(),
+    });
+    response.end(html);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/public/padelog/matches") {
+    if (!requirePublicApiKey(request, response)) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      const result = await addPadelogMatches(payload);
+      sendJson(response, 201, {
+        imported: result.imported,
+        total: result.matches.length,
+        created: result.created,
+      });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not save Padelog matches" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/public/betlog/bets") {
+    if (!requirePublicApiKey(request, response)) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      const result = await addBetlogBets(payload);
+      sendJson(response, 201, {
+        imported: result.imported,
+        total: result.bets.length,
+        created: result.created,
+      });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not save Betlog bets" });
+    }
     return;
   }
 

@@ -14,6 +14,7 @@ Create a local `.env` file for private values. It is ignored by Git.
 
 ```env
 OPTIMUS_ACCESS_KEY=your-login-password
+OPTIMUS_PUBLIC_API_KEY=your-public-api-key
 ANTHROPIC_API_KEY=your-anthropic-api-key
 ANTHROPIC_ANALYSIS_MODEL=claude-haiku-4-5-20251001
 OPENAI_API_KEY=your-openai-api-key
@@ -25,6 +26,7 @@ SPORTMONKS_API_KEY=your-sportmonks-api-key
 ```
 
 If `OPTIMUS_ACCESS_KEY` is not set, the local development key is `optimus`.
+If `OPTIMUS_PUBLIC_API_KEY` is not set, public API requests fall back to `OPTIMUS_API_KEY` and then `OPTIMUS_ACCESS_KEY`.
 The API provider keys are optional until a tool or integration needs them.
 
 ## Assets
@@ -50,6 +52,58 @@ Track placed bets from the Personal tools group. Each saved row represents one s
 Betlog AI performance insights use the same modal workflow as Padelog: the latest saved run opens first, previous/next controls browse older runs, and Generate new analyzes the full Betlog history. Runs are saved in `data/optimus.db` and included in backup/restore.
 
 Betlog data is persisted locally in `data/optimus.db` when the first bet is saved.
+
+### Public APIs
+
+Optimus exposes public JSON endpoints for logging Padelog matches and Betlog bet rows from external tools. These endpoints do not use the browser session cookie. Send either `Authorization: Bearer <key>` or `X-API-Key: <key>` where the key is `OPTIMUS_PUBLIC_API_KEY`, `OPTIMUS_API_KEY`, or the `OPTIMUS_ACCESS_KEY` fallback.
+
+API docs are available while the backend is running:
+
+- HTML docs: `GET http://localhost:8787/api/docs`
+- OpenAPI JSON: `GET http://localhost:8787/api/openapi.json`
+
+Log one Padelog match:
+
+```bash
+curl -X POST http://localhost:8787/api/public/padelog/matches \
+  -H "Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "club": "Padel Club",
+    "date": "2026-05-29",
+    "teammate": "Alex",
+    "opponents": "Nikos / Maria",
+    "result": "Won",
+    "sets": "2-1"
+  }'
+```
+
+Log one Betlog row:
+
+```bash
+curl -X POST http://localhost:8787/api/public/betlog/bets \
+  -H "Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2026-05-29",
+    "time": "21:00",
+    "betId": "BET-1001",
+    "betType": "Single",
+    "stake": 10,
+    "freeBet": false,
+    "status": "Open",
+    "returnAmount": 0,
+    "selection": "Team A win",
+    "odds": 1.85,
+    "market": "Match winner",
+    "match": "Team A vs Team B",
+    "score": "",
+    "outcomeType": "single",
+    "legs": 1
+  }'
+```
+
+Both endpoints also accept wrapper payloads, such as `{ "match": { ... } }`, `{ "matches": [{ ... }] }`, `{ "bet": { ... } }`, or `{ "bets": [{ ... }] }`.
 
 ### Notelog
 
