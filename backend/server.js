@@ -1574,6 +1574,7 @@ function defaultKnowledgeExpertStore() {
   return {
     entries: [],
     uploads: [],
+    conversations: [],
     turns: [],
   };
 }
@@ -1588,10 +1589,40 @@ async function saveKnowledgeExpertStore(store) {
 }
 
 function normalizeKnowledgeExpertStore(store = {}) {
+  const conversations = Array.isArray(store.conversations)
+    ? store.conversations.map(normalizeKnowledgeConversation).slice(0, 100)
+    : [];
+  const hasLegacyTurns = Array.isArray(store.turns) && store.turns.some((turn) => !turn?.conversationId);
+  if (!conversations.length && hasLegacyTurns) {
+    conversations.push(
+      normalizeKnowledgeConversation({
+        id: "default",
+        title: "Knowledge chat",
+        createdAt: store.turns[store.turns.length - 1]?.createdAt,
+        updatedAt: store.turns[0]?.createdAt,
+      }),
+    );
+  }
+  const fallbackConversationId = conversations[0]?.id || "default";
   return {
     entries: Array.isArray(store.entries) ? store.entries.map(normalizeKnowledgeEntry) : [],
     uploads: Array.isArray(store.uploads) ? store.uploads.map(normalizeKnowledgeUpload) : [],
-    turns: Array.isArray(store.turns) ? store.turns.map(normalizeKnowledgeTurn).slice(0, 500) : [],
+    conversations,
+    turns: Array.isArray(store.turns)
+      ? store.turns.map((turn) => normalizeKnowledgeTurn(turn, fallbackConversationId)).slice(0, 500)
+      : [],
+  };
+}
+
+function normalizeKnowledgeConversation(rawConversation = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: cleanText(rawConversation.id, crypto.randomUUID(), 80),
+    title: cleanText(rawConversation.title, "New chat", 120),
+    summary: cleanText(rawConversation.summary, "", 1800),
+    createdBy: cleanText(rawConversation.createdBy, "", 120),
+    createdAt: cleanText(rawConversation.createdAt, now, 40),
+    updatedAt: cleanText(rawConversation.updatedAt, rawConversation.createdAt || now, 40),
   };
 }
 
@@ -1622,9 +1653,10 @@ function normalizeKnowledgeUpload(rawUpload = {}) {
   };
 }
 
-function normalizeKnowledgeTurn(rawTurn = {}) {
+function normalizeKnowledgeTurn(rawTurn = {}, fallbackConversationId = "default") {
   return {
     id: cleanText(rawTurn.id, crypto.randomUUID(), 80),
+    conversationId: cleanText(rawTurn.conversationId, fallbackConversationId, 80),
     userName: cleanText(rawTurn.userName, "", 120),
     userMessage: cleanText(rawTurn.userMessage, "", 4000),
     assistantResponse: cleanText(rawTurn.assistantResponse, "", 12000),
@@ -1644,8 +1676,36 @@ function normalizeKnowledgeTurn(rawTurn = {}) {
   };
 }
 
-async function knowledgeExpertSnapshot() {
+function knowledgeConversationTitle(message) {
+  const text = cleanText(message, "New chat", 90).replace(/\s+/g, " ").trim();
+  if (text.length <= 46) {
+    return text || "New chat";
+  }
+  return `${text.slice(0, 43).trim()}...`;
+}
+
+function activeKnowledgeConversation(store, requestedConversationId = "") {
+  const requestedId = cleanText(requestedConversationId, "", 80);
+  const found = requestedId ? store.conversations.find((conversation) => conversation.id === requestedId) : null;
+  if (found) {
+    return found;
+  }
+  if (store.conversations.length) {
+    return [...store.conversations].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+  }
+  return normalizeKnowledgeConversation({
+    id: "default",
+    title: "Knowledge chat",
+  });
+}
+
+function knowledgeConversationTurns(store, conversationId, limit = 30) {
+  return store.turns.filter((turn) => turn.conversationId === conversationId).slice(0, limit);
+}
+
+async function knowledgeExpertSnapshot(conversationId = "") {
   const store = await loadKnowledgeExpertStore();
+  const conversation = activeKnowledgeConversation(store, conversationId);
   return {
     entries: store.entries.map(({ embedding, answer, ...entry }) => ({
       ...entry,
@@ -1653,12 +1713,83 @@ async function knowledgeExpertSnapshot() {
       hasEmbedding: Array.isArray(embedding) && embedding.length > 0,
     })),
     uploads: store.uploads,
-    turns: store.turns.slice(0, 30),
+    conversations: store.conversations.length ? store.conversations : [conversation],
+    activeConversationId: conversation.id,
+    turns: knowledgeConversationTurns(store, conversation.id, 30),
     models: {
       chat: KNOWLEDGE_EXPERT_CHAT_MODEL,
       embed: KNOWLEDGE_EXPERT_EMBED_MODEL,
     },
   };
+}
+
+async function createKnowledgeConversation(payload = {}, userName = "") {
+  const store = await loadKnowledgeExpertStore();
+  const now = new Date().toISOString();
+  const conversation = normalizeKnowledgeConversation({
+    id: crypto.randomUUID(),
+    title: cleanText(payload.title, "New chat", 120),
+    createdBy: userName,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await saveKnowledgeExpertStore({
+    ...store,
+    conversations: [conversation, ...store.conversations].slice(0, 100),
+  });
+  return { conversation };
+}
+
+async function updateKnowledgeConversation(payload = {}, userName = "") {
+  const conversationId = cleanText(payload.conversationId, "", 80);
+  const title = cleanText(payload.title, "", 120);
+  if (!conversationId || !title) {
+    throw new Error("Choose a conversation and enter a title.");
+  }
+  const store = await loadKnowledgeExpertStore();
+  const conversations = store.conversations.map((conversation) =>
+    conversation.id === conversationId
+      ? { ...conversation, title, updatedAt: new Date().toISOString(), createdBy: conversation.createdBy || userName }
+      : conversation,
+  );
+  if (!conversations.some((conversation) => conversation.id === conversationId)) {
+    throw new Error("Conversation not found.");
+  }
+  await saveKnowledgeExpertStore({ ...store, conversations });
+  return { conversation: conversations.find((conversation) => conversation.id === conversationId) };
+}
+
+async function clearKnowledgeConversation(payload = {}) {
+  const conversationId = cleanText(payload.conversationId, "", 80);
+  if (!conversationId) {
+    throw new Error("Choose a conversation to clear.");
+  }
+  const store = await loadKnowledgeExpertStore();
+  const now = new Date().toISOString();
+  const conversations = store.conversations.map((conversation) =>
+    conversation.id === conversationId ? { ...conversation, summary: "", updatedAt: now } : conversation,
+  );
+  await saveKnowledgeExpertStore({
+    ...store,
+    conversations,
+    turns: store.turns.filter((turn) => turn.conversationId !== conversationId),
+  });
+  return { ok: true };
+}
+
+async function deleteKnowledgeConversation(payload = {}) {
+  const conversationId = cleanText(payload.conversationId, "", 80);
+  if (!conversationId) {
+    throw new Error("Choose a conversation to delete.");
+  }
+  const store = await loadKnowledgeExpertStore();
+  const conversations = store.conversations.filter((conversation) => conversation.id !== conversationId);
+  await saveKnowledgeExpertStore({
+    ...store,
+    conversations,
+    turns: store.turns.filter((turn) => turn.conversationId !== conversationId),
+  });
+  return { ok: true, activeConversationId: conversations[0]?.id || "" };
 }
 
 async function replaceKnowledgeExpertDataset(payload = {}, userName = "") {
@@ -1698,6 +1829,7 @@ async function replaceKnowledgeExpertDataset(payload = {}, userName = "") {
   const nextStore = {
     entries: mode === "append" ? [...store.entries, ...normalizedEntries] : normalizedEntries,
     uploads: [upload, ...store.uploads].slice(0, 20),
+    conversations: store.conversations,
     turns: store.turns,
   };
   await saveKnowledgeExpertStore(nextStore);
@@ -2019,10 +2151,13 @@ async function chatWithKnowledgeExpert(payload = {}, userName = "", options = {}
   }
 
   const store = await loadKnowledgeExpertStore();
+  const conversation = activeKnowledgeConversation(store, payload.conversationId);
+  const recentTurns = knowledgeConversationTurns(store, conversation.id, 8).reverse();
   if (!store.entries.length) {
     addTrace("empty_kb", "No knowledge entries are available.");
     return persistKnowledgeTurn(store, {
       startedAt,
+      conversationId: conversation.id,
       userName,
       userMessage,
       assistantResponse: KNOWLEDGE_EXPERT_DECLINE,
@@ -2033,7 +2168,7 @@ async function chatWithKnowledgeExpert(payload = {}, userName = "", options = {}
     });
   }
 
-  const rewrite = await rewriteKnowledgeQuery(userMessage, payload.history || []);
+  const rewrite = await rewriteKnowledgeQuery(userMessage, payload.history || recentTurns, conversation.summary);
   addTrace("rewrite_query", rewrite.mode === "rewritten" ? "Rewrote follow-up query for retrieval." : "Using original query for retrieval.", rewrite);
   addTrace("embed_query", "Prepared search query.");
   const [queryEmbedding] = await embedKnowledgeTexts([rewrite.query]);
@@ -2047,8 +2182,12 @@ async function chatWithKnowledgeExpert(payload = {}, userName = "", options = {}
 
   if (!retrieval.entries.length) {
     addTrace("decline", "No matching entries found.");
+    const conversationSummary = await summarizeKnowledgeConversation(conversation, recentTurns, userMessage, KNOWLEDGE_EXPERT_DECLINE);
+    addTrace("summarize_memory", conversationSummary.changed ? "Updated conversation summary." : "Kept existing conversation summary.");
     return persistKnowledgeTurn(store, {
       startedAt,
+      conversationId: conversation.id,
+      conversationSummary: conversationSummary.summary,
       userName,
       userMessage,
       assistantResponse: KNOWLEDGE_EXPERT_DECLINE,
@@ -2060,15 +2199,17 @@ async function chatWithKnowledgeExpert(payload = {}, userName = "", options = {}
   }
 
   const context = retrieval.entries.map(formatKnowledgeContextEntry).join("\n\n");
+  const conversationMemory = formatKnowledgeConversationMemory(conversation.summary, recentTurns);
   const system = [
     "You are Knowledge Expert, a citation-enforced Q&A assistant.",
     "Use only the provided knowledge base entries.",
+    "Conversation memory may only clarify references in the latest question; never use it as a factual source.",
     `If the entries do not answer the question, reply exactly: ${KNOWLEDGE_EXPERT_DECLINE}`,
     "Every grounded answer must end with one trailing citation block like [cite:uuid1,uuid2].",
     "Only cite IDs that appear in the provided entries.",
     "For list or count questions, include every relevant retrieved entry and state the actual count.",
   ].join(" ");
-  const user = `KNOWLEDGE BASE ENTRIES:\n\n${context}\n\nUSER QUESTION:\n${userMessage}`;
+  const user = `CONVERSATION MEMORY (not a source of truth):\n\n${conversationMemory}\n\nKNOWLEDGE BASE ENTRIES:\n\n${context}\n\nUSER QUESTION:\n${userMessage}`;
   addTrace("llm_call", "Asked Claude to answer from retrieved entries.");
   const rawAnswer = await fetchKnowledgeAnthropicMessage({ system, user, maxTokens: 1600 });
   const parsed = parseKnowledgeCitations(rawAnswer, new Set(retrieval.entries.map((entry) => entry.id)));
@@ -2079,9 +2220,13 @@ async function chatWithKnowledgeExpert(payload = {}, userName = "", options = {}
   if (typeof options.onTextDelta === "function") {
     await emitKnowledgeTextDeltas(assistantResponse, options.onTextDelta);
   }
+  const conversationSummary = await summarizeKnowledgeConversation(conversation, recentTurns, userMessage, assistantResponse);
+  addTrace("summarize_memory", conversationSummary.changed ? "Updated conversation summary." : "Kept existing conversation summary.");
 
   return persistKnowledgeTurn(store, {
     startedAt,
+    conversationId: conversation.id,
+    conversationSummary: conversationSummary.summary,
     userName,
     userMessage,
     assistantResponse,
@@ -2093,7 +2238,18 @@ async function chatWithKnowledgeExpert(payload = {}, userName = "", options = {}
   });
 }
 
-async function rewriteKnowledgeQuery(userMessage, history = []) {
+function formatKnowledgeConversationMemory(summary = "", recentTurns = []) {
+  const recent = recentTurns
+    .slice(-8)
+    .map((turn) => `User: ${cleanText(turn.userMessage, "", 500)}\nAssistant: ${cleanText(turn.assistantResponse, "", 700)}`)
+    .join("\n\n");
+  return [
+    summary ? `Summary:\n${summary}` : "Summary:\nNone yet.",
+    recent ? `Recent turns:\n${recent}` : "Recent turns:\nNone yet.",
+  ].join("\n\n");
+}
+
+async function rewriteKnowledgeQuery(userMessage, history = [], summary = "") {
   if (!KNOWLEDGE_EXPERT_QUERY_REWRITE_ENABLED) {
     return { mode: "disabled", query: userMessage };
   }
@@ -2109,12 +2265,46 @@ async function rewriteKnowledgeQuery(userMessage, history = []) {
     }));
     const query = await fetchKnowledgeAnthropicMessage({
       system: "Rewrite the user's latest message into one self-contained search query using the prior turns. Return only the query.",
-      user: JSON.stringify({ recent, latest: userMessage }),
+      user: JSON.stringify({ summary, recent, latest: userMessage }),
       maxTokens: 80,
     });
     return { mode: "rewritten", query: query.trim() || userMessage };
   } catch (error) {
     return { mode: "fallback_error", query: userMessage, error: error.message || "rewrite failed" };
+  }
+}
+
+async function summarizeKnowledgeConversation(conversation, recentTurns, userMessage, assistantResponse) {
+  const previousSummary = cleanText(conversation.summary, "", 1800);
+  if (!String(process.env.ANTHROPIC_API_KEY || "").trim()) {
+    return { summary: previousSummary, changed: false };
+  }
+  try {
+    const recent = recentTurns.slice(-8).map((turn) => ({
+      user: cleanText(turn.userMessage, "", 500),
+      assistant: cleanText(turn.assistantResponse, "", 700),
+    }));
+    const summary = await fetchKnowledgeAnthropicMessage({
+      system: [
+        "Maintain a concise running summary of this Knowledge Expert conversation.",
+        "Capture user goals, named entities, decisions, and references needed to understand follow-up questions.",
+        "Do not add facts from the knowledge base unless the user explicitly discussed them.",
+        "Use 120 words or fewer. Return only the summary.",
+      ].join(" "),
+      user: JSON.stringify({
+        previousSummary,
+        recent,
+        latest: {
+          user: cleanText(userMessage, "", 900),
+          assistant: cleanText(assistantResponse, "", 1200),
+        },
+      }),
+      maxTokens: 220,
+    });
+    const cleanSummary = cleanText(summary, previousSummary, 1800);
+    return { summary: cleanSummary, changed: cleanSummary !== previousSummary };
+  } catch {
+    return { summary: previousSummary, changed: false };
   }
 }
 
@@ -2255,8 +2445,10 @@ function citationForKnowledgeEntry(entry) {
 
 async function persistKnowledgeTurn(store, turnInput) {
   const durationMs = Date.now() - turnInput.startedAt;
+  const conversationId = cleanText(turnInput.conversationId, activeKnowledgeConversation(store).id, 80);
   const turn = normalizeKnowledgeTurn({
     id: crypto.randomUUID(),
+    conversationId,
     userName: turnInput.userName,
     userMessage: turnInput.userMessage,
     assistantResponse: turnInput.assistantResponse,
@@ -2273,19 +2465,47 @@ async function persistKnowledgeTurn(store, turnInput) {
     chatModel: KNOWLEDGE_EXPERT_CHAT_MODEL,
     embedModel: KNOWLEDGE_EXPERT_EMBED_MODEL,
   });
+  const now = new Date().toISOString();
+  const hasConversation = store.conversations.some((conversation) => conversation.id === conversationId);
+  const conversations = (hasConversation
+    ? store.conversations
+    : [
+        normalizeKnowledgeConversation({
+          id: conversationId,
+          title: knowledgeConversationTitle(turnInput.userMessage),
+          createdBy: turnInput.userName,
+          createdAt: now,
+        }),
+        ...store.conversations,
+      ]
+  ).map((conversation) => {
+    if (conversation.id !== conversationId) {
+      return conversation;
+    }
+    const shouldRetitle = !conversation.title || conversation.title === "New chat" || conversation.title === "Knowledge chat";
+    return {
+      ...conversation,
+      title: shouldRetitle ? knowledgeConversationTitle(turnInput.userMessage) : conversation.title,
+      summary: cleanText(turnInput.conversationSummary, conversation.summary, 1800),
+      updatedAt: now,
+    };
+  });
   await saveKnowledgeExpertStore({
     entries: store.entries,
     uploads: store.uploads,
+    conversations,
     turns: [turn, ...store.turns].slice(0, 500),
   });
   return turn;
 }
 
-async function persistKnowledgeErrorTurn(userMessage, userName, error) {
+async function persistKnowledgeErrorTurn(userMessage, userName, error, conversationId = "") {
   const store = await loadKnowledgeExpertStore();
+  const conversation = activeKnowledgeConversation(store, conversationId);
   const startedAt = Date.now();
   return persistKnowledgeTurn(store, {
     startedAt,
+    conversationId: conversation.id,
     userName,
     userMessage,
     assistantResponse: KNOWLEDGE_EXPERT_DECLINE,
@@ -5128,9 +5348,69 @@ async function handleRequest(request, response) {
     }
 
     try {
-      sendJson(response, 200, await knowledgeExpertSnapshot());
+      sendJson(response, 200, await knowledgeExpertSnapshot(url.searchParams.get("conversationId") || ""));
     } catch (error) {
       sendJson(response, 400, { error: error.message || "Could not load Knowledge Expert" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/conversations") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await createKnowledgeConversation(payload, session.name));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not create conversation" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/conversations/update") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await updateKnowledgeConversation(payload, session.name));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not update conversation" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/conversations/clear") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await clearKnowledgeConversation(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not clear conversation" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/tools/knowledge-expert/conversations/delete") {
+    const session = requireSession(request, response);
+    if (!session) {
+      return;
+    }
+
+    try {
+      const payload = await readJson(request);
+      sendJson(response, 200, await deleteKnowledgeConversation(payload));
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Could not delete conversation" });
     }
     return;
   }
@@ -5204,7 +5484,7 @@ async function handleRequest(request, response) {
       sendSse(response, "done", {});
       response.end();
     } catch (error) {
-      await persistKnowledgeErrorTurn(payload.message || "", session.name, error).catch(() => {});
+      await persistKnowledgeErrorTurn(payload.message || "", session.name, error, payload.conversationId || "").catch(() => {});
       sendSse(response, "error", { message: error.message || "Could not answer with Knowledge Expert" });
       sendSse(response, "done", {});
       response.end();

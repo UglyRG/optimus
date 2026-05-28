@@ -2557,6 +2557,62 @@ iframe {
   margin-top: 0;
 }
 
+.knowledge-conversation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.knowledge-conversation-row {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--panel);
+}
+
+.knowledge-conversation-row.is-active {
+  border-color: var(--brand);
+}
+
+.knowledge-conversation-main {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.knowledge-conversation-main strong {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.knowledge-conversation-main span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.knowledge-conversation-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.knowledge-conversation-actions button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--soft-bg);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
 .knowledge-entry-row {
   display: grid;
   gap: 5px;

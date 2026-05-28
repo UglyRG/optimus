@@ -1,6 +1,6 @@
 # Optimus
 
-Version: `v4.6`
+Version: `v5.8`
 
 Optimus is split into two local services:
 

@@ -20,6 +20,8 @@ let olympiacosNewsRunIndex = 0;
 let olympiacosNewsIsRunning = false;
 let knowledgeExpertEntries = [];
 let knowledgeExpertTurns = [];
+let knowledgeExpertConversations = [];
+let activeKnowledgeConversationId = "";
 let performanceInsightModalState = {
   toolId: "",
   insights: [],
@@ -857,6 +859,8 @@ function base64ToBytes(base64) {
 async function renderKnowledgeExpertTool() {
   knowledgeExpertEntries = [];
   knowledgeExpertTurns = [];
+  knowledgeExpertConversations = [];
+  activeKnowledgeConversationId = "";
 
   app.innerHTML = `
     ${renderTopbar()}
@@ -917,6 +921,16 @@ async function renderKnowledgeExpertTool() {
           </details>
           <p class="success" id="knowledge-expert-success"></p>
           <p class="error" id="knowledge-expert-error"></p>
+          <details class="knowledge-template-box" open>
+            <summary>Chats</summary>
+            <div class="knowledge-template-body">
+              <div class="knowledge-template-actions">
+                <button class="button button-primary" id="knowledge-new-chat" type="button">New chat</button>
+                <button class="button button-secondary" id="knowledge-clear-chat" type="button">Clear current</button>
+              </div>
+              <div class="knowledge-conversation-list" id="knowledge-conversation-list"></div>
+            </div>
+          </details>
           <details class="knowledge-template-box">
             <summary>Admin reports</summary>
             <div class="knowledge-template-body">
@@ -939,8 +953,8 @@ async function renderKnowledgeExpertTool() {
         <main class="tool-panel knowledge-expert-chat-panel">
           <div class="knowledge-chat-head">
             <div>
-              <h2>Chat</h2>
-              <p>Knowledge Expert declines when the dataset does not support an answer.</p>
+              <h2 id="knowledge-chat-title">Chat</h2>
+              <p>Uses this conversation to understand follow-ups. Answers still need knowledge base citations.</p>
             </div>
             <span id="knowledge-expert-model"></span>
           </div>
@@ -972,15 +986,15 @@ async function renderKnowledgeExpertTool() {
             </section>
             <section>
               <h3>3. Questions retrieve matching entries</h3>
-              <p>For each chat turn, Optimus searches the active dataset, combines semantic and keyword matches, and sends only those retrieved entries to the model.</p>
+              <p>For each chat turn, Optimus uses the current conversation summary and recent turns to interpret follow-ups, then searches the active dataset and sends retrieved entries to the model.</p>
             </section>
             <section>
               <h3>4. The answer must cite sources</h3>
-              <p>The assistant is instructed to answer only from retrieved entries and to include citation IDs. Optimus validates those citations and shows them as source chips.</p>
+              <p>The assistant can use conversation memory only to clarify references. Answers must come from retrieved knowledge entries, include citation IDs, and pass citation validation.</p>
             </section>
             <section>
-              <h3>5. Unsupported questions are declined</h3>
-              <p>If the dataset does not contain the answer, Knowledge Expert returns the decline message instead of guessing.</p>
+              <h3>5. Chats stay separate</h3>
+              <p>New chat starts a separate conversation while keeping the knowledge base. Clear current removes only that chat's turns and summary.</p>
             </section>
           </div>
         </div>
@@ -1009,6 +1023,9 @@ async function renderKnowledgeExpertTool() {
   document.querySelector("#knowledge-expert-upload-form").addEventListener("submit", handleKnowledgeExpertUpload);
   document.querySelector("#knowledge-chat-form").addEventListener("submit", handleKnowledgeExpertChat);
   document.querySelector("#knowledge-chat-log").addEventListener("click", handleKnowledgeExpertChatClick);
+  document.querySelector("#knowledge-new-chat").addEventListener("click", handleKnowledgeNewChat);
+  document.querySelector("#knowledge-clear-chat").addEventListener("click", handleKnowledgeClearChat);
+  document.querySelector("#knowledge-conversation-list").addEventListener("click", handleKnowledgeConversationClick);
   document.querySelector("#knowledge-how-button").addEventListener("click", openKnowledgeHowModal);
   document.querySelector("#knowledge-how-close").addEventListener("click", closeKnowledgeHowModal);
   document.querySelector("#knowledge-how-modal").addEventListener("click", (event) => {
@@ -1022,19 +1039,23 @@ async function renderKnowledgeExpertTool() {
       closeKnowledgeReportModal();
     }
   });
-  document.querySelector(".knowledge-template-box").addEventListener("click", handleKnowledgeTemplateClick);
+  document.querySelector("[data-knowledge-template]").closest(".knowledge-template-box").addEventListener("click", handleKnowledgeTemplateClick);
   document.querySelector("[data-knowledge-report]").closest(".knowledge-template-box").addEventListener("click", handleKnowledgeReportClick);
 
   await loadKnowledgeExpertTool();
 }
 
-async function loadKnowledgeExpertTool() {
+async function loadKnowledgeExpertTool(conversationId = activeKnowledgeConversationId) {
   try {
-    const payload = await request("/tools/knowledge-expert");
+    const query = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : "";
+    const payload = await request(`/tools/knowledge-expert${query}`);
     knowledgeExpertEntries = payload.entries || [];
+    knowledgeExpertConversations = payload.conversations || [];
+    activeKnowledgeConversationId = payload.activeConversationId || knowledgeExpertConversations[0]?.id || "";
     knowledgeExpertTurns = (payload.turns || []).slice().reverse();
     document.querySelector("#knowledge-expert-model").textContent = payload.models?.chat || "";
     renderKnowledgeExpertDataset(payload.uploads || []);
+    renderKnowledgeConversations();
     renderKnowledgeExpertChat();
   } catch (error) {
     showScopedMessage("#knowledge-expert-error", `Could not load Knowledge Expert: ${error.message}`);
@@ -1209,6 +1230,35 @@ function renderKnowledgeEntryRow(entry) {
   `;
 }
 
+function renderKnowledgeConversations() {
+  const list = document.querySelector("#knowledge-conversation-list");
+  const title = document.querySelector("#knowledge-chat-title");
+  if (!list || !title) {
+    return;
+  }
+  const activeConversation = knowledgeExpertConversations.find((conversation) => conversation.id === activeKnowledgeConversationId);
+  title.textContent = activeConversation?.title || "Chat";
+  list.innerHTML = knowledgeExpertConversations.length
+    ? knowledgeExpertConversations.map(renderKnowledgeConversationRow).join("")
+    : '<div class="tool-list-state">No chats yet.</div>';
+}
+
+function renderKnowledgeConversationRow(conversation) {
+  const active = conversation.id === activeKnowledgeConversationId;
+  return `
+    <article class="knowledge-conversation-row ${active ? "is-active" : ""}" data-conversation-id="${escapeAttribute(conversation.id)}">
+      <button class="knowledge-conversation-main" type="button" data-knowledge-conversation-open="${escapeAttribute(conversation.id)}">
+        <strong>${escapeHtml(conversation.title || "New chat")}</strong>
+        <span>${escapeHtml(formatDateTime(conversation.updatedAt))}</span>
+      </button>
+      <div class="knowledge-conversation-actions">
+        <button type="button" data-knowledge-conversation-rename="${escapeAttribute(conversation.id)}">Rename</button>
+        <button type="button" data-knowledge-conversation-delete="${escapeAttribute(conversation.id)}">Delete</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderKnowledgeExpertChat() {
   const log = document.querySelector("#knowledge-chat-log");
   if (!knowledgeExpertTurns.length) {
@@ -1270,6 +1320,80 @@ function renderKnowledgeTraceEvent(event) {
   `;
 }
 
+async function handleKnowledgeNewChat() {
+  try {
+    const payload = await request("/tools/knowledge-expert/conversations", {
+      method: "POST",
+      body: JSON.stringify({ title: "New chat" }),
+    });
+    activeKnowledgeConversationId = payload.conversation?.id || "";
+    await loadKnowledgeExpertTool(activeKnowledgeConversationId);
+  } catch (error) {
+    showScopedMessage("#knowledge-expert-error", error.message);
+  }
+}
+
+async function handleKnowledgeClearChat() {
+  if (!activeKnowledgeConversationId) {
+    return;
+  }
+  try {
+    await request("/tools/knowledge-expert/conversations/clear", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: activeKnowledgeConversationId }),
+    });
+    knowledgeExpertTurns = [];
+    await loadKnowledgeExpertTool(activeKnowledgeConversationId);
+  } catch (error) {
+    showScopedMessage("#knowledge-expert-error", error.message);
+  }
+}
+
+async function handleKnowledgeConversationClick(event) {
+  const openButton = event.target.closest("[data-knowledge-conversation-open]");
+  if (openButton) {
+    activeKnowledgeConversationId = openButton.dataset.knowledgeConversationOpen;
+    await loadKnowledgeExpertTool(activeKnowledgeConversationId);
+    return;
+  }
+
+  const renameButton = event.target.closest("[data-knowledge-conversation-rename]");
+  if (renameButton) {
+    const conversationId = renameButton.dataset.knowledgeConversationRename;
+    const current = knowledgeExpertConversations.find((conversation) => conversation.id === conversationId);
+    const title = window.prompt("Rename chat", current?.title || "New chat");
+    if (!title || !title.trim()) {
+      return;
+    }
+    try {
+      await request("/tools/knowledge-expert/conversations/update", {
+        method: "POST",
+        body: JSON.stringify({ conversationId, title: title.trim() }),
+      });
+      await loadKnowledgeExpertTool(activeKnowledgeConversationId);
+    } catch (error) {
+      showScopedMessage("#knowledge-expert-error", error.message);
+    }
+    return;
+  }
+
+  const deleteButton = event.target.closest("[data-knowledge-conversation-delete]");
+  if (!deleteButton) {
+    return;
+  }
+  const conversationId = deleteButton.dataset.knowledgeConversationDelete;
+  try {
+    const payload = await request("/tools/knowledge-expert/conversations/delete", {
+      method: "POST",
+      body: JSON.stringify({ conversationId }),
+    });
+    activeKnowledgeConversationId = conversationId === activeKnowledgeConversationId ? payload.activeConversationId || "" : activeKnowledgeConversationId;
+    await loadKnowledgeExpertTool(activeKnowledgeConversationId);
+  } catch (error) {
+    showScopedMessage("#knowledge-expert-error", error.message);
+  }
+}
+
 async function handleKnowledgeExpertUpload(event) {
   event.preventDefault();
   const input = document.querySelector("#knowledge-expert-file");
@@ -1324,6 +1448,7 @@ async function handleKnowledgeExpertChat(event) {
   input.disabled = true;
   knowledgeExpertTurns.push({
     id: `pending-${Date.now()}`,
+    conversationId: activeKnowledgeConversationId,
     userMessage: message,
     assistantResponse: "Thinking...",
     citations: [],
@@ -1338,6 +1463,7 @@ async function handleKnowledgeExpertChat(event) {
     knowledgeExpertTurns = knowledgeExpertTurns.filter((turnItem) => !String(turnItem.id).startsWith("pending-"));
     knowledgeExpertTurns.push(turn);
     renderKnowledgeExpertChat();
+    await loadKnowledgeExpertTool(activeKnowledgeConversationId);
   } catch (error) {
     knowledgeExpertTurns = knowledgeExpertTurns.filter((turnItem) => !String(turnItem.id).startsWith("pending-"));
     showScopedMessage("#knowledge-expert-error", error.message);
@@ -1355,8 +1481,9 @@ async function streamKnowledgeExpertChat(message) {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      conversationId: activeKnowledgeConversationId,
       message,
-      history: knowledgeExpertTurns.slice(-6),
+      history: knowledgeExpertTurns.slice(-8),
     }),
   });
   if (!response.ok || !response.body) {
@@ -4800,7 +4927,7 @@ function renderTopbar(options = {}) {
         </button>
         <button class="button button-secondary" id="logout-button" type="button">Log out</button>
       </div>
-      <div class="topbar-version" id="app-version">v.4.5</div>
+      <div class="topbar-version" id="app-version">v5.8</div>
     </header>
   `;
 }
