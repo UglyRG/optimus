@@ -34,6 +34,7 @@ const OUTPUTS_DIR = path.join(__dirname, "..", "Outputs");
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DATABASE_PATH = process.env.OPTIMUS_DATABASE_PATH || path.join(DATA_DIR, "optimus.db");
 const SQLITE_BIN = process.env.SQLITE_BIN || "sqlite3";
+const SQLITE_BUSY_TIMEOUT_MS = Number(process.env.SQLITE_BUSY_TIMEOUT_MS || 5000);
 const TOOL_CATALOG_PATH = path.join(DATA_DIR, "tool-catalog.json");
 const PADELOG_MATCHES_PATH = path.join(DATA_DIR, "padelog-matches.json");
 const BETLOG_BETS_PATH = path.join(DATA_DIR, "betlog-bets.json");
@@ -209,7 +210,7 @@ async function runDatabaseSql(sql) {
       resolve(stdout);
     });
 
-    child.stdin.end(sql);
+    child.stdin.end(`.timeout ${SQLITE_BUSY_TIMEOUT_MS}\n${sql}`);
   });
 }
 
@@ -221,14 +222,16 @@ function queueDatabaseOperation(operation) {
 
 async function ensureDatabase() {
   if (!databaseReadyPromise) {
-    databaseReadyPromise = runDatabaseSql(`
+    databaseReadyPromise = queueDatabaseOperation(() =>
+      runDatabaseSql(`
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS app_data (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
-    `);
+    `),
+    );
   }
 
   await databaseReadyPromise;
@@ -244,12 +247,14 @@ function sqlTextLiteral(value) {
 
 async function readStoreValue(storeKey) {
   await ensureDatabase();
-  const stdout = await runDatabaseSql(`
-    SELECT value
-    FROM app_data
-    WHERE key = ${sqlString(storeKey)}
-    LIMIT 1;
-  `);
+  const stdout = await queueDatabaseOperation(() =>
+    runDatabaseSql(`
+      SELECT value
+      FROM app_data
+      WHERE key = ${sqlString(storeKey)}
+      LIMIT 1;
+    `),
+  );
 
   return stdout ? stdout.replace(/\n$/, "") : null;
 }
