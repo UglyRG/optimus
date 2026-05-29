@@ -506,6 +506,8 @@ button {
   align-items: center;
   justify-content: center;
   min-width: 0;
+  color: inherit;
+  text-decoration: none;
 }
 
 .brand-logo {
@@ -2556,7 +2558,7 @@ iframe {
   font-weight: 800;
 }
 
-.knowledge-entry-list {
+.knowledge-file-list {
   display: grid;
   gap: 10px;
   overflow: visible;
@@ -2564,7 +2566,7 @@ iframe {
   padding-right: 4px;
 }
 
-.knowledge-template-body .knowledge-entry-list {
+.knowledge-template-body .knowledge-file-list {
   margin-top: 0;
 }
 
@@ -2624,24 +2626,126 @@ iframe {
   font-weight: 800;
 }
 
-.knowledge-entry-row {
+.knowledge-file-row {
   display: grid;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
+  background: var(--panel);
+}
+
+.knowledge-file-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.knowledge-file-row strong {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.knowledge-file-row span,
+.knowledge-file-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.knowledge-file-row .button {
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.knowledge-entries-modal .ai-modal-dialog {
+  width: min(1180px, calc(100vw - 32px));
+}
+
+.knowledge-entries-modal .ai-modal-body {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  max-height: min(72vh, 760px);
+}
+
+.knowledge-file-tabs {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  padding-right: 12px;
+}
+
+.knowledge-file-tabs button {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+}
+
+.knowledge-file-tabs button.is-active {
+  border-color: var(--brand);
   background: var(--soft-bg);
 }
 
-.knowledge-entry-row strong {
-  font-size: 0.92rem;
-  line-height: 1.35;
+.knowledge-file-tabs span {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  font-weight: 900;
 }
 
-.knowledge-entry-row span {
+.knowledge-file-tabs small {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 800;
+}
+
+.knowledge-entry-modal-list {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.knowledge-entry-row {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--soft-bg);
+}
+
+.knowledge-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.knowledge-entry-meta span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.knowledge-entry-row h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.35;
 }
 
 .knowledge-entry-row p {
@@ -2649,6 +2753,13 @@ iframe {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.45;
+}
+
+.knowledge-entry-row a {
+  overflow-wrap: anywhere;
+  color: var(--brand);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .knowledge-chat-head {
@@ -2715,6 +2826,40 @@ iframe {
 
 .knowledge-answer {
   overflow-wrap: anywhere;
+}
+
+.knowledge-answer p,
+.knowledge-answer ul,
+.knowledge-answer ol {
+  margin: 0 0 10px;
+}
+
+.knowledge-answer p:last-child,
+.knowledge-answer ul:last-child,
+.knowledge-answer ol:last-child {
+  margin-bottom: 0;
+}
+
+.knowledge-answer ul,
+.knowledge-answer ol {
+  padding-left: 22px;
+}
+
+.knowledge-answer li + li {
+  margin-top: 4px;
+}
+
+.knowledge-answer code {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: var(--panel);
+  font-size: 0.92em;
+}
+
+.knowledge-answer a {
+  color: var(--brand);
+  font-weight: 700;
 }
 
 .knowledge-citations {
@@ -2960,6 +3105,24 @@ iframe {
 }
 
 @media (max-width: 760px) {
+  .knowledge-file-row {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-entries-modal .ai-modal-body {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-file-tabs {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(160px, 1fr);
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding-right: 0;
+    padding-bottom: 12px;
+  }
+
   .betlog-table,
   .betlog-table thead,
   .betlog-table tbody,

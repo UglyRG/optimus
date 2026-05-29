@@ -3,8 +3,8 @@
   "scripts": {
     "backend": "cd backend_py && .venv/bin/uvicorn optimus_api.main:app --reload --host localhost --port 8788",
     "dev": "node scripts/dev.js",
-    "frontend:react": "vite --config frontend-react/vite.config.js --strictPort",
-    "build:react": "vite build --config frontend-react/vite.config.js"
+    "frontend:react": "vite --config frontend-react/vite.config.mjs --strictPort",
+    "build:react": "vite build --config frontend-react/vite.config.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.7.0",

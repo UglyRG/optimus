@@ -32,6 +32,10 @@ def model_names(settings: Settings) -> dict[str, str]:
 
 
 def normalize_embedding(value: Any) -> list[float] | None:
+    if isinstance(value, str):
+        value = value.strip()
+        if value.startswith("[") and value.endswith("]"):
+            value = [item.strip() for item in value[1:-1].split(",")]
     if not isinstance(value, list):
         return None
     embedding = []
@@ -55,7 +59,7 @@ def normalize_knowledge_entry(raw_entry: dict[str, Any] | None = None) -> dict[s
         "id": clean_text(raw_entry.get("id"), new_id(), 80),
         "category": clean_text(raw_entry.get("category"), "General", 200),
         "question": clean_text(raw_entry.get("question"), "", 500),
-        "answer": clean_text(raw_entry.get("answer"), "", 8000),
+        "answer": clean_text(raw_entry.get("answer") or raw_entry.get("answerPreview"), "", 8000),
         "link": clean_text(raw_entry.get("link"), "", 1000),
         "sourceDoc": clean_text(raw_entry.get("sourceDoc") or raw_entry.get("source_doc"), "", 300),
         "sourcePage": raw_entry.get("sourcePage") or raw_entry.get("source_page"),
@@ -206,16 +210,19 @@ class KnowledgeRepository:
             )
             for index, entry in enumerate(entries)
         ]
-        upload = normalize_knowledge_upload(
-            {
-                "id": new_id(),
-                "fileName": parsed_files[0]["fileName"] if len(parsed_files) == 1 else f"{len(parsed_files)} files",
-                "fileType": parsed_files[0]["fileType"] if len(parsed_files) == 1 else "mixed",
-                "rowCount": len(normalized_entries),
-                "uploadedBy": user_name,
-                "uploadedAt": now,
-            }
-        )
+        uploads = [
+            normalize_knowledge_upload(
+                {
+                    "id": new_id(),
+                    "fileName": parsed_file["fileName"],
+                    "fileType": parsed_file["fileType"],
+                    "rowCount": len(parsed_file["entries"]),
+                    "uploadedBy": user_name,
+                    "uploadedAt": now,
+                }
+            )
+            for parsed_file in parsed_files
+        ]
 
         with self.store.pool.connection() as connection:
             with connection.transaction():
@@ -224,12 +231,13 @@ class KnowledgeRepository:
                     connection.execute("DELETE FROM knowledge_uploads")
                 for entry in normalized_entries:
                     self.upsert_entry(entry, connection)
-                self.upsert_upload(upload, connection)
+                for upload in uploads:
+                    self.upsert_upload(upload, connection)
 
         all_entries = self.entries_for_snapshot()
         return {
             "mode": mode,
-            "upload": upload,
+            "upload": uploads[0] if len(uploads) == 1 else {"fileName": f"{len(uploads)} files", "fileType": "mixed", "rowCount": len(normalized_entries), "uploadedAt": now},
             "fileCount": len(parsed_files),
             "addedEntryCount": len(normalized_entries),
             "entryCount": len(all_entries),
@@ -240,6 +248,10 @@ class KnowledgeRepository:
     def entry_count(self) -> int:
         with self.store.pool.connection() as connection:
             return connection.execute("SELECT COUNT(*) AS count FROM knowledge_entries").fetchone()["count"]
+
+    def turn_count(self) -> int:
+        with self.store.pool.connection() as connection:
+            return connection.execute("SELECT COUNT(*) AS count FROM knowledge_turns").fetchone()["count"]
 
     def upsert_entry(self, entry: dict[str, Any], connection: Any | None = None) -> None:
         owns_connection = connection is None
@@ -368,6 +380,7 @@ class KnowledgeRepository:
                 "id": row["id"],
                 "category": row["category"],
                 "question": row["question"],
+                "answer": row["answer"],
                 "answerPreview": row["answer"][:320],
                 "link": row["link"],
                 "sourceDoc": row["source_doc"],
@@ -375,6 +388,33 @@ class KnowledgeRepository:
                 "questionSource": row["question_source"],
                 "sortOrder": row["sort_order"],
                 "hasEmbedding": row["has_embedding"],
+                "createdAt": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+    def entries_for_backup(self) -> list[dict[str, Any]]:
+        with self.store.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, category, question, answer, link, source_doc, source_page, question_source,
+                       sort_order, embedding::text AS embedding, created_at
+                FROM knowledge_entries
+                ORDER BY sort_order ASC, created_at ASC
+                """
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "category": row["category"],
+                "question": row["question"],
+                "answer": row["answer"],
+                "link": row["link"],
+                "sourceDoc": row["source_doc"],
+                "sourcePage": row["source_page"],
+                "questionSource": row["question_source"],
+                "sortOrder": row["sort_order"],
+                "embedding": normalize_embedding(row["embedding"]),
                 "createdAt": row["created_at"].isoformat(),
             }
             for row in rows
@@ -438,6 +478,18 @@ class KnowledgeRepository:
             ).fetchall()
         return [self.turn_from_row(row) for row in rows]
 
+    def turns_for_backup(self) -> list[dict[str, Any]]:
+        with self.store.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM knowledge_turns
+                ORDER BY created_at DESC
+                LIMIT 500
+                """
+            ).fetchall()
+        return [self.turn_from_row(row) for row in rows]
+
     def turn_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": row["id"],
@@ -467,6 +519,15 @@ class KnowledgeRepository:
             "conversations": conversations if conversations else [conversation],
             "activeConversationId": conversation["id"],
             "turns": self.turns(conversation["id"], 30),
+            "models": model_names(self.settings),
+        }
+
+    def backup_snapshot(self) -> dict[str, Any]:
+        return {
+            "entries": self.entries_for_backup(),
+            "uploads": self.uploads(),
+            "conversations": self.conversations(),
+            "turns": self.turns_for_backup(),
             "models": model_names(self.settings),
         }
 

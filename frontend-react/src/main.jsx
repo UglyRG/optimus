@@ -21,6 +21,20 @@ import "./react.css";
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 const THEME_STORAGE_KEY = "optimus-theme";
 const NOTELOG_CALIBRATION_STORAGE_KEY = "optimus-notelog-calibration";
+const TOOL_VIEW_IDS = new Set([
+  "padelog",
+  "betlog",
+  "notelog",
+  "html-base64",
+  "pdf-base64",
+  "combine-pdfs",
+  "csv-json-rows",
+  "token-usage",
+  "olympiacos-news",
+  "presentation-suite",
+  "demo-builder",
+  "knowledge-expert",
+]);
 const NOTELOG_PAGE_WIDTH = 1414;
 const NOTELOG_PAGE_HEIGHT = 1000;
 const NOTELOG_CALIBRATION_STEPS = [
@@ -64,10 +78,32 @@ const TOKEN_USAGE_EXPLAINERS = {
   },
 };
 
+function viewFromLocation() {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/admin") return { name: "admin" };
+  const toolMatch = path.match(/^\/tools\/([^/]+)$/);
+  if (toolMatch && TOOL_VIEW_IDS.has(toolMatch[1])) return { name: toolMatch[1] };
+  return { name: "dashboard" };
+}
+
+function pathForView(view) {
+  if (view.name === "admin") return "/admin";
+  if (TOOL_VIEW_IDS.has(view.name)) return `/tools/${view.name}`;
+  return "/";
+}
+
+function navigateToView(setView, view, options = {}) {
+  const path = pathForView(view);
+  if (window.location.pathname !== path) {
+    window.history[options.replace ? "replaceState" : "pushState"]({}, "", path);
+  }
+  setView(view);
+}
+
 function App() {
   const [theme, setTheme] = useState(() => storedTheme());
   const [session, setSession] = useState(null);
-  const [view, setView] = useState({ name: "dashboard" });
+  const [view, setView] = useState(() => viewFromLocation());
   const [status, setStatus] = useState({ loading: true, error: "" });
 
   useEffect(() => {
@@ -75,11 +111,19 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    function handlePopState() {
+      setView(viewFromLocation());
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
     let alive = true;
-    request("/auth/me")
+    request("/auth/session")
       .then((payload) => {
         if (!alive) return;
-        setSession(payload);
+        setSession(payload.authenticated ? payload : null);
         setStatus({ loading: false, error: "" });
       })
       .catch(() => {
@@ -98,13 +142,12 @@ function App() {
       body: JSON.stringify(credentials),
     });
     setSession(payload);
-    setView({ name: "dashboard" });
   }
 
   async function handleLogout() {
     await request("/auth/logout", { method: "POST" }).catch(() => {});
     setSession(null);
-    setView({ name: "dashboard" });
+    navigateToView(setView, { name: "dashboard" }, { replace: true });
   }
 
   function toggleTheme() {
@@ -126,18 +169,19 @@ function App() {
       <Topbar
         showManageTools={view.name === "dashboard"}
         theme={theme}
-        onManageTools={() => setView({ name: "admin" })}
+        onHome={() => navigateToView(setView, { name: "dashboard" })}
+        onManageTools={() => navigateToView(setView, { name: "admin" })}
         onToggleTheme={toggleTheme}
         onLogout={handleLogout}
       />
       {view.name === "admin" ? (
-        <ToolAdminPage onBack={() => setView({ name: "dashboard" })} />
+        <ToolAdminPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "padelog" ? (
-        <PadelogPage onBack={() => setView({ name: "dashboard" })} />
+        <PadelogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "betlog" ? (
-        <BetlogPage onBack={() => setView({ name: "dashboard" })} />
+        <BetlogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "notelog" ? (
-        <NotelogPage onBack={() => setView({ name: "dashboard" })} />
+        <NotelogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "html-base64" ? (
         <Base64ToolPage
           type="html"
@@ -145,7 +189,7 @@ function App() {
           description="Select an HTML file and save the generated string to Outputs."
           accept=".html,.htm,text/html"
           endpoint="/tools/html-base64"
-          onBack={() => setView({ name: "dashboard" })}
+          onBack={() => navigateToView(setView, { name: "dashboard" })}
         />
       ) : view.name === "pdf-base64" ? (
         <Base64ToolPage
@@ -154,24 +198,24 @@ function App() {
           description="Select a PDF file and save the generated string to Outputs."
           accept=".pdf,application/pdf"
           endpoint="/tools/pdf-base64"
-          onBack={() => setView({ name: "dashboard" })}
+          onBack={() => navigateToView(setView, { name: "dashboard" })}
         />
       ) : view.name === "combine-pdfs" ? (
-        <CombinePdfsPage onBack={() => setView({ name: "dashboard" })} />
+        <CombinePdfsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "csv-json-rows" ? (
-        <CsvJsonRowsPage onBack={() => setView({ name: "dashboard" })} />
+        <CsvJsonRowsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "token-usage" ? (
-        <TokenUsagePage onBack={() => setView({ name: "dashboard" })} />
+        <TokenUsagePage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "olympiacos-news" ? (
-        <OlympiacosNewsPage onBack={() => setView({ name: "dashboard" })} />
+        <OlympiacosNewsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "presentation-suite" ? (
-        <PresentationSuitePage onBack={() => setView({ name: "dashboard" })} />
+        <PresentationSuitePage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "demo-builder" ? (
-        <DemoBuilderPage onBack={() => setView({ name: "dashboard" })} />
+        <DemoBuilderPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "knowledge-expert" ? (
-        <KnowledgeExpertPage onBack={() => setView({ name: "dashboard" })} />
+        <KnowledgeExpertPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : (
-        <DashboardPage onOpenTool={(toolId) => setView({ name: toolId })} />
+        <DashboardPage onOpenTool={(toolId) => navigateToView(setView, { name: toolId })} />
       )}
     </>
   );
@@ -228,7 +272,7 @@ function LoginPage({ onLogin }) {
   );
 }
 
-function Topbar({ showManageTools, theme, onManageTools, onToggleTheme, onLogout }) {
+function Topbar({ showManageTools, theme, onHome, onManageTools, onToggleTheme, onLogout }) {
   const [version, setVersion] = useState("v6");
 
   useEffect(() => {
@@ -241,9 +285,17 @@ function Topbar({ showManageTools, theme, onManageTools, onToggleTheme, onLogout
 
   return (
     <header className="topbar">
-      <div className="brand">
+      <a
+        className="brand"
+        href="/"
+        aria-label="Go to Optimus home"
+        onClick={(event) => {
+          event.preventDefault();
+          onHome();
+        }}
+      >
         <img className="brand-logo" src="/assets/optimus-vertical.svg" alt="Optimus" />
-      </div>
+      </a>
       <div className="topbar-actions">
         {showManageTools ? (
           <button className="button button-secondary" type="button" onClick={onManageTools}>
@@ -456,19 +508,23 @@ function ToolGroup({ group, onOpenTool }) {
 }
 
 function ToolRow({ tool, onOpenTool }) {
+  const href = pathForView({ name: tool.id });
   return (
     <article className="tool-row">
       <div>
         <h3>{tool.title}</h3>
         <p>{tool.description}</p>
       </div>
-      <button
+      <a
         className="button button-secondary react-open-link"
-        type="button"
-        onClick={() => onOpenTool(tool.id)}
+        href={href}
+        onClick={(event) => {
+          event.preventDefault();
+          onOpenTool(tool.id);
+        }}
       >
         <span>Open</span>
-      </button>
+      </a>
     </article>
   );
 }
@@ -2043,7 +2099,9 @@ function KnowledgeExpertPage({ onBack }) {
   const [busy, setBusy] = useState({ loading: true, uploading: false, chatting: false });
   const [showHow, setShowHow] = useState(false);
   const [reportModal, setReportModal] = useState(null);
+  const [entriesModalFile, setEntriesModalFile] = useState("");
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
+  const knowledgeFiles = useMemo(() => buildKnowledgeFiles(uploads, entries), [uploads, entries]);
 
   useEffect(() => {
     loadSnapshot();
@@ -2070,7 +2128,8 @@ function KnowledgeExpertPage({ onBack }) {
 
   async function uploadFiles(event) {
     event.preventDefault();
-    const files = Array.from(event.currentTarget.elements.knowledgeFiles.files || []);
+    const form = event.currentTarget;
+    const files = Array.from(form.elements.knowledgeFiles.files || []);
     if (!files.length) {
       setMessage({ type: "error", text: "Choose at least one file first." });
       return;
@@ -2080,9 +2139,9 @@ function KnowledgeExpertPage({ onBack }) {
     try {
       const uploadedFiles = await Promise.all(files.map(async (file) => ({ fileName: file.name, base64: await fileToBase64(file) })));
       const result = await request("/tools/knowledge-expert/upload", { method: "POST", body: JSON.stringify({ mode: uploadMode, files: uploadedFiles }) });
-      event.currentTarget.reset();
-      setMessage({ type: "success", text: `${uploadMode === "append" ? "Added" : "Loaded"} ${result.addedEntryCount} entries from ${result.fileCount} file(s). Dataset now has ${result.entryCount}.` });
+      form.reset();
       await loadSnapshot(activeConversationId);
+      setMessage({ type: "success", text: `${uploadMode === "append" ? "Added" : "Loaded"} ${result.addedEntryCount} entries from ${result.fileCount} file(s). Dataset now has ${result.entryCount}.` });
     } catch (error) {
       setMessage({ type: "error", text: error.message });
     } finally {
@@ -2265,12 +2324,14 @@ function KnowledgeExpertPage({ onBack }) {
               </div>
             </div>
           </details>
-          <details className="knowledge-template-box">
-            <summary>Knowledge entries</summary>
+          <details className="knowledge-template-box" open>
+            <summary>Uploaded files</summary>
             <div className="knowledge-template-body">
-              <div className="knowledge-entry-list">
+              <div className="knowledge-file-list">
                 {!entries.length ? <div className="tool-list-state">Upload files to begin.</div> : null}
-                {entries.slice(0, 80).map((entry) => <KnowledgeEntryRow entry={entry} key={entry.id} />)}
+                {knowledgeFiles.map((file) => (
+                  <KnowledgeFileRow file={file} onOpen={() => setEntriesModalFile(file.fileName)} key={file.fileName} />
+                ))}
               </div>
             </div>
           </details>
@@ -2297,16 +2358,80 @@ function KnowledgeExpertPage({ onBack }) {
 
       {showHow ? <KnowledgeHowModal onClose={() => setShowHow(false)} /> : null}
       {reportModal ? <KnowledgeReportModal state={reportModal} onClose={() => setReportModal(null)} /> : null}
+      {entriesModalFile ? (
+        <KnowledgeEntriesModal
+          files={knowledgeFiles}
+          activeFileName={entriesModalFile}
+          onSelectFile={setEntriesModalFile}
+          onClose={() => setEntriesModalFile("")}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function KnowledgeFileRow({ file, onOpen }) {
+  return (
+    <article className="knowledge-file-row">
+      <div>
+        <strong>{file.fileName}</strong>
+        <span>{formatInteger(file.entryCount)} entr{file.entryCount === 1 ? "y" : "ies"}{file.uploadedAt ? ` · ${formatDateTime(file.uploadedAt)}` : ""}</span>
+        {file.fileType ? <p>{file.fileType.toUpperCase()}{file.uploadedBy ? ` · uploaded by ${file.uploadedBy}` : ""}</p> : null}
+      </div>
+      <button className="button button-secondary" type="button" onClick={onOpen}>View Q&A</button>
+    </article>
+  );
+}
+
+function KnowledgeEntriesModal({ files, activeFileName, onSelectFile, onClose }) {
+  const activeFile = files.find((file) => file.fileName === activeFileName) || files[0];
+  if (!activeFile) return null;
+  return (
+    <div className="ai-modal knowledge-entries-modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="ai-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-entries-title">
+        <div className="ai-modal-head">
+          <div>
+            <h2 id="knowledge-entries-title">Knowledge entries</h2>
+            <p>{formatInteger(activeFile.entryCount)} entr{activeFile.entryCount === 1 ? "y" : "ies"} from {activeFile.fileName}</p>
+          </div>
+          <button className="button button-secondary" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="ai-modal-body">
+          <div className="knowledge-file-tabs" role="tablist" aria-label="Knowledge files">
+            {files.map((file) => (
+              <button
+                className={file.fileName === activeFile.fileName ? "is-active" : ""}
+                type="button"
+                role="tab"
+                aria-selected={file.fileName === activeFile.fileName}
+                onClick={() => onSelectFile(file.fileName)}
+                key={file.fileName}
+              >
+                <span>{file.fileName}</span>
+                <small>{formatInteger(file.entryCount)}</small>
+              </button>
+            ))}
+          </div>
+          <div className="knowledge-entry-modal-list">
+            {!activeFile.entries.length ? <div className="tool-list-state">No entries were found for this file.</div> : null}
+            {activeFile.entries.map((entry) => <KnowledgeEntryRow entry={entry} key={entry.id} />)}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function KnowledgeEntryRow({ entry }) {
   return (
     <article className="knowledge-entry-row">
-      <strong>{entry.question}</strong>
-      <span>{entry.category || "General"}{entry.hasEmbedding ? " · embedded" : " · keyword only"}</span>
-      <p>{entry.answerPreview || ""}</p>
+      <div className="knowledge-entry-meta">
+        <span>{entry.category || "General"}</span>
+        <span>{entry.hasEmbedding ? "embedded" : "keyword only"}</span>
+      </div>
+      <h3>{entry.question}</h3>
+      <p>{entry.answer || entry.answerPreview || ""}</p>
+      {entry.link ? <a href={entry.link} target="_blank" rel="noreferrer">{entry.link}</a> : null}
     </article>
   );
 }
@@ -2317,7 +2442,7 @@ function KnowledgeTurn({ turn, onRate }) {
     <article className="knowledge-turn">
       <div className="knowledge-message knowledge-message-user">{turn.userMessage}</div>
       <div className="knowledge-message knowledge-message-assistant">
-        <div className="knowledge-answer">{formatMultilineNodes(turn.assistantResponse || "")}</div>
+        <div className="knowledge-answer">{formatMarkdownNodes(turn.assistantResponse || "")}</div>
         <KnowledgeCitations citations={turn.citations || []} />
         <div className="knowledge-turn-actions">
           <span>{turn.grounded ? "Grounded" : "Declined"} · {formatDateTime(turn.createdAt)}</span>
@@ -2333,6 +2458,52 @@ function KnowledgeTurn({ turn, onRate }) {
       </div>
     </article>
   );
+}
+
+function buildKnowledgeFiles(uploads, entries) {
+  const byFile = new Map();
+  for (const entry of entries || []) {
+    const fileName = entry.sourceDoc || "Unknown source";
+    if (!byFile.has(fileName)) {
+      byFile.set(fileName, {
+        fileName,
+        fileType: "",
+        uploadedAt: "",
+        uploadedBy: "",
+        entryCount: 0,
+        entries: [],
+      });
+    }
+    const file = byFile.get(fileName);
+    file.entries.push(entry);
+    file.entryCount = file.entries.length;
+  }
+
+  for (const upload of uploads || []) {
+    const fileName = upload.fileName || "Unknown source";
+    if (!byFile.has(fileName) && /^\d+\s+files$/i.test(fileName)) {
+      continue;
+    }
+    const file = byFile.get(fileName) || {
+      fileName,
+      entryCount: 0,
+      entries: [],
+    };
+    byFile.set(fileName, {
+      ...file,
+      fileType: upload.fileType || file.fileType || "",
+      uploadedAt: upload.uploadedAt || file.uploadedAt || "",
+      uploadedBy: upload.uploadedBy || file.uploadedBy || "",
+      entryCount: file.entries.length || upload.rowCount || 0,
+    });
+  }
+
+  return Array.from(byFile.values()).sort((left, right) => {
+    const leftTime = Date.parse(left.uploadedAt || "") || 0;
+    const rightTime = Date.parse(right.uploadedAt || "") || 0;
+    if (rightTime !== leftTime) return rightTime - leftTime;
+    return left.fileName.localeCompare(right.fileName);
+  });
 }
 
 function KnowledgeCitations({ citations }) {
@@ -2791,6 +2962,91 @@ function formatMultilineNodes(text) {
       {line}
     </React.Fragment>
   ));
+}
+
+function formatMarkdownNodes(text) {
+  const lines = String(text || "").trim().split(/\r?\n/);
+  const nodes = [];
+  let paragraph = [];
+  let list = null;
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    const content = paragraph.join("\n");
+    nodes.push(
+      <p key={`p-${nodes.length}`}>
+        {content.split("\n").map((line, index) => (
+          <React.Fragment key={`${index}-${line.slice(0, 16)}`}>
+            {index ? <br /> : null}
+            {formatMarkdownInlineNodes(line)}
+          </React.Fragment>
+        ))}
+      </p>,
+    );
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!list) return;
+    const Tag = list.type;
+    nodes.push(
+      <Tag key={`list-${nodes.length}`}>
+        {list.items.map((item, index) => <li key={`${index}-${item.slice(0, 16)}`}>{formatMarkdownInlineNodes(item)}</li>)}
+      </Tag>,
+    );
+    list = null;
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    if (unordered || ordered) {
+      flushParagraph();
+      const type = ordered ? "ol" : "ul";
+      if (!list || list.type !== type) {
+        flushList();
+        list = { type, items: [] };
+      }
+      list.items.push((ordered || unordered)[1]);
+      continue;
+    }
+    flushList();
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+  return nodes.length ? nodes : null;
+}
+
+function formatMarkdownInlineNodes(text) {
+  const nodes = [];
+  const pattern = /(\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(String(text || "")))) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+    const token = match[0];
+    if (token.startsWith("**")) {
+      nodes.push(<strong key={nodes.length}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("*")) {
+      nodes.push(<em key={nodes.length}>{token.slice(1, -1)}</em>);
+    } else if (token.startsWith("`")) {
+      nodes.push(<code key={nodes.length}>{token.slice(1, -1)}</code>);
+    } else {
+      const [, label, href] = match;
+      nodes.push(<a key={nodes.length} href={href} target="_blank" rel="noreferrer">{label}</a>);
+    }
+    cursor = match.index + token.length;
+  }
+  if (cursor < String(text || "").length) nodes.push(String(text || "").slice(cursor));
+  return nodes;
 }
 
 async function streamKnowledgeExpertChat(payload, onText) {

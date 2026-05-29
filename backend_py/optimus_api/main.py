@@ -23,7 +23,7 @@ from .domain import (
     sort_padelog_matches,
     sorted_tool_catalog,
 )
-from .knowledge import KnowledgeRepository
+from .knowledge import KnowledgeRepository, normalize_knowledge_store
 from .store import JsonStore
 from .tools import (
     analyze_betlog_performance,
@@ -133,6 +133,15 @@ def require_session(request: Request) -> dict[str, Any]:
     session = sessions.get(token)
     if not session:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"token": token, **session}
+
+
+def optional_session(request: Request) -> dict[str, Any] | None:
+    clean_expired_sessions()
+    token = request.cookies.get(SESSION_COOKIE, "")
+    session = sessions.get(token)
+    if not session:
+        return None
     return {"token": token, **session}
 
 
@@ -359,6 +368,14 @@ def me(session: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return {"user": {"name": session["name"]}, "expiresAt": int(session["expiresAt"] * 1000)}
 
 
+@app.get("/api/auth/session")
+def auth_session(request: Request) -> dict[str, Any]:
+    session = optional_session(request)
+    if not session:
+        return {"authenticated": False}
+    return {"authenticated": True, "user": {"name": session["name"]}, "expiresAt": int(session["expiresAt"] * 1000)}
+
+
 @app.post("/api/auth/logout")
 def logout(response: Response, request: Request) -> dict[str, bool]:
     token = request.cookies.get(SESSION_COOKIE, "")
@@ -393,7 +410,7 @@ def get_admin_backup(_: dict[str, Any] = Depends(require_session)) -> dict[str, 
             "notelog-notes.json": {"notes": load_notelog_notes()},
             "performance-insights.json": {"insights": load_performance_insights()},
             "olympiacos-news.json": load_olympiacos_news_store(store, settings),
-            "knowledge-expert.json": knowledge_repo.snapshot(""),
+            "knowledge-expert.json": knowledge_repo.backup_snapshot(),
         }
     )
 
@@ -407,6 +424,8 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     notelog = files.get("notelog-notes.json", {}).get("notes", [])
     insights = files.get("performance-insights.json", {}).get("insights", [])
     olympiacos = files.get("olympiacos-news.json")
+    knowledge = files.get("knowledge-expert.json")
+    normalized_knowledge = normalize_knowledge_store(knowledge) if isinstance(knowledge, dict) else None
     store.set(DATA_STORES["toolCatalog"], catalog)
     save_padelog_matches([normalize_padelog_match(row) for row in padelog])
     save_betlog_bets([normalize_betlog_bet(row) for row in betlog])
@@ -414,6 +433,8 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     save_performance_insights(insights if isinstance(insights, list) else [])
     if olympiacos:
         save_olympiacos_news_store(olympiacos, store)
+    if normalized_knowledge is not None:
+        knowledge_repo.replace_all(normalized_knowledge)
     return {
         "ok": True,
         "restored": {
@@ -422,7 +443,7 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
             "notes": len(notelog),
             "insights": len(insights) if isinstance(insights, list) else 0,
             "olympiacosNewsRuns": len((olympiacos or {}).get("runs", [])) if isinstance(olympiacos, dict) else 0,
-            "knowledgeExpertEntries": len((files.get("knowledge-expert.json") or {}).get("entries", [])),
+            "knowledgeExpertEntries": len(normalized_knowledge["entries"]) if normalized_knowledge is not None else 0,
         },
         "catalog": admin_tool_catalog(load_tool_catalog_config()),
     }
