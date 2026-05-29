@@ -1,0 +1,38 @@
+.react-boot-state {
+  margin: 32px auto;
+  width: min(100% - 32px, 980px);
+}
+
+.react-icon-button,
+.react-open-link,
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.react-open-link {
+  text-decoration: none;
+}
+
+.react-file-button {
+  min-height: 42px;
+}
+
+.success.is-visible {
+  display: block;
+}
+
+.toggle-field {
+  gap: 8px;
+}
+
+.notelog-canvas-wrap .notelog-calibration-overlay {
+  inset: auto;
+  top: 18px;
+  left: 50%;
+  width: min(calc(100% - 36px), 980px);
+  aspect-ratio: 1414 / 1000;
+  transform: translateX(-50%);
+}

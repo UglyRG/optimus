@@ -2,8 +2,14 @@
 **/.DS_Store
 .env
 node_modules/
+__pycache__/
+.venv/
+*.egg-info/
+.idea/
+frontend-react/dist/
 data/*.db
 data/*.db-shm
 data/*.db-wal
-Outputs/*.txt
+data/*.json
+Outputs/*
 !Outputs/.gitkeep

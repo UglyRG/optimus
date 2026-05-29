@@ -1,13 +1,19 @@
 {
-  "version": "5.8.0",
+  "version": "6.0.0",
   "scripts": {
-    "backend": "node backend/server.js",
+    "backend": "cd backend_py && .venv/bin/uvicorn optimus_api.main:app --reload --host localhost --port 8788",
     "dev": "node scripts/dev.js",
-    "frontend": "node frontend/server.js"
+    "frontend:react": "vite --config frontend-react/vite.config.js --strictPort",
+    "build:react": "vite build --config frontend-react/vite.config.js"
   },
   "dependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "lucide-react": "^1.17.0",
     "mammoth": "^1.12.0",
     "pdf-lib": "^1.17.1",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "vite": "^6.4.2"
   }
 }

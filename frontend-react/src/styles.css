@@ -73,8 +73,7 @@ body {
   margin: 0;
   background:
     linear-gradient(rgba(245, 248, 255, 0.52), rgba(245, 248, 255, 0.52)),
-    url("./assets/optimus-background.jpg"),
-    url("./assets/optimus-backgroud.png"),
+    url("/assets/optimus-background.jpg"),
     var(--bg);
   background-attachment: fixed;
   background-position: center;
@@ -86,8 +85,7 @@ body {
 :root[data-theme="dark"] body {
   background:
     linear-gradient(rgba(17, 21, 29, 0.64), rgba(17, 21, 29, 0.64)),
-    url("./assets/optimus-background.jpg"),
-    url("./assets/optimus-backgroud.png"),
+    url("/assets/optimus-background.jpg"),
     var(--bg);
   background-attachment: fixed;
   background-position: center;
@@ -708,11 +706,11 @@ button {
 }
 
 .month-summary-group.is-padel {
-  background-image: url("./assets/blue-padel-turf.png");
+  background-image: url("/assets/blue-padel-turf.png");
 }
 
 .month-summary-group.is-betting {
-  background-image: url("./assets/green-grass.png");
+  background-image: url("/assets/green-grass.png");
 }
 
 .month-summary-group h3 {
@@ -2381,6 +2379,7 @@ iframe {
 
 .knowledge-expert-page .page-head {
   flex: 0 0 auto;
+  align-items: flex-start;
 }
 
 .knowledge-expert-sidebar,
@@ -2416,6 +2415,18 @@ iframe {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.knowledge-page-actions {
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.knowledge-header-button {
+  min-width: 134px;
+  min-height: 42px;
+  padding-inline: 16px;
+  white-space: nowrap;
 }
 
 .knowledge-template-box {

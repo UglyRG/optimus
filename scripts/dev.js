@@ -1,8 +1,13 @@
 const { spawn } = require("node:child_process");
 
 const services = [
-  { name: "backend", command: "node", args: ["backend/server.js"] },
-  { name: "frontend", command: "node", args: ["frontend/server.js"] },
+  {
+    name: "backend",
+    command: ".venv/bin/uvicorn",
+    args: ["optimus_api.main:app", "--reload", "--host", "localhost", "--port", "8788"],
+    cwd: "backend_py",
+  },
+  { name: "frontend-react", command: "npm", args: ["run", "frontend:react"] },
 ];
 
 const children = new Map();
@@ -47,7 +52,7 @@ function stopAll(signal = "SIGTERM") {
 
 for (const service of services) {
   const child = spawn(service.command, service.args, {
-    cwd: process.cwd(),
+    cwd: service.cwd || process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -73,9 +78,9 @@ for (const service of services) {
 }
 
 console.log("Starting Optimus services...");
-console.log("Backend:  http://localhost:8787");
-console.log("Frontend: http://localhost:4173");
-console.log("Press Ctrl+C to stop both.");
+console.log("Backend:         http://localhost:8788");
+console.log("React frontend:  http://localhost:5173");
+console.log("Press Ctrl+C to stop all services.");
 
 process.on("SIGINT", () => stopAll("SIGINT"));
 process.on("SIGTERM", () => stopAll("SIGTERM"));
