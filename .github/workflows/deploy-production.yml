@@ -1,0 +1,44 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Hetzner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_PORT: ${{ secrets.PROD_PORT }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$PROD_HOST"
+          test -n "$PROD_SSH_KEY"
+          test -n "$PROD_USER"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$PROD_SSH_KEY" > ~/.ssh/optimus_prod
+          chmod 600 ~/.ssh/optimus_prod
+          ssh-keyscan -p "${PROD_PORT:-22}" "$PROD_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          PROD_HOST: ${{ secrets.PROD_HOST }}
+          PROD_PORT: ${{ secrets.PROD_PORT }}
+          PROD_USER: ${{ secrets.PROD_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/optimus_prod -p "${PROD_PORT:-22}" "$PROD_USER@$PROD_HOST" \
+            'cd /home/argyris/Optimus && bash scripts/deploy-prod.sh'
