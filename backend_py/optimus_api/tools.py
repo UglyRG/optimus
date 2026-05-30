@@ -54,6 +54,10 @@ def output_csv_json_base_name(file_name: str) -> str:
     return safe_file_stem(Path(file_name or "rows").stem or "rows")
 
 
+def output_qa_markdown_file_name(file_name: str) -> str:
+    return safe_file_stem(Path(file_name or "qa").stem or "qa") + "-qa.md"
+
+
 def safe_file_stem(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "output")).strip(".-")[:120] or "output"
 
@@ -191,6 +195,68 @@ def unique_headers(headers: list[str], column_count: int) -> list[str]:
         seen[header] = count + 1
         result.append(f"{header} ({count + 1})" if count else header)
     return result
+
+
+def save_csv_qa_markdown(payload: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    file_name = str(payload.get("fileName") or "")
+    csv_text = payload.get("csv")
+    if not file_name or not isinstance(csv_text, str):
+        raise bad_request("A Q&A CSV file is required")
+    if Path(file_name).suffix.lower() != ".csv":
+        raise bad_request("Choose a CSV file")
+
+    reader = csv.DictReader(io.StringIO(csv_text.lstrip("\ufeff")))
+    if not reader.fieldnames:
+        raise bad_request("The CSV file needs a header row")
+
+    field_map = {str(field or "").strip().lower(): field for field in reader.fieldnames}
+    missing = [field for field in ("question", "answer") if field not in field_map]
+    if missing:
+        raise bad_request("The CSV must include question and answer columns")
+
+    category_field = field_map.get("category")
+    question_field = field_map["question"]
+    answer_field = field_map["answer"]
+    link_field = field_map.get("link")
+    title = clean_text(payload.get("title"), f"{Path(file_name).stem} Q&A Knowledge Base", 120)
+
+    lines = [f"# {title}", ""]
+    current_category = None
+    written = 0
+    skipped = 0
+    for row in reader:
+        category = str(row.get(category_field) or "").strip() if category_field else ""
+        question = str(row.get(question_field) or "").strip()
+        answer = str(row.get(answer_field) or "").strip()
+        link = str(row.get(link_field) or "").strip() if link_field else ""
+
+        if not question or not answer:
+            skipped += 1
+            continue
+
+        if category and category != current_category:
+            lines.extend([f"## {category}", ""])
+            current_category = category
+
+        lines.extend([f"### {question}", "", answer, ""])
+        if link:
+            lines.extend([f"Source: {link}", ""])
+        written += 1
+
+    if not written:
+        raise bad_request("No complete Q&A rows were found")
+
+    saved_file_name = output_qa_markdown_file_name(file_name)
+    output_path = settings.outputs_dir / saved_file_name
+    settings.outputs_dir.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return {
+        "fileName": saved_file_name,
+        "outputPath": str(output_path),
+        "entryCount": written,
+        "skippedRows": skipped,
+        "markdown": output_path.read_text(encoding="utf-8"),
+    }
 
 
 def list_iframe_source_files(settings: Settings) -> list[str]:
@@ -422,14 +488,21 @@ def clean_usage_number(value: Any) -> int:
     return max(0, number)
 
 
-def fetch_json(url: str, headers: dict[str, str] | None = None, data: dict[str, Any] | None = None) -> dict[str, Any]:
+def fetch_json(
+    url: str,
+    headers: dict[str, str] | None = None,
+    data: dict[str, Any] | None = None,
+    timeout_seconds: int = 60,
+) -> dict[str, Any]:
     request = urllib.request.Request(url, headers=headers or {}, method="POST" if data is not None else "GET")
     if data is not None:
         request.data = json.dumps(data).encode("utf-8")
         request.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8") or "{}")
+    except TimeoutError as exc:
+        raise RuntimeError(f"Provider request timed out after {timeout_seconds} seconds. Try the search again.") from exc
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="ignore")
         try:
@@ -566,28 +639,51 @@ def normalize_olympiacos_news_run(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_olympiacos_run_site(site: dict[str, Any]) -> dict[str, Any]:
+    from urllib.parse import urlparse
+
+    url = clean_text(site.get("url"), "", 240)
+    hostname = clean_text(site.get("hostname"), "", 120)
+    if not hostname and url:
+        hostname = (urlparse(url).hostname or "").removeprefix("www.")
+    site_id = clean_text(site.get("siteId") or site.get("id"), hostname, 80)
     return {
-        "siteId": clean_text(site.get("siteId"), "", 80),
-        "name": clean_text(site.get("name"), "News site", 80),
-        "url": clean_text(site.get("url"), "", 240),
-        "hostname": clean_text(site.get("hostname"), "", 120),
+        "siteId": site_id,
+        "name": clean_text(site.get("name"), title_from_hostname(hostname) if hostname else "News site", 80),
+        "url": url,
+        "hostname": hostname,
         "teams": {
-            team["id"]: {
-                "summary": clean_text((site.get("teams") or {}).get(team["id"], {}).get("summary"), "Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο.", 1000),
-                "articles": [normalize_article(article) for article in (site.get("teams") or {}).get(team["id"], {}).get("articles", [])[:6]],
-            }
+            team["id"]: normalize_olympiacos_team_news((site.get("teams") or {}).get(team["id"], {}))
             for team in OLYMPIACOS_NEWS_TEAMS
         },
         "errors": [clean_text(error, "", 240) for error in site.get("errors", []) if error],
     }
 
 
-def normalize_article(article: dict[str, Any]) -> dict[str, str]:
+def normalize_olympiacos_team_news(raw_team: Any) -> dict[str, Any]:
+    team = {"summary": raw_team} if isinstance(raw_team, str) else raw_team or {}
+    raw_articles = (
+        team.get("articles")
+        or team.get("articleLinks")
+        or team.get("article_links")
+        or team.get("links")
+        or team.get("sources")
+        or []
+    )
+    if not isinstance(raw_articles, list):
+        raw_articles = []
+    return {
+        "summary": clean_text(team.get("summary"), "Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο.", 1000),
+        "articles": [normalize_article(article) for article in raw_articles[:6]],
+    }
+
+
+def normalize_article(article: Any) -> dict[str, str]:
+    article = {"url": article, "title": article} if isinstance(article, str) else article or {}
     return {
         "title": clean_text(article.get("title"), "Untitled article", 240),
-        "url": clean_text(article.get("url"), "", 600),
+        "url": clean_text(article.get("url") or article.get("href"), "", 600),
         "publishedAt": clean_text(article.get("publishedAt"), "", 40),
-        "snippet": clean_text(article.get("snippet"), "", 500),
+        "snippet": clean_text(article.get("snippet") or article.get("summary"), "", 500),
     }
 
 
@@ -606,7 +702,10 @@ def run_olympiacos_news_search(store: JsonStore, settings: Settings) -> dict[str
         raise bad_request("Enable at least one website before running the search.")
     now = datetime.now(timezone.utc)
     start = now - timedelta(hours=OLYMPIACOS_NEWS_WINDOW_HOURS)
-    sites = openai_olympiacos_news_for_sites(enabled, start, now, settings)
+    try:
+        sites = openai_olympiacos_news_for_sites(enabled, start, now, settings)
+    except RuntimeError as exc:
+        raise bad_request(str(exc)) from exc
     run = normalize_olympiacos_news_run({
         "id": str(uuid.uuid4()),
         "generatedAt": now.isoformat(),
@@ -623,24 +722,49 @@ def openai_olympiacos_news_for_sites(sites: list[dict[str, Any]], start: datetim
     prompt = {
         "window": {"from": start.isoformat(), "to": end.isoformat()},
         "sites": sites,
-        "task": "Search for Olympiacos FC and Olympiacos BC news in the last 24 hours. Return JSON only.",
+        "task": (
+            "Use web search to find Olympiacos FC football and Olympiacos BC basketball news in the last 24 hours. "
+            "Return JSON only with a sites array. For each configured site, include teams.football and "
+            "teams.basketball with a Greek summary and article links when available. Also include one general-web "
+            "site for important reliable coverage found outside the configured sites."
+        ),
     }
     payload = fetch_json(
         "https://api.openai.com/v1/responses",
         {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"},
         {
             "model": getattr(settings, "openai_olympiacos_news_model", None) or "gpt-5",
+            "tools": [{"type": "web_search"}],
+            "tool_choice": "auto",
             "input": json.dumps(prompt),
-            "text": {"format": {"type": "json_object"}},
         },
+        timeout_seconds=180,
     )
     text = extract_openai_response_text(payload)
     try:
-        parsed = json.loads(text)
+        parsed = parse_openai_json_text(text)
     except Exception as exc:
         raise bad_request("OpenAI did not return valid Olympiacos news JSON.") from exc
     raw_sites = parsed.get("sites") if isinstance(parsed, dict) else parsed
     return [normalize_olympiacos_run_site(site) for site in raw_sites] if isinstance(raw_sites, list) else []
+
+
+def parse_openai_json_text(text: str) -> Any:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.I)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        start_candidates = [index for index in (stripped.find("{"), stripped.find("[")) if index >= 0]
+        if not start_candidates:
+            raise
+        start = min(start_candidates)
+        end = max(stripped.rfind("}"), stripped.rfind("]"))
+        if end <= start:
+            raise
+        return json.loads(stripped[start:end + 1])
 
 
 def extract_openai_response_text(payload: dict[str, Any]) -> str:

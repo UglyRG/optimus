@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
   DatabaseBackup,
+  Download,
   Eye,
   EyeOff,
   Moon,
@@ -29,6 +30,7 @@ const TOOL_VIEW_IDS = new Set([
   "pdf-base64",
   "combine-pdfs",
   "csv-json-rows",
+  "csv-qa-markdown",
   "token-usage",
   "olympiacos-news",
   "presentation-suite",
@@ -90,6 +92,10 @@ function pathForView(view) {
   if (view.name === "admin") return "/admin";
   if (TOOL_VIEW_IDS.has(view.name)) return `/tools/${view.name}`;
   return "/";
+}
+
+function outputDownloadUrl(fileName) {
+  return `/api/outputs/download/${encodeURIComponent(fileName)}`;
 }
 
 function navigateToView(setView, view, options = {}) {
@@ -204,6 +210,8 @@ function App() {
         <CombinePdfsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "csv-json-rows" ? (
         <CsvJsonRowsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
+      ) : view.name === "csv-qa-markdown" ? (
+        <CsvQaMarkdownPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "token-usage" ? (
         <TokenUsagePage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "olympiacos-news" ? (
@@ -1468,7 +1476,7 @@ function Base64ToolPage({ type, title, description, accept, endpoint, onBack }) 
   return (
     <ToolPageShell title={title} description={description} onBack={onBack}>
       <form className="tool-panel" onSubmit={submit}>
-        <Field label={`${type === "pdf" ? "PDF" : "HTML"} file`}><input name="sourceFile" type="file" accept={accept} required /></Field>
+        <Field label={`${type === "pdf" ? "PDF" : "HTML"} file`}><input name="sourceFile" type="file" accept={accept} required onChange={() => setResult(null)} /></Field>
         <ScopedMessage message={message} />
         <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating..." : "Create TXT output"}</button>
       </form>
@@ -1476,7 +1484,12 @@ function Base64ToolPage({ type, title, description, accept, endpoint, onBack }) 
         <section className="result-panel">
           <div className="result-head">
             <div><h2>Output</h2><p>Saved as {result.fileName}</p></div>
-            <button className="button button-secondary" type="button" onClick={copyOutput}>{copied ? "Copied" : "Copy"}</button>
+            <div className="result-actions">
+              <a className="button button-secondary" href={outputDownloadUrl(result.fileName)} download={result.fileName}>
+                <Download size={16} aria-hidden="true" /> Download
+              </a>
+              <button className="button button-secondary" type="button" onClick={copyOutput}>{copied ? "Copied" : "Copy"}</button>
+            </div>
           </div>
           <textarea value={result.iframeSource || ""} readOnly spellCheck="false" />
           <iframe src={result.iframeSource} title={`${title} preview`} />
@@ -1550,7 +1563,7 @@ function CombinePdfsPage({ onBack }) {
       <form className="tool-panel" onSubmit={submit}>
         <div className="form-grid">
           <Field label="PDF files"><input type="file" accept=".pdf,application/pdf" multiple onChange={addFiles} /></Field>
-          <Field label="New PDF name"><input value={fileName} required onChange={(event) => setFileName(event.target.value)} /></Field>
+          <Field label="New PDF name"><input value={fileName} required onChange={(event) => { setFileName(event.target.value); setResult(null); }} /></Field>
         </div>
         <div className="field">
           <label>Insert order</label>
@@ -1576,7 +1589,9 @@ function CombinePdfsPage({ onBack }) {
         <section className="result-panel">
           <div className="result-head">
             <div><h2>Output</h2><p>Saved as {result.fileName} ({result.pageCount} pages)</p></div>
-            <a className="button button-secondary" href={result.pdfSource} download={result.fileName}>Download</a>
+            <a className="button button-secondary" href={outputDownloadUrl(result.fileName)} download={result.fileName}>
+              <Download size={16} aria-hidden="true" /> Download
+            </a>
           </div>
           <iframe src={result.pdfSource} title="Combined PDF preview" />
         </section>
@@ -1614,18 +1629,69 @@ function CsvJsonRowsPage({ onBack }) {
   return (
     <ToolPageShell title="CSV to JSON Rows" description="Select a CSV file and save one JSON file per data row inside Outputs." onBack={onBack}>
       <form className="tool-panel" onSubmit={submit}>
-        <Field label="CSV file"><input name="csvFile" type="file" accept=".csv,text/csv" required /></Field>
+        <Field label="CSV file"><input name="csvFile" type="file" accept=".csv,text/csv" required onChange={() => setResult(null)} /></Field>
         <ScopedMessage message={message} />
         <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating..." : "Create JSON files"}</button>
       </form>
       {result ? (
         <section className="result-panel">
-          <div className="result-head"><div><h2>Output</h2><p>Saved {result.rowCount} JSON files with {result.columnCount} columns in Outputs/{result.fileName}.</p></div></div>
+          <div className="result-head">
+            <div><h2>Output</h2><p>Saved {result.rowCount} JSON files with {result.columnCount} columns in Outputs/{result.fileName}.</p></div>
+            <a className="button button-secondary" href={outputDownloadUrl(result.fileName)} download={`${result.fileName}.zip`}>
+              <Download size={16} aria-hidden="true" /> Download ZIP
+            </a>
+          </div>
           <div className="json-preview">
             {warnings.map((warning) => <div className="json-preview-row json-preview-warning" key={warning}>{warning}</div>)}
             {files.slice(0, 200).map((name) => <div className="json-preview-row" key={name}>{name}</div>)}
             {files.length > 200 ? <div className="json-preview-row">...and {files.length - 200} more files</div> : null}
           </div>
+        </section>
+      ) : null}
+    </ToolPageShell>
+  );
+}
+
+function CsvQaMarkdownPage({ onBack }) {
+  const [result, setResult] = useState(null);
+  const [message, setMessage] = useState({ type: "", text: "" });
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    const file = event.currentTarget.elements.qaCsvFile.files?.[0];
+    if (!file) {
+      setMessage({ type: "error", text: "Choose a Q&A CSV file first." });
+      return;
+    }
+    setBusy(true);
+    setMessage({ type: "", text: "" });
+    setResult(null);
+    try {
+      setResult(await request("/tools/csv-qa-markdown", { method: "POST", body: JSON.stringify({ fileName: file.name, csv: await file.text() }) }));
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ToolPageShell title="CSV Q&A to Markdown" description="Convert a Q&A CSV into a Markdown knowledge-base file saved to Outputs." onBack={onBack}>
+      <form className="tool-panel" onSubmit={submit}>
+        <Field label="Q&A CSV file"><input name="qaCsvFile" type="file" accept=".csv,text/csv" required onChange={() => setResult(null)} /></Field>
+        <ScopedMessage message={message} />
+        <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating..." : "Create Markdown"}</button>
+      </form>
+      {result ? (
+        <section className="result-panel">
+          <div className="result-head">
+            <div><h2>Output</h2><p>Saved {result.entryCount} Q&A entries as {result.fileName}{result.skippedRows ? `; skipped ${result.skippedRows} incomplete rows` : ""}.</p></div>
+            <a className="button button-secondary" href={outputDownloadUrl(result.fileName)} download={result.fileName}>
+              <Download size={16} aria-hidden="true" /> Download
+            </a>
+          </div>
+          <textarea value={result.markdown || ""} readOnly spellCheck="false" />
         </section>
       ) : null}
     </ToolPageShell>
@@ -1874,14 +1940,26 @@ function OlympiacosSiteResult({ site }) {
 
 function OlympiacosTeamSummary({ label, team }) {
   const articles = team?.articles || [];
-  if (!articles.length) return null;
+  if (!articles.length && !hasOlympiacosSummary(team?.summary)) return null;
   return (
     <section className="olympiacos-team-card">
       <h4>{label}</h4>
       <p>{team?.summary || "Δεν βρέθηκαν ειδήσεις στο τελευταίο 24ωρο."}</p>
-      <div className="olympiacos-article-links">
-        {articles.map((article) => <a href={article.url} target="_blank" rel="noopener" key={article.url || article.title}><span>{article.title}</span>{article.publishedAt ? <small>{formatDateTime(article.publishedAt)}</small> : null}</a>)}
-      </div>
+      {articles.length ? (
+        <div className="olympiacos-article-links">
+          {articles.map((article) => (
+            article.url ? (
+              <a href={article.url} target="_blank" rel="noopener" key={article.url || article.title}>
+                <span>{article.title}</span>{article.publishedAt ? <small>{formatDateTime(article.publishedAt)}</small> : null}
+              </a>
+            ) : (
+              <span key={article.title}>
+                <span>{article.title}</span>{article.publishedAt ? <small>{formatDateTime(article.publishedAt)}</small> : null}
+              </span>
+            )
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1904,6 +1982,7 @@ function PresentationSuitePage({ onBack }) {
   }, []);
 
   function setCount(value) {
+    setResult(null);
     const count = Math.min(12, Math.max(1, Number(value) || 1));
     setTabCount(count);
     setLabels((current) => Array.from({ length: count }, (_, index) => current[index] || (index === 0 ? "Deck" : `Demo ${index}`)));
@@ -1938,7 +2017,7 @@ function PresentationSuitePage({ onBack }) {
     <ToolPageShell title="Presentation Suite Builder" description="Generate a tabbed HTML template with the first tab as the deck and the remaining tabs as demos." onBack={onBack}>
       <form className="tool-panel" onSubmit={submit}>
         <div className="form-grid">
-          <Field label="Output file name"><input value={fileName} placeholder="presentation-suite.html" required onChange={(event) => setFileName(event.target.value)} /></Field>
+          <Field label="Output file name"><input value={fileName} placeholder="presentation-suite.html" required onChange={(event) => { setFileName(event.target.value); setResult(null); }} /></Field>
           <Field label="Number of tabs"><input type="number" min="1" max="12" value={tabCount} required onChange={(event) => setCount(event.target.value)} /></Field>
         </div>
         <div className="field">
@@ -1947,8 +2026,8 @@ function PresentationSuitePage({ onBack }) {
             {Array.from({ length: tabCount }, (_, index) => (
               <div className="label-row" key={index}>
                 <span className="badge">{index === 0 ? "Deck" : index === 1 ? "Demo" : `Demo ${index}`}</span>
-                <input value={labels[index] || ""} aria-label={`Tab ${index + 1} label`} required onChange={(event) => setLabels((current) => current.map((label, labelIndex) => labelIndex === index ? event.target.value : label))} />
-                <select value={selectedSources[index] || ""} aria-label={`Tab ${index + 1} iframe source`} onChange={(event) => setSelectedSources((current) => current.map((source, sourceIndex) => sourceIndex === index ? event.target.value : source))}>
+                <input value={labels[index] || ""} aria-label={`Tab ${index + 1} label`} required onChange={(event) => { setLabels((current) => current.map((label, labelIndex) => labelIndex === index ? event.target.value : label)); setResult(null); }} />
+                <select value={selectedSources[index] || ""} aria-label={`Tab ${index + 1} iframe source`} onChange={(event) => { setSelectedSources((current) => current.map((source, sourceIndex) => sourceIndex === index ? event.target.value : source)); setResult(null); }}>
                   <option value="">No iframe</option>
                   {!sourceFiles.length ? <option value="" disabled>No TXT outputs found</option> : null}
                   {sourceFiles.map((source) => <option key={source} value={source}>{source}</option>)}
@@ -1962,7 +2041,15 @@ function PresentationSuitePage({ onBack }) {
       </form>
       {result ? (
         <section className="result-panel">
-          <div className="result-head"><div><h2>Output</h2><p>Saved as {result.fileName}</p></div><button className="button button-secondary" type="button" onClick={copyHtml}>{copied ? "Copied" : "Copy HTML"}</button></div>
+          <div className="result-head">
+            <div><h2>Output</h2><p>Saved as {result.fileName}</p></div>
+            <div className="result-actions">
+              <a className="button button-secondary" href={outputDownloadUrl(result.fileName)} download={result.fileName}>
+                <Download size={16} aria-hidden="true" /> Download
+              </a>
+              <button className="button button-secondary" type="button" onClick={copyHtml}>{copied ? "Copied" : "Copy HTML"}</button>
+            </div>
+          </div>
           <textarea value={result.html || ""} readOnly spellCheck="false" />
           <iframe srcDoc={result.html} title="Presentation suite preview" />
         </section>
@@ -1980,6 +2067,7 @@ function DemoBuilderPage({ onBack }) {
   const previewHtml = useMemo(() => buildDemoBuilderLivePreviewHtml(values), [values]);
 
   function update(field, value) {
+    setResult(null);
     setValues((current) => {
       if (field === "scenarioCount") {
         const count = Math.min(8, Math.max(1, Number(value) || 1));
@@ -2061,7 +2149,15 @@ function DemoBuilderPage({ onBack }) {
       </form>
       {result ? (
         <section className="result-panel">
-          <div className="result-head"><div><h2>Output</h2><p>Saved as {result.fileName}</p></div><button className="button button-secondary" type="button" onClick={copyHtml}>{copied ? "Copied" : "Copy HTML"}</button></div>
+          <div className="result-head">
+            <div><h2>Output</h2><p>Saved as {result.fileName}</p></div>
+            <div className="result-actions">
+              <a className="button button-secondary" href={outputDownloadUrl(result.fileName)} download={result.fileName}>
+                <Download size={16} aria-hidden="true" /> Download
+              </a>
+              <button className="button button-secondary" type="button" onClick={copyHtml}>{copied ? "Copied" : "Copy HTML"}</button>
+            </div>
+          </div>
           <textarea value={result.html || ""} readOnly spellCheck="false" />
           <iframe srcDoc={result.html} title="Demo Builder preview" />
         </section>
@@ -3884,7 +3980,12 @@ function hasOlympiacosSiteNews(site) {
 }
 
 function hasOlympiacosTeamNews(team) {
-  return Array.isArray(team?.articles) && team.articles.length > 0;
+  return (Array.isArray(team?.articles) && team.articles.length > 0) || hasOlympiacosSummary(team?.summary);
+}
+
+function hasOlympiacosSummary(summary) {
+  const text = String(summary || "").trim();
+  return Boolean(text) && !/(δεν\s+βρέθηκαν|καμία\s+σχετική|χωρίς\s+σχετικ|no\s+relevant)/i.test(text);
 }
 
 function formatDateTime(value) {

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import base64
+import io
+import mimetypes
 import secrets
 import subprocess
 import time
+import zipfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
@@ -37,6 +41,7 @@ from .tools import (
     read_backup_archive,
     run_olympiacos_news_search,
     save_csv_json_rows,
+    save_csv_qa_markdown,
     save_demo_builder_template,
     save_iframe_source,
     save_olympiacos_news_store,
@@ -570,6 +575,11 @@ def post_csv_json_rows(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     return save_csv_json_rows(payload, settings)
 
 
+@app.post("/api/tools/csv-qa-markdown")
+def post_csv_qa_markdown(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    return save_csv_qa_markdown(payload, settings)
+
+
 @app.post("/api/tools/token-usage")
 def post_token_usage(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return check_token_usage(payload, settings)
@@ -578,6 +588,33 @@ def post_token_usage(payload: dict[str, Any], _: dict[str, Any] = Depends(requir
 @app.get("/api/outputs/iframe-sources")
 def get_iframe_sources(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return {"files": list_iframe_source_files(settings)}
+
+
+@app.get("/api/outputs/download/{output_path:path}")
+def download_output(output_path: str, _: dict[str, Any] = Depends(require_session)) -> FastAPIResponse:
+    relative_path = output_path.strip("/")
+    if not relative_path or Path(relative_path).is_absolute() or any(part == ".." for part in Path(relative_path).parts):
+        raise HTTPException(status_code=404, detail="Output not found")
+    path = settings.outputs_dir / relative_path
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Output not found")
+    if path.is_dir():
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for child in sorted(item for item in path.rglob("*") if item.is_file()):
+                archive.write(child, child.relative_to(path.parent))
+        file_name = f"{path.name}.zip"
+        return FastAPIResponse(
+            content=buffer.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        )
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FastAPIResponse(
+        content=path.read_bytes(),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
+    )
 
 
 @app.post("/api/tools/presentation-suite")

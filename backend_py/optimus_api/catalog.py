@@ -45,6 +45,11 @@ HOSTED_TOOLS = [
         "description": "Convert every row in a CSV file into matching JSON files saved inside an Outputs subfolder.",
     },
     {
+        "id": "csv-qa-markdown",
+        "title": "CSV Q&A to Markdown",
+        "description": "Convert a Q&A CSV with question and answer columns into a Markdown knowledge-base file.",
+    },
+    {
         "id": "token-usage",
         "title": "Check My Token Usage",
         "description": "Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom range.",
@@ -76,8 +81,9 @@ DEFAULT_TOOL_CATALOG_CONFIG = {
         {"id": "pdf-base64", "groupId": "utilities", "displayOrder": 5, "enabled": True},
         {"id": "combine-pdfs", "groupId": "utilities", "displayOrder": 6, "enabled": True},
         {"id": "csv-json-rows", "groupId": "utilities", "displayOrder": 7, "enabled": True},
-        {"id": "token-usage", "groupId": "utilities", "displayOrder": 8, "enabled": True},
-        {"id": "olympiacos-news", "groupId": "utilities", "displayOrder": 9, "enabled": True},
-        {"id": "knowledge-expert", "groupId": "utilities", "displayOrder": 10, "enabled": True},
+        {"id": "csv-qa-markdown", "groupId": "utilities", "displayOrder": 8, "enabled": True},
+        {"id": "token-usage", "groupId": "utilities", "displayOrder": 9, "enabled": True},
+        {"id": "olympiacos-news", "groupId": "utilities", "displayOrder": 10, "enabled": True},
+        {"id": "knowledge-expert", "groupId": "utilities", "displayOrder": 11, "enabled": True},
     ],
 }
