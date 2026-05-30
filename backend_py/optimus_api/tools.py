@@ -713,6 +713,10 @@ def run_olympiacos_news_search(store: JsonStore, settings: Settings) -> dict[str
         "window": {"hours": OLYMPIACOS_NEWS_WINDOW_HOURS, "from": start.isoformat(), "to": now.isoformat()},
         "sites": sites,
     })
+    if not any(has_olympiacos_site_news(site) for site in run["sites"]):
+        errors = [error for site in run["sites"] for error in site.get("errors", [])]
+        if errors:
+            raise bad_request("News search failed for every source: " + "; ".join(errors[:3]))
     saved = save_olympiacos_news_store({**current, "runs": [run, *current["runs"]]}, store)
     return {"run": run, "runs": saved["runs"], "sites": saved["sites"]}
 
@@ -755,52 +759,99 @@ def openai_olympiacos_news_task(
     end: datetime,
     settings: Settings,
 ) -> dict[str, Any]:
-    if task_type == "general":
-        prompt = {
-            "window": {"from": start.isoformat(), "to": end.isoformat()},
-            "task": (
-                "Use web search to find up to 5 important reliable Olympiacos FC football and Olympiacos BC "
-                "basketball stories from the last 24 hours outside the configured source-site summaries. "
-                "Return JSON only with one site object: siteId='general-web', name='General web', "
-                "url='https://www.google.com/search?q=Olympiacos+news', hostname='general-web', teams.football "
-                "and teams.basketball. Each team must have a Greek summary and up to 5 article links."
-            ),
-        }
-    else:
-        prompt = {
-            "window": {"from": start.isoformat(), "to": end.isoformat()},
-            "site": site,
-            "task": (
-                "Use web search only for this one source site. Find Olympiacos FC football and Olympiacos BC "
-                "basketball news published in the last 24 hours. Return JSON only with one site object using the "
-                "same siteId, name, url, and hostname from the input site. Include teams.football and "
-                "teams.basketball, each with a Greek summary and up to 4 article links. If no confirmed news is "
-                "found for a team, use this exact summary: Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο."
-            ),
-        }
+    prompt = olympiacos_news_prompt(task_type, site, start, end)
     payload = fetch_json(
-        "https://api.openai.com/v1/responses",
+        "https://api.openai.com/v1/chat/completions",
         {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"},
         {
-            "model": getattr(settings, "openai_olympiacos_news_model", None) or "gpt-5",
-            "tools": [{"type": "web_search"}],
-            "tool_choice": "auto",
-            "input": json.dumps(prompt),
+            "model": olympiacos_search_model(settings),
+            "web_search_options": {},
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
         },
-        timeout_seconds=90,
+        timeout_seconds=60,
     )
-    text = extract_openai_response_text(payload)
+    text = extract_openai_chat_text(payload)
     try:
         parsed = parse_openai_json_text(text)
     except Exception as exc:
         raise RuntimeError("OpenAI did not return valid Olympiacos news JSON.") from exc
+    if isinstance(parsed, str):
+        parsed = parse_openai_json_text(parsed)
     raw_site = parsed.get("site") if isinstance(parsed, dict) else parsed
-    raw_sites = parsed.get("sites") if isinstance(parsed, dict) else None
+    raw_sites = parsed.get("sites") if isinstance(parsed, dict) else parsed if isinstance(parsed, list) else None
     if isinstance(raw_sites, list) and raw_sites:
         raw_site = raw_sites[0]
     if not isinstance(raw_site, dict):
         raise RuntimeError("OpenAI did not return an Olympiacos news site object.")
     return raw_site
+
+
+def olympiacos_news_prompt(task_type: str, site: dict[str, Any] | None, start: datetime, end: datetime) -> str:
+    no_news = "Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο."
+    schema = (
+        '{\n'
+        '  "siteId": "string",\n'
+        '  "name": "string",\n'
+        '  "url": "string",\n'
+        '  "hostname": "string",\n'
+        '  "teams": {\n'
+        '    "football": {"summary": "Greek summary", "articles": [{"title": "string", "url": "string", "publishedAt": "ISO date or empty", "snippet": "string"}]},\n'
+        '    "basketball": {"summary": "Greek summary", "articles": [{"title": "string", "url": "string", "publishedAt": "ISO date or empty", "snippet": "string"}]}\n'
+        '  },\n'
+        '  "errors": []\n'
+        '}'
+    )
+    if task_type == "general":
+        return (
+            "Search the web for important recent Olympiacos news.\n"
+            f"Time window: {start.isoformat()} to {end.isoformat()}.\n"
+            "Topics: Olympiacos FC football and Olympiacos BC basketball.\n"
+            "Return ONLY valid JSON, no markdown, no explanation.\n"
+            "Use this exact identity: siteId general-web, name General web, "
+            "url https://www.google.com/search?q=Olympiacos+news, hostname general-web.\n"
+            "The errors array must be a top-level property, not inside teams.\n"
+            "Write summaries in Greek. Include up to 5 real article links per team.\n"
+            f"If no confirmed news exists for a team, use exactly: {no_news}\n"
+            f"JSON schema:\n{schema}"
+        )
+    site = site or {}
+    return (
+        f"Search only this source domain for recent Olympiacos news: {site.get('hostname')} ({site.get('url')}).\n"
+        f"Time window: {start.isoformat()} to {end.isoformat()}.\n"
+        "Topics: Olympiacos FC football and Olympiacos BC basketball.\n"
+        "Useful queries include Greek terms like Ολυμπιακός ποδόσφαιρο, Ολυμπιακός μπάσκετ, ΠΑΕ Ολυμπιακός, ΚΑΕ Ολυμπιακός.\n"
+        "Return ONLY valid JSON, no markdown, no explanation.\n"
+        f"Use this exact identity: siteId {site.get('id') or site.get('siteId') or site.get('hostname')}, "
+        f"name {site.get('name')}, url {site.get('url')}, hostname {site.get('hostname')}.\n"
+        "The errors array must be a top-level property, not inside teams.\n"
+        "Write summaries in Greek. Include up to 4 real article links per team from this source domain only.\n"
+        f"If no confirmed news exists for a team, use exactly: {no_news}\n"
+        f"JSON schema:\n{schema}"
+    )
+
+
+def olympiacos_search_model(settings: Settings) -> str:
+    preferred = str(getattr(settings, "openai_olympiacos_news_model", None) or "").strip()
+    if "search" in preferred:
+        return preferred
+    return str(getattr(settings, "openai_search_model", None) or "gpt-4o-mini-search-preview").strip()
+
+
+def has_olympiacos_site_news(site: dict[str, Any]) -> bool:
+    teams = site.get("teams") or {}
+    return any(has_olympiacos_team_news(teams.get(team["id"]) or {}) for team in OLYMPIACOS_NEWS_TEAMS)
+
+
+def has_olympiacos_team_news(team: dict[str, Any]) -> bool:
+    summary = str(team.get("summary") or "").strip()
+    articles = team.get("articles") if isinstance(team.get("articles"), list) else []
+    has_summary = bool(summary) and not re.search(r"(δεν\s+βρέθηκαν|δεν\s+υπάρχουν|καμία\s+σχετική|χωρίς\s+σχετικ|no\s+relevant)", summary, flags=re.I)
+    return bool(articles) or has_summary
 
 
 def olympiacos_site_error(site: dict[str, Any], message: str) -> dict[str, Any]:
@@ -819,17 +870,38 @@ def parse_openai_json_text(text: str) -> Any:
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.I)
         stripped = re.sub(r"\s*```$", "", stripped)
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        start_candidates = [index for index in (stripped.find("{"), stripped.find("[")) if index >= 0]
-        if not start_candidates:
-            raise
+    candidates = [stripped]
+    start_candidates = [index for index in (stripped.find("{"), stripped.find("[")) if index >= 0]
+    if start_candidates:
         start = min(start_candidates)
         end = max(stripped.rfind("}"), stripped.rfind("]"))
-        if end <= start:
-            raise
-        return json.loads(stripped[start:end + 1])
+        if end > start:
+            candidates.append(stripped[start:end + 1])
+        else:
+            candidates.append(stripped[start:])
+    for candidate in candidates:
+        for repaired in (candidate, balance_json_text(candidate)):
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                continue
+    return json.loads(stripped)
+
+
+def balance_json_text(text: str) -> str:
+    braces = text.count("{") - text.count("}")
+    brackets = text.count("[") - text.count("]")
+    if braces <= 0 and brackets <= 0:
+        return text
+    return text + ("]" * max(0, brackets)) + ("}" * max(0, braces))
+
+
+def extract_openai_chat_text(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices") if isinstance(payload.get("choices"), list) else []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    return str(message.get("content") or "")
 
 
 def extract_openai_response_text(payload: dict[str, Any]) -> str:

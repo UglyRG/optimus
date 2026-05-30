@@ -19,7 +19,8 @@ class Settings(BaseSettings):
     optimus_api_key: str | None = None
     openai_api_key: str | None = None
     openai_admin_key: str | None = None
-    openai_olympiacos_news_model: str = "gpt-5"
+    openai_search_model: str = "gpt-4o-mini-search-preview"
+    openai_olympiacos_news_model: str | None = None
     anthropic_api_key: str | None = None
     anthropic_admin_key: str | None = None
     anthropic_model: str | None = None

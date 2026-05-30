@@ -3985,7 +3985,7 @@ function hasOlympiacosTeamNews(team) {
 
 function hasOlympiacosSummary(summary) {
   const text = String(summary || "").trim();
-  return Boolean(text) && !/(δεν\s+βρέθηκαν|καμία\s+σχετική|χωρίς\s+σχετικ|no\s+relevant)/i.test(text);
+  return Boolean(text) && !/(δεν\s+βρέθηκαν|δεν\s+υπάρχουν|καμία\s+σχετική|χωρίς\s+σχετικ|no\s+relevant)/i.test(text);
 }
 
 function formatDateTime(value) {
