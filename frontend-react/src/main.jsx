@@ -3976,7 +3976,7 @@ function visibleOlympiacosRunSites(run) {
 }
 
 function hasOlympiacosSiteNews(site) {
-  return site?.hostname === "general-web" || hasOlympiacosTeamNews(site?.teams?.football) || hasOlympiacosTeamNews(site?.teams?.basketball);
+  return site?.hostname === "general-web" || Boolean(site?.errors?.length) || hasOlympiacosTeamNews(site?.teams?.football) || hasOlympiacosTeamNews(site?.teams?.basketball);
 }
 
 function hasOlympiacosTeamNews(team) {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import concurrent.futures
 import io
 import json
 import re
@@ -719,16 +720,64 @@ def run_olympiacos_news_search(store: JsonStore, settings: Settings) -> dict[str
 def openai_olympiacos_news_for_sites(sites: list[dict[str, Any]], start: datetime, end: datetime, settings: Settings) -> list[dict[str, Any]]:
     if not settings.openai_api_key:
         raise bad_request("Set OPENAI_API_KEY in .env")
-    prompt = {
-        "window": {"from": start.isoformat(), "to": end.isoformat()},
-        "sites": sites,
-        "task": (
-            "Use web search to find Olympiacos FC football and Olympiacos BC basketball news in the last 24 hours. "
-            "Return JSON only with a sites array. For each configured site, include teams.football and "
-            "teams.basketball with a Greek summary and article links when available. Also include one general-web "
-            "site for important reliable coverage found outside the configured sites."
-        ),
-    }
+    tasks: list[tuple[str, dict[str, Any] | None]] = [("site", site) for site in sites]
+    tasks.append(("general", None))
+    results: list[dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tasks), 5)) as executor:
+        future_by_task = {
+            executor.submit(openai_olympiacos_news_task, task_type, site, start, end, settings): (task_type, site)
+            for task_type, site in tasks
+        }
+        for future in concurrent.futures.as_completed(future_by_task):
+            task_type, site = future_by_task[future]
+            try:
+                results.append(future.result())
+            except RuntimeError as exc:
+                if site:
+                    results.append(olympiacos_site_error(site, str(exc)))
+                else:
+                    results.append(olympiacos_site_error({
+                        "id": "general-web",
+                        "name": "General web",
+                        "url": "https://www.google.com/search?q=Olympiacos+news",
+                        "hostname": "general-web",
+                    }, str(exc)))
+    return sorted(
+        [normalize_olympiacos_run_site(site) for site in results],
+        key=lambda site: (site["hostname"] != "general-web", site["name"].lower()),
+    )
+
+
+def openai_olympiacos_news_task(
+    task_type: str,
+    site: dict[str, Any] | None,
+    start: datetime,
+    end: datetime,
+    settings: Settings,
+) -> dict[str, Any]:
+    if task_type == "general":
+        prompt = {
+            "window": {"from": start.isoformat(), "to": end.isoformat()},
+            "task": (
+                "Use web search to find up to 5 important reliable Olympiacos FC football and Olympiacos BC "
+                "basketball stories from the last 24 hours outside the configured source-site summaries. "
+                "Return JSON only with one site object: siteId='general-web', name='General web', "
+                "url='https://www.google.com/search?q=Olympiacos+news', hostname='general-web', teams.football "
+                "and teams.basketball. Each team must have a Greek summary and up to 5 article links."
+            ),
+        }
+    else:
+        prompt = {
+            "window": {"from": start.isoformat(), "to": end.isoformat()},
+            "site": site,
+            "task": (
+                "Use web search only for this one source site. Find Olympiacos FC football and Olympiacos BC "
+                "basketball news published in the last 24 hours. Return JSON only with one site object using the "
+                "same siteId, name, url, and hostname from the input site. Include teams.football and "
+                "teams.basketball, each with a Greek summary and up to 4 article links. If no confirmed news is "
+                "found for a team, use this exact summary: Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο."
+            ),
+        }
     payload = fetch_json(
         "https://api.openai.com/v1/responses",
         {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"},
@@ -738,15 +787,31 @@ def openai_olympiacos_news_for_sites(sites: list[dict[str, Any]], start: datetim
             "tool_choice": "auto",
             "input": json.dumps(prompt),
         },
-        timeout_seconds=180,
+        timeout_seconds=90,
     )
     text = extract_openai_response_text(payload)
     try:
         parsed = parse_openai_json_text(text)
     except Exception as exc:
-        raise bad_request("OpenAI did not return valid Olympiacos news JSON.") from exc
-    raw_sites = parsed.get("sites") if isinstance(parsed, dict) else parsed
-    return [normalize_olympiacos_run_site(site) for site in raw_sites] if isinstance(raw_sites, list) else []
+        raise RuntimeError("OpenAI did not return valid Olympiacos news JSON.") from exc
+    raw_site = parsed.get("site") if isinstance(parsed, dict) else parsed
+    raw_sites = parsed.get("sites") if isinstance(parsed, dict) else None
+    if isinstance(raw_sites, list) and raw_sites:
+        raw_site = raw_sites[0]
+    if not isinstance(raw_site, dict):
+        raise RuntimeError("OpenAI did not return an Olympiacos news site object.")
+    return raw_site
+
+
+def olympiacos_site_error(site: dict[str, Any], message: str) -> dict[str, Any]:
+    return {
+        "siteId": site.get("id") or site.get("siteId") or site.get("hostname") or "",
+        "name": site.get("name") or "News site",
+        "url": site.get("url") or "",
+        "hostname": site.get("hostname") or "",
+        "teams": {},
+        "errors": [message],
+    }
 
 
 def parse_openai_json_text(text: str) -> Any:
