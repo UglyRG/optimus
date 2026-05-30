@@ -787,7 +787,7 @@ def openai_olympiacos_news_task(
     if isinstance(raw_sites, list) and raw_sites:
         raw_site = raw_sites[0]
     if not isinstance(raw_site, dict):
-        raise RuntimeError("OpenAI did not return an Olympiacos news site object.")
+        return olympiacos_empty_site(task_type, site)
     return raw_site
 
 
@@ -852,6 +852,35 @@ def has_olympiacos_team_news(team: dict[str, Any]) -> bool:
     articles = team.get("articles") if isinstance(team.get("articles"), list) else []
     has_summary = bool(summary) and not re.search(r"(δεν\s+βρέθηκαν|δεν\s+υπάρχουν|καμία\s+σχετική|χωρίς\s+σχετικ|no\s+relevant)", summary, flags=re.I)
     return bool(articles) or has_summary
+
+
+def olympiacos_empty_site(task_type: str, site: dict[str, Any] | None) -> dict[str, Any]:
+    no_news = "Δεν βρέθηκαν επιβεβαιωμένες ειδήσεις στο τελευταίο 24ωρο."
+    source = site or {
+        "id": "general-web",
+        "name": "General web",
+        "url": "https://www.google.com/search?q=Olympiacos+news",
+        "hostname": "general-web",
+    }
+    if task_type == "general":
+        source = {
+            **source,
+            "id": "general-web",
+            "name": "General web",
+            "url": "https://www.google.com/search?q=Olympiacos+news",
+            "hostname": "general-web",
+        }
+    return {
+        "siteId": source.get("id") or source.get("siteId") or source.get("hostname") or "",
+        "name": source.get("name") or "News site",
+        "url": source.get("url") or "",
+        "hostname": source.get("hostname") or "",
+        "teams": {
+            "football": {"summary": no_news, "articles": []},
+            "basketball": {"summary": no_news, "articles": []},
+        },
+        "errors": [],
+    }
 
 
 def olympiacos_site_error(site: dict[str, Any], message: str) -> dict[str, Any]:
