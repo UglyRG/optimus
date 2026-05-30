@@ -32,7 +32,6 @@ const TOOL_VIEW_IDS = new Set([
   "csv-json-rows",
   "csv-qa-markdown",
   "token-usage",
-  "olympiacos-news",
   "presentation-suite",
   "demo-builder",
   "knowledge-expert",
@@ -214,8 +213,6 @@ function App() {
         <CsvQaMarkdownPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "token-usage" ? (
         <TokenUsagePage onBack={() => navigateToView(setView, { name: "dashboard" })} />
-      ) : view.name === "olympiacos-news" ? (
-        <OlympiacosNewsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "presentation-suite" ? (
         <PresentationSuitePage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "demo-builder" ? (
@@ -333,7 +330,6 @@ function Topbar({ showManageTools, theme, onHome, onManageTools, onToggleTheme, 
 function DashboardPage({ onOpenTool }) {
   const [tools, setTools] = useState({ loading: true, error: "", items: [] });
   const [summary, setSummary] = useState({ loading: true, error: "", groups: [] });
-  const [findings, setFindings] = useState({ loading: true, meta: "Loading latest run...", lines: [] });
   const [insightsModal, setInsightsModal] = useState(null);
 
   useEffect(() => {
@@ -342,7 +338,6 @@ function DashboardPage({ onOpenTool }) {
       .catch((error) => setTools({ loading: false, error: error.message, items: [] }));
 
     loadMonthlySummary().then(setSummary);
-    loadOlympiacosFindings().then(setFindings);
   }, []);
 
   const groupedTools = useMemo(() => groupCatalogTools(tools.items), [tools.items]);
@@ -369,22 +364,6 @@ function DashboardPage({ onOpenTool }) {
           </div>
         </main>
 
-        <aside className="dashboard-findings" aria-labelledby="dashboard-findings-title">
-          <div className="dashboard-findings-head">
-            <div>
-              <h2 id="dashboard-findings-title">Olympiacos findings</h2>
-              <p>{findings.meta}</p>
-            </div>
-            <button className="button button-primary month-summary-ai-button" type="button" onClick={() => onOpenTool("olympiacos-news")}>
-              Open
-            </button>
-          </div>
-          <div className="dashboard-findings-list">
-            {findings.loading ? <p>Loading findings...</p> : null}
-            {!findings.loading && findings.lines.length ? findings.lines.map((line) => <p key={line}>{line}</p>) : null}
-            {!findings.loading && !findings.lines.length ? <p>Run Olympiacos News to save the first 24-hour findings.</p> : null}
-          </div>
-        </aside>
       </section>
       {insightsModal ? <PerformanceInsightsModal state={insightsModal} setState={setInsightsModal} onClose={() => setInsightsModal(null)} /> : null}
     </section>
@@ -1816,154 +1795,6 @@ function TokenInfoModal({ infoKey, onClose }) {
   );
 }
 
-function OlympiacosNewsPage({ onBack }) {
-  const [sites, setSites] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [runIndex, setRunIndex] = useState(0);
-  const [newUrl, setNewUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState({ type: "", text: "" });
-
-  useEffect(() => {
-    request("/tools/olympiacos-news")
-      .then((payload) => {
-        setSites(payload.sites || []);
-        setRuns(payload.runs || []);
-      })
-      .catch((error) => setMessage({ type: "error", text: `Could not load news tool: ${error.message}` }));
-  }, []);
-
-  const run = runs[runIndex] || null;
-
-  async function runSearch() {
-    if (busy) return;
-    setBusy(true);
-    setMessage({ type: "", text: "" });
-    try {
-      const payload = await request("/tools/olympiacos-news/run", { method: "POST" });
-      setSites(payload.sites || sites);
-      setRuns(payload.runs || [payload.run, ...runs].filter(Boolean));
-      setRunIndex(0);
-      setMessage({ type: "success", text: "News search saved." });
-    } catch (error) {
-      setMessage({ type: "error", text: error.message });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveSites(nextSites, successText = "") {
-    try {
-      const payload = await request("/tools/olympiacos-news/sites", { method: "POST", body: JSON.stringify({ sites: nextSites }) });
-      setSites(payload.sites || []);
-      setRuns(payload.runs || runs);
-      if (successText) setMessage({ type: "success", text: successText });
-    } catch (error) {
-      setMessage({ type: "error", text: error.message });
-    }
-  }
-
-  function addSite(event) {
-    event.preventDefault();
-    const url = newUrl.trim();
-    if (!url) {
-      setMessage({ type: "error", text: "Add a website URL first." });
-      return;
-    }
-    saveSites([...sites, { url, enabled: true }], "Website added.");
-    setNewUrl("");
-  }
-
-  const visibleSites = visibleOlympiacosRunSites(run);
-  return (
-    <ToolPageShell title="Olympiacos News" description="Search selected Greek sports sites for Olympiacos FC and BC stories published in the last 24 hours." onBack={onBack}>
-      <section className="tool-panel olympiacos-news-control">
-        <PanelTitle title="Run search" body="Each run is saved locally and can be reviewed with the history buttons." />
-        <div className="olympiacos-news-actions">
-          <button className="button button-primary" type="button" disabled={busy} onClick={runSearch}>{busy ? "Searching..." : "Search last 24h"}</button>
-          <button className="button button-secondary" type="button" disabled={!runs.length || runIndex >= runs.length - 1 || busy} onClick={() => setRunIndex((index) => Math.min(index + 1, runs.length - 1))}>{"<"}</button>
-          <span className="padelog-page-summary">{runs.length ? `${runIndex + 1} / ${runs.length}` : "0 / 0"}</span>
-          <button className="button button-secondary" type="button" disabled={!runs.length || runIndex <= 0 || busy} onClick={() => setRunIndex((index) => Math.max(index - 1, 0))}>{">"}</button>
-        </div>
-        <ScopedMessage message={message} />
-      </section>
-
-      <section className="result-panel olympiacos-news-results">
-        <div className="result-head">
-          <div><h2>Saved findings</h2><p>{run ? `${formatDateTime(run.generatedAt)} · ${formatRangeDates(run.window?.from, run.window?.to)}` : "No saved runs yet."}</p></div>
-        </div>
-        {busy ? <div className="tool-list-state">Searching configured websites and saving a new run...</div> : null}
-        {!busy && !run ? <div className="tool-list-state">Run a search to save the first 24-hour news summary.</div> : null}
-        {!busy && run && !visibleSites.length ? <div className="tool-list-state">No relevant articles were found for this run.</div> : null}
-        {!busy && visibleSites.map((site) => <OlympiacosSiteResult site={site} key={site.id || site.url} />)}
-      </section>
-
-      <section className="tool-panel">
-        <PanelTitle title="Websites" body="Add or disable sources for future runs." />
-        <div className="olympiacos-site-list">
-          {sites.map((site) => (
-            <article className="olympiacos-site-row" key={site.id || site.url}>
-              <label className="toggle-field">
-                <input type="checkbox" checked={Boolean(site.enabled)} onChange={(event) => saveSites(sites.map((item) => item.id === site.id ? { ...item, enabled: event.target.checked } : item))} />
-                <span>{site.name}</span>
-              </label>
-              <a href={site.url} target="_blank" rel="noopener">{site.hostname}</a>
-              <button className="button button-secondary betlog-icon-button" type="button" aria-label={`Remove ${site.name}`} title="Remove website" onClick={() => saveSites(sites.filter((item) => item.id !== site.id), "Website removed.")}>
-                <Trash2 size={16} aria-hidden="true" />
-              </button>
-            </article>
-          ))}
-        </div>
-        <form className="olympiacos-site-form" onSubmit={addSite}>
-          <Field label="New website"><input value={newUrl} placeholder="https://example.gr/" onChange={(event) => setNewUrl(event.target.value)} /></Field>
-          <button className="button button-secondary" type="submit">Add website</button>
-        </form>
-      </section>
-    </ToolPageShell>
-  );
-}
-
-function OlympiacosSiteResult({ site }) {
-  return (
-    <article className="olympiacos-result-site">
-      <div className="olympiacos-result-head">
-        <div><h3>{site.name}</h3><a href={site.url} target="_blank" rel="noopener">{site.hostname}</a></div>
-        {site.errors?.length ? <span className="badge">{site.errors.length} issue{site.errors.length === 1 ? "" : "s"}</span> : null}
-      </div>
-      <div className="olympiacos-team-grid">
-        <OlympiacosTeamSummary label="Olympiacos FC" team={site.teams?.football} />
-        <OlympiacosTeamSummary label="Olympiacos BC" team={site.teams?.basketball} />
-      </div>
-    </article>
-  );
-}
-
-function OlympiacosTeamSummary({ label, team }) {
-  const articles = team?.articles || [];
-  if (!articles.length && !hasOlympiacosSummary(team?.summary)) return null;
-  return (
-    <section className="olympiacos-team-card">
-      <h4>{label}</h4>
-      <p>{team?.summary || "Δεν βρέθηκαν ειδήσεις στο τελευταίο 24ωρο."}</p>
-      {articles.length ? (
-        <div className="olympiacos-article-links">
-          {articles.map((article) => (
-            article.url ? (
-              <a href={article.url} target="_blank" rel="noopener" key={article.url || article.title}>
-                <span>{article.title}</span>{article.publishedAt ? <small>{formatDateTime(article.publishedAt)}</small> : null}
-              </a>
-            ) : (
-              <span key={article.title}>
-                <span>{article.title}</span>{article.publishedAt ? <small>{formatDateTime(article.publishedAt)}</small> : null}
-              </span>
-            )
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 function PresentationSuitePage({ onBack }) {
   const [sourceFiles, setSourceFiles] = useState([]);
   const [fileName, setFileName] = useState("");
@@ -2902,17 +2733,6 @@ async function loadMonthlySummary() {
     error: errors.length && !groups.length ? `Could not load monthly performance: ${errors[0].reason.message}` : "",
     groups,
   };
-}
-
-async function loadOlympiacosFindings() {
-  try {
-    const payload = await request("/tools/olympiacos-news");
-    const run = payload.runs?.[0] || null;
-    const lines = run ? latestOlympiacosFindingLines(run).slice(0, 8) : [];
-    return { loading: false, meta: run ? formatDateTime(run.generatedAt) : "No saved run yet", lines };
-  } catch (error) {
-    return { loading: false, meta: "Could not load findings", lines: [error.message] };
-  }
 }
 
 async function request(path, options = {}) {
@@ -3955,37 +3775,6 @@ function drawNotelogStroke(context, stroke) {
     context.stroke();
   }
   context.restore();
-}
-
-function latestOlympiacosFindingLines(run) {
-  return visibleOlympiacosRunSites(run).flatMap((site) =>
-    [
-      ["FC", site.teams?.football?.summary],
-      ["BC", site.teams?.basketball?.summary],
-    ]
-      .filter(([, summary], index) => {
-        const team = index === 0 ? site.teams?.football : site.teams?.basketball;
-        return hasOlympiacosTeamNews(team) && String(summary || "").trim();
-      })
-      .map(([team, summary]) => `${site.name} · ${team}: ${summary}`),
-  );
-}
-
-function visibleOlympiacosRunSites(run) {
-  return (run?.sites || []).filter(hasOlympiacosSiteNews);
-}
-
-function hasOlympiacosSiteNews(site) {
-  return site?.hostname === "general-web" || Boolean(site?.errors?.length) || hasOlympiacosTeamNews(site?.teams?.football) || hasOlympiacosTeamNews(site?.teams?.basketball);
-}
-
-function hasOlympiacosTeamNews(team) {
-  return (Array.isArray(team?.articles) && team.articles.length > 0) || hasOlympiacosSummary(team?.summary);
-}
-
-function hasOlympiacosSummary(summary) {
-  const text = String(summary || "").trim();
-  return Boolean(text) && !/(δεν\s+βρέθηκαν|δεν\s+υπάρχουν|καμία\s+σχετική|χωρίς\s+σχετικ|no\s+relevant)/i.test(text);
 }
 
 function formatDateTime(value) {

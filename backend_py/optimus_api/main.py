@@ -38,17 +38,13 @@ from .tools import (
     create_backup_archive,
     create_notelog_pdf,
     list_iframe_source_files,
-    load_olympiacos_news_store,
     read_backup_archive,
-    run_olympiacos_news_search,
     save_csv_json_rows,
     save_csv_qa_markdown,
     save_demo_builder_template,
     save_iframe_source,
-    save_olympiacos_news_store,
     save_pdf_iframe_source,
     save_presentation_suite,
-    update_olympiacos_news_sites,
 )
 from .utils import bad_request, now_iso
 
@@ -58,7 +54,6 @@ DATA_STORES = {
     "betlogBets": "betlog_bets",
     "notelogNotes": "notelog_notes",
     "performanceInsights": "performance_insights",
-    "olympiacosNews": "olympiacos_news",
     "knowledgeExpert": "knowledge_expert",
 }
 
@@ -421,7 +416,6 @@ def get_admin_backup(_: dict[str, Any] = Depends(require_session)) -> dict[str, 
             "betlog-bets.json": {"bets": load_betlog_bets()},
             "notelog-notes.json": {"notes": load_notelog_notes()},
             "performance-insights.json": {"insights": load_performance_insights()},
-            "olympiacos-news.json": load_olympiacos_news_store(store, settings),
             "knowledge-expert.json": knowledge_repo.backup_snapshot(),
         }
     )
@@ -435,7 +429,6 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     betlog = files.get("betlog-bets.json", {}).get("bets", [])
     notelog = files.get("notelog-notes.json", {}).get("notes", [])
     insights = files.get("performance-insights.json", {}).get("insights", [])
-    olympiacos = files.get("olympiacos-news.json")
     knowledge = files.get("knowledge-expert.json")
     normalized_knowledge = normalize_knowledge_store(knowledge) if isinstance(knowledge, dict) else None
     store.set(DATA_STORES["toolCatalog"], catalog)
@@ -443,8 +436,6 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     save_betlog_bets([normalize_betlog_bet(row) for row in betlog])
     save_notelog_notes([normalize_notelog_note(row) for row in notelog])
     save_performance_insights(insights if isinstance(insights, list) else [])
-    if olympiacos:
-        save_olympiacos_news_store(olympiacos, store)
     if normalized_knowledge is not None:
         knowledge_repo.replace_all(normalized_knowledge)
     return {
@@ -454,7 +445,6 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
             "bets": len(betlog),
             "notes": len(notelog),
             "insights": len(insights) if isinstance(insights, list) else 0,
-            "olympiacosNewsRuns": len((olympiacos or {}).get("runs", [])) if isinstance(olympiacos, dict) else 0,
             "knowledgeExpertEntries": len(normalized_knowledge["entries"]) if normalized_knowledge is not None else 0,
         },
         "catalog": admin_tool_catalog(load_tool_catalog_config()),
@@ -632,21 +622,6 @@ def post_presentation_suite(payload: dict[str, Any], _: dict[str, Any] = Depends
 @app.post("/api/tools/demo-builder")
 def post_demo_builder(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return save_demo_builder_template(payload, settings)
-
-
-@app.get("/api/tools/olympiacos-news")
-def get_olympiacos_news(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
-    return load_olympiacos_news_store(store, settings)
-
-
-@app.post("/api/tools/olympiacos-news/sites")
-def post_olympiacos_news_sites(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
-    return update_olympiacos_news_sites(payload, store, settings)
-
-
-@app.post("/api/tools/olympiacos-news/run")
-def post_olympiacos_news_run(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
-    return run_olympiacos_news_search(store, settings)
 
 
 @app.get("/api/tools/knowledge-expert")

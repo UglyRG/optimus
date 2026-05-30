@@ -55,11 +55,6 @@ HOSTED_TOOLS = [
         "description": "Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom range.",
     },
     {
-        "id": "olympiacos-news",
-        "title": "Olympiacos News",
-        "description": "Search Greek sports sites for the latest Olympiacos FC and BC news in the last 24 hours.",
-    },
-    {
         "id": "knowledge-expert",
         "title": "Knowledge Expert",
         "description": "Upload a small knowledge base and ask grounded questions with source citations.",
@@ -83,7 +78,6 @@ DEFAULT_TOOL_CATALOG_CONFIG = {
         {"id": "csv-json-rows", "groupId": "utilities", "displayOrder": 7, "enabled": True},
         {"id": "csv-qa-markdown", "groupId": "utilities", "displayOrder": 8, "enabled": True},
         {"id": "token-usage", "groupId": "utilities", "displayOrder": 9, "enabled": True},
-        {"id": "olympiacos-news", "groupId": "utilities", "displayOrder": 10, "enabled": True},
-        {"id": "knowledge-expert", "groupId": "utilities", "displayOrder": 11, "enabled": True},
+        {"id": "knowledge-expert", "groupId": "utilities", "displayOrder": 10, "enabled": True},
     ],
 }
