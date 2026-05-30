@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import mimetypes
+import os
 import secrets
 import subprocess
 import time
@@ -96,6 +97,9 @@ def shutdown() -> None:
 
 
 def app_version() -> str:
+    env_version = os.getenv("OPTIMUS_VERSION", "").strip()
+    if env_version:
+        return env_version
     try:
         result = subprocess.run(
             ["git", "describe", "--tags", "--always", "--dirty"],
@@ -107,7 +111,10 @@ def app_version() -> str:
         )
         return result.stdout.strip() or "unknown"
     except Exception:
-        return "unknown"
+        try:
+            return (settings.data_dir.parent / "VERSION").read_text(encoding="utf-8").strip() or "unknown"
+        except Exception:
+            return "unknown"
 
 
 def clean_expired_sessions() -> None:
