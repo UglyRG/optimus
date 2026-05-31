@@ -2,160 +2,86 @@
 
 Version: `v6`
 
-Optimus is split into two local services:
+Optimus is a local productivity platform made of a React frontend, a FastAPI backend, and Postgres/pgvector persistence. It hosts a growing catalog of tools for personal tracking, knowledge work, demos, document utilities, and AI usage reporting.
 
-- `npm run dev` starts the frontend and backend together in one terminal.
-- `npm run backend` starts the FastAPI API at `http://localhost:8788`.
-- `npm run frontend:react` starts the React app at `http://localhost:5173`.
-
-The active backend lives in `backend_py/` and uses FastAPI, native Postgres, and pgvector. The active frontend lives in `frontend-react/`.
+## Quick Start
 
 ```bash
-psql -d postgres -c "CREATE ROLE optimus WITH LOGIN PASSWORD 'optimus';"
-psql -d postgres -c "CREATE DATABASE optimus OWNER optimus;"
-psql -d optimus -c 'CREATE EXTENSION IF NOT EXISTS vector;'
-psql -d optimus -f backend_py/sql/001_init.sql
-cd backend_py
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-uvicorn optimus_api.main:app --reload --host localhost --port 8788
+npm run dev
 ```
 
-The backend uses `DATABASE_URL`, defaulting to `postgresql://optimus:optimus@localhost:5432/optimus`. If your local Postgres uses peer/trust auth instead of passwords, either set a password for the `optimus` role or override `DATABASE_URL` with a URL your local server accepts. Its OpenAPI docs are available at `http://localhost:8788/docs`.
+This starts both local services:
+
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8788`
+- API docs: `http://localhost:8788/docs`
+
+You can also run them separately:
+
+```bash
+npm run backend
+npm run frontend:react
+```
 
 The `optimus` command is installed in `~/.local/bin` and can be run from anywhere. It switches to this project directory and runs `npm run dev`.
 
-Create a local `.env` file for private values. It is ignored by Git.
+## Project Map
+
+- `frontend-react/`: React frontend and all hosted tool UIs.
+- `backend_py/optimus_api/`: FastAPI backend, domain logic, persistence, and tool services.
+- `backend_py/sql/001_init.sql`: Postgres and Knowledge Expert schema.
+- `scripts/dev.js`: local multi-service runner.
+- `scripts/deploy-prod.sh`: production deployment helper.
+- `Outputs/`: generated user files. These are not source documentation.
+- `docs/`: project documentation.
+
+## Documentation
+
+Start here:
+
+- [Overview](docs/overview.md)
+- [Local Development](docs/local-development.md)
+- [Architecture](docs/architecture.md)
+- [Configuration](docs/configuration.md)
+- [Database](docs/database.md)
+- [API](docs/api.md)
+- [Tool Catalog](docs/tools/tool-catalog.md)
+- [Backup and Restore](docs/operations/backup-restore.md)
+- [Deployment](docs/operations/deployment.md)
+- [Troubleshooting](docs/operations/troubleshooting.md)
+
+Agent/project guidance lives in [AGENTS.md](AGENTS.md). Update it when the engineering or documentation principles change.
+
+## Current Tools
+
+- Padelog
+- Betlog
+- Notelog
+- Knowledge Expert
+- Demo Builder
+- Presentation Suite Builder
+- HTML to iframe Base64
+- PDF to iframe Base64
+- Combine PDFs
+- CSV to JSON Rows
+- CSV Q&A to Markdown
+- Check My Token Usage
+
+Tool-specific notes live under [docs/tools/](docs/tools/).
+
+## Private Configuration
+
+Create a local `.env` file for secrets. It is ignored by Git.
 
 ```env
 OPTIMUS_ACCESS_KEY=your-login-password
 OPTIMUS_PUBLIC_API_KEY=your-public-api-key
 ANTHROPIC_API_KEY=your-anthropic-api-key
-ANTHROPIC_ANALYSIS_MODEL=claude-haiku-4-5-20251001
+ANTHROPIC_MODEL=your-default-anthropic-model
+KNOWLEDGE_EXPERT_CHAT_MODEL=your-knowledge-expert-chat-model
 OPENAI_API_KEY=your-openai-api-key
-# Admin keys for organization usage reports:
 ANTHROPIC_ADMIN_KEY=your-anthropic-admin-api-key
 OPENAI_ADMIN_KEY=your-openai-admin-api-key
-SPORTMONKS_API_KEY=your-sportmonks-api-key
 ```
 
 If `OPTIMUS_ACCESS_KEY` is not set, the local development key is `optimus`.
-If `OPTIMUS_PUBLIC_API_KEY` is not set, public API requests fall back to `OPTIMUS_API_KEY` and then `OPTIMUS_ACCESS_KEY`.
-The API provider keys are optional until a tool or integration needs them.
-
-## Assets
-
-Branding and favicon files live in `frontend-react/public/assets/` and are served by the React app.
-
-## Tools
-
-The backend exposes the tool catalog at `GET /api/tools`. Tool group, visibility, and display order are managed from the frontend "Manage tools" dashboard and persisted in Postgres. The frontend renders the index from this metadata and maps each hosted tool `id` to its local UI.
-
-The "Manage tools" dashboard also includes Backup and Restore controls. Backup downloads a zip containing JSON exports for `tool-catalog`, `padelog-matches`, `betlog-bets`, `notelog-notes`, `performance-insights`, and a Knowledge Expert snapshot generated from the database. Restore accepts that zip and replaces the local tool layout, Padelog, Betlog, Notelog, and saved AI insight data with the backup contents. Generated files in `Outputs/` and private `.env` values are not included.
-
-### Padelog
-
-Track padel match performance from the Personal tools group. Each match stores Padel Club, Date, Teammate, Opponents, Result (`Won`, `Lost`, or `Draw`), and Sets as a set score such as `1-0`, `2-1`, `1-1`, or `2-2`. Matches can be added manually one at a time or imported in batches from CSV using the columns `Padel Club`, `Date`, `Teamate`, `Opponents`, `Result`, and `Sets`. CSV dates can use `YYYY-MM-DD` or day/month formats such as `8/1/26`. The UI shows month-to-date, year-to-date, and custom date-range statistics above the manual and CSV entry panels, plus editable, paginated match history grouped by month, club, or no grouping.
-
-Padelog match data is persisted in Postgres when the first match is saved. AI performance insights use `ANTHROPIC_API_KEY`, default to `ANTHROPIC_ANALYSIS_MODEL` or `claude-haiku-4-5-20251001`, and analyze the full saved history. The AI insights button opens a modal with the latest saved run, previous/next controls for older runs, and a Generate new action. Saved insight runs are stored in Postgres.
-
-### Betlog
-
-Track placed bets from the Personal tools group. Each saved row represents one selection, so combo bets can repeat the same `bet_id`, stake, return, and metadata across multiple rows for analysis. Bets can be added manually one at a time or imported in batches from CSV using the columns `date`, `time`, `bet_id`, `bet_type`, `stake`, `free_bet`, `status`, `return_amount`, `selection`, `odds`, `market`, `match`, `score`, `outcome_type`, and `legs`. The UI shows month-to-date, year-to-date, and custom date-range statistics, with stake and return calculated once per unique bet ID so combo rows do not double-count money.
-
-Betlog AI performance insights use the same modal workflow as Padelog: the latest saved run opens first, previous/next controls browse older runs, and Generate new analyzes the full Betlog history. Runs are saved in Postgres and included in backup/restore.
-
-Betlog data is persisted in Postgres when the first bet is saved.
-
-### Public APIs
-
-Optimus exposes public JSON endpoints for logging Padelog matches and Betlog bet rows from external tools. These endpoints do not use the browser session cookie. Send either `Authorization: Bearer <key>` or `X-API-Key: <key>` where the key is `OPTIMUS_PUBLIC_API_KEY`, `OPTIMUS_API_KEY`, or the `OPTIMUS_ACCESS_KEY` fallback.
-
-API docs are available while the backend is running:
-
-- HTML docs: `GET http://localhost:8788/docs`
-- OpenAPI JSON: `GET http://localhost:8788/openapi.json`
-
-Log one Padelog match:
-
-```bash
-curl -X POST http://localhost:8788/api/public/padelog/matches \
-  -H "Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "club": "Padel Club",
-    "date": "2026-05-29",
-    "teammate": "Alex",
-    "opponents": "Nikos / Maria",
-    "result": "Won",
-    "sets": "2-1"
-  }'
-```
-
-Log one Betlog row:
-
-```bash
-curl -X POST http://localhost:8788/api/public/betlog/bets \
-  -H "Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "date": "2026-05-29",
-    "time": "21:00",
-    "betId": "BET-1001",
-    "betType": "Single",
-    "stake": 10,
-    "freeBet": false,
-    "status": "Open",
-    "returnAmount": 0,
-    "selection": "Team A win",
-    "odds": 1.85,
-    "market": "Match winner",
-    "match": "Team A vs Team B",
-    "score": "",
-    "outcomeType": "single",
-    "legs": 1
-  }'
-```
-
-Both endpoints also accept wrapper payloads, such as `{ "match": { ... } }`, `{ "matches": [{ ... }] }`, `{ "bet": { ... } }`, or `{ "bets": [{ ... }] }`.
-
-### Notelog
-
-Capture handwritten notes from a pen tablet in the Personal tools group. Notes use a landscape page canvas and are stored locally as editable page and stroke data, with page controls, pen/eraser tools, pressure-aware strokes, stabilization, undo/redo, paper styles, page templates, autosave, and one-click vector PDF export. The Notelog workspace uses a left-side Notes/Tools panel and a compact Optimus rail so the writing area can use the full page height.
-
-Tablet calibration is available from the Notelog Tools tab. Tap the four highlighted page corners to map tablet input to the note page area; calibration is stored in the browser and can be reset from the same panel. Exported PDFs are saved in `Outputs/Notes/` and can be opened from the Notelog export link.
-
-Notelog data is persisted in Postgres when the first note is saved.
-
-### Knowledge Expert
-
-Upload a small curated knowledge base from the Personal tools group and ask grounded questions with source citations. Knowledge Expert accepts one or more CSV, HTML, TXT, Markdown, JSON, PDF, or DOCX files in a single upload. CSV headers support `category`, `question`, `answer`, and `link`; JSON can be an array of similar objects or `{ "entries": [...] }`. Uploads can append new entries to the active dataset or replace the whole dataset atomically, while prior chat turns remain saved.
-
-Knowledge Expert uses `OPENAI_API_KEY` with `KNOWLEDGE_EXPERT_EMBED_MODEL` or `text-embedding-3-small` for embeddings. If no OpenAI key is set, it stores entries and falls back to keyword retrieval. Answers use `ANTHROPIC_API_KEY` with `KNOWLEDGE_EXPERT_CHAT_MODEL`, `ANTHROPIC_MODEL`, or `ANTHROPIC_ANALYSIS_MODEL`. The assistant declines when the retrieved dataset does not support an answer and shows citation chips for grounded answers. Set `KNOWLEDGE_EXPERT_QUERY_REWRITE_ENABLED=true` to rewrite follow-up questions for retrieval, and `KNOWLEDGE_EXPERT_SYNTHESIZE_QUESTIONS=always|auto|never` to control synthetic questions for prose chunks.
-
-The tool includes a "How it works" modal, downloadable CSV/JSON templates, streaming chat responses, feedback, traces, and admin reports for conversations, errors, dead entries, and knowledge gaps.
-
-### Demo Builder
-
-Build a branded, configurable agent demo from uploaded or pasted JSON files for content, sizing/prerequisites, and per-scenario glossary terms. The generated demo supports scenario selection, progressive chat playback, document reveal, grouped agent logs, glossary modal, simulation speed controls, pause/resume, and a chat-style interface with avatars. Outputs are saved locally in `Outputs/` as the requested `.html` file.
-
-### HTML to iframe Base64
-
-Upload an `.html` file from the UI to create an iframe-ready `data:text/html;base64,...` string. Outputs are saved locally in `Outputs/` as `base62-initialfilename.txt`.
-
-### PDF to iframe Base64
-
-Upload a `.pdf` file from the UI to create an iframe-ready `data:application/pdf;base64,...` string. Outputs are saved locally in `Outputs/` as `base64-pdf-initialfilename.txt`.
-
-### Combine PDFs
-
-Select two to five `.pdf` files, reorder them in the UI, and save a single combined PDF under a new file name. Pages are appended document by document in the chosen order, while preserving each page's original size. Outputs are saved locally in `Outputs/` as the requested `.pdf` file.
-
-### Check My Token Usage
-
-Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom date range. Month-to-date and year-to-date are loaded automatically when the tool opens. The tool reads `OPENAI_ADMIN_KEY` and `ANTHROPIC_ADMIN_KEY` from `.env`; normal model-call keys are not used for usage reports.
-
-### Presentation Suite Builder
-
-Specify an output filename, number of tabs, tab labels, and optional iframe sources to generate a tabbed presentation suite HTML template. The first tab is always the deck, remaining tabs are demos, and the date badge uses `Month YY` format. Iframe sources are selected from `.txt` files in `Outputs/`, including HTML and PDF Base64 outputs, and embedded directly into the generated HTML, so the final file does not reference the source `.txt` files. Outputs are saved locally in `Outputs/` as the requested `.html` file.
