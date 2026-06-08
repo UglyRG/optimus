@@ -11,7 +11,7 @@ Notelog captures handwritten notes from a pen tablet.
 - Stroke stabilization.
 - Undo and redo.
 - Paper styles and page templates.
-- Autosave.
+- Per-note autosave after edits and completed pen strokes.
 - Vector PDF export.
 - Tablet calibration.
 
@@ -28,3 +28,5 @@ Outputs/Notes/
 ## Calibration
 
 Tablet calibration is stored in browser local storage. The user taps the four highlighted page corners to map tablet input to the page area.
+
+The calibration overlay is anchored to the rendered paper element. Its targets follow the visible paper edges as the canvas resizes, rather than relying on fixed viewport offsets.

@@ -1,5 +1,5 @@
 {
-  "version": "6.0.0",
+  "version": "6.2.1",
   "scripts": {
     "backend": "cd backend_py && .venv/bin/uvicorn optimus_api.main:app --reload --host localhost --port 8788",
     "dev": "node scripts/dev.js",

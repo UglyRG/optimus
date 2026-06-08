@@ -1084,7 +1084,7 @@ function BetlogPage({ onBack }) {
 function NotelogPage({ onBack }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(null);
-  const autosaveRef = useRef(null);
+  const autosaveRefs = useRef(new Map());
   const saveNoteRef = useRef(null);
   const [notes, setNotes] = useState([]);
   const [activeId, setActiveId] = useState("");
@@ -1127,9 +1127,12 @@ function NotelogPage({ onBack }) {
     saveNoteRef.current = saveNote;
   });
 
-  useEffect(() => () => window.clearTimeout(autosaveRef.current), []);
+  useEffect(() => () => {
+    autosaveRefs.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    autosaveRefs.current.clear();
+  }, []);
 
-  function updateActiveNote(updater) {
+  function updateActiveNote(updater, options = {}) {
     setNotes((current) =>
       current.map((note) => {
         if (note.id !== activeId) return note;
@@ -1137,15 +1140,17 @@ function NotelogPage({ onBack }) {
         return { ...updated, updatedAt: new Date().toISOString() };
       }),
     );
-    scheduleAutosave();
+    if (options.autosave !== false) scheduleAutosave(activeId);
   }
 
-  function scheduleAutosave() {
-    window.clearTimeout(autosaveRef.current);
+  function scheduleAutosave(noteId) {
+    window.clearTimeout(autosaveRefs.current.get(noteId));
     setSaveStatus("Autosave pending");
-    autosaveRef.current = window.setTimeout(() => {
-      saveNoteRef.current?.({ silent: true });
+    const timeoutId = window.setTimeout(() => {
+      autosaveRefs.current.delete(noteId);
+      saveNoteRef.current?.({ silent: true, noteId });
     }, 900);
+    autosaveRefs.current.set(noteId, timeoutId);
   }
 
   function createNote() {
@@ -1158,14 +1163,26 @@ function NotelogPage({ onBack }) {
   }
 
   async function saveNote(options = {}) {
-    const note = notes.find((item) => item.id === activeId);
+    const noteId = options.noteId || activeId;
+    const note = notes.find((item) => item.id === noteId);
     if (!note) return;
-    window.clearTimeout(autosaveRef.current);
+    window.clearTimeout(autosaveRefs.current.get(noteId));
+    autosaveRefs.current.delete(noteId);
     setSaveStatus("Saving...");
     try {
       const payload = await request("/tools/notelog/notes", { method: "POST", body: JSON.stringify({ note }) });
-      setNotes((payload.notes || [payload.note]).map(normalizeNote));
-      setActiveId(payload.note.id);
+      const savedNote = normalizeNote(payload.note);
+      setNotes((current) => current.map((item) => (
+        item.id === savedNote.id
+          ? {
+              ...item,
+              createdAt: savedNote.createdAt,
+              updatedAt: savedNote.updatedAt,
+              exportedFileName: savedNote.exportedFileName,
+              exportedAt: savedNote.exportedAt,
+            }
+          : item
+      )));
       setSaveStatus(`Saved ${localTimeInputValue()}`);
       if (!options.silent) setMessage({ type: "success", text: "Note saved." });
     } catch (error) {
@@ -1188,6 +1205,8 @@ function NotelogPage({ onBack }) {
   }
 
   async function deleteNote(noteId) {
+    window.clearTimeout(autosaveRefs.current.get(noteId));
+    autosaveRefs.current.delete(noteId);
     try {
       const payload = await request("/tools/notelog/delete", { method: "POST", body: JSON.stringify({ id: noteId }) });
       const nextNotes = payload.notes?.length ? payload.notes.map(normalizeNote) : [newNote()];
@@ -1260,7 +1279,7 @@ function NotelogPage({ onBack }) {
     updateActiveNote((note) => {
       note.pages[pageIndex].strokes.push(stroke);
       return note;
-    });
+    }, { autosave: false });
   }
 
   function moveStroke(event) {
@@ -1388,27 +1407,29 @@ function NotelogPage({ onBack }) {
             {activeNote.pages.map((page, index) => <button key={page.id} className={`button button-secondary ${index === pageIndex ? "is-active" : ""}`} type="button" onClick={() => { setPageIndex(index); setRedoStack([]); }}>Page {index + 1}</button>)}
           </div>
           <div className="notelog-canvas-wrap">
-            <canvas
-              id="notelog-canvas"
-              ref={canvasRef}
-              width={NOTELOG_PAGE_WIDTH}
-              height={NOTELOG_PAGE_HEIGHT}
-              className={calibrationDraft ? "is-calibrating" : ""}
-              aria-label="Handwriting canvas"
-              onPointerDown={startStroke}
-              onPointerMove={moveStroke}
-              onPointerUp={endStroke}
-              onPointerCancel={endStroke}
-            />
-            {calibrationDraft ? (
-              <div className="notelog-calibration-overlay">
-                <div className="notelog-calibration-target" style={calibrationTargetStyle(calibrationDraft)} />
-                <div className="notelog-calibration-card">
-                  <strong>Tap {NOTELOG_CALIBRATION_STEPS[calibrationDraft.points.length]?.label}</strong>
-                  <span>Point {calibrationDraft.points.length + 1} of {NOTELOG_CALIBRATION_STEPS.length}</span>
+            <div className="notelog-paper">
+              <canvas
+                id="notelog-canvas"
+                ref={canvasRef}
+                width={NOTELOG_PAGE_WIDTH}
+                height={NOTELOG_PAGE_HEIGHT}
+                className={calibrationDraft ? "is-calibrating" : ""}
+                aria-label="Handwriting canvas"
+                onPointerDown={startStroke}
+                onPointerMove={moveStroke}
+                onPointerUp={endStroke}
+                onPointerCancel={endStroke}
+              />
+              {calibrationDraft ? (
+                <div className="notelog-calibration-overlay">
+                  <div className="notelog-calibration-target" style={calibrationTargetStyle(calibrationDraft)} />
+                  <div className="notelog-calibration-card">
+                    <strong>Tap {NOTELOG_CALIBRATION_STEPS[calibrationDraft.points.length]?.label}</strong>
+                    <span>Point {calibrationDraft.points.length + 1} of {NOTELOG_CALIBRATION_STEPS.length}</span>
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
           <ScopedMessage message={message} />
         </section>

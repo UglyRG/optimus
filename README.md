@@ -1,6 +1,6 @@
 # Optimus
 
-Version: `v6`
+Version: `v6.2.1`
 
 Optimus is a local productivity platform made of a React frontend, a FastAPI backend, and Postgres/pgvector persistence. It hosts a growing catalog of tools for personal tracking, knowledge work, demos, document utilities, and AI usage reporting.
 

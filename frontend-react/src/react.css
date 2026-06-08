@@ -27,12 +27,3 @@
 .toggle-field {
   gap: 8px;
 }
-
-.notelog-canvas-wrap .notelog-calibration-overlay {
-  inset: auto;
-  top: 18px;
-  left: 50%;
-  width: min(calc(100% - 36px), 980px);
-  aspect-ratio: 1414 / 1000;
-  transform: translateX(-50%);
-}
