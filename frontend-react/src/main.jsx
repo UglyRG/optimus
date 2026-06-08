@@ -1260,6 +1260,17 @@ function NotelogPage({ onBack }) {
     setRedoStack(rest);
   }
 
+  function clearPage() {
+    if (!activePage?.strokes?.length) return;
+    if (!window.confirm("Clear all handwriting from this page? The paper style will be preserved.")) return;
+    updateActiveNote((note) => {
+      note.pages[pageIndex].strokes = [];
+      return note;
+    });
+    setRedoStack([]);
+    setMessage({ type: "success", text: "Page handwriting cleared." });
+  }
+
   function startStroke(event) {
     if (!activePage) return;
     if (calibrationDraft) {
@@ -1387,7 +1398,7 @@ function NotelogPage({ onBack }) {
                 </Field>
               </div>
               <Field label="Size"><input type="range" min="1" max="24" step="1" value={size} onChange={(event) => setSize(Number(event.target.value) || 4)} /></Field>
-              <div className="notelog-tool-group"><button className="button button-secondary" type="button" disabled={!activePage?.strokes?.length} onClick={undoStroke}>Undo</button><button className="button button-secondary" type="button" disabled={!redoStack.length} onClick={redoStroke}>Redo</button></div>
+              <div className="notelog-tool-group"><button className="button button-secondary" type="button" disabled={!activePage?.strokes?.length} onClick={undoStroke}>Undo</button><button className="button button-secondary" type="button" disabled={!redoStack.length} onClick={redoStroke}>Redo</button><button className="button button-secondary" type="button" disabled={!activePage?.strokes?.length} onClick={clearPage}>Clear page</button></div>
               <div className="notelog-tool-group"><button className="button button-secondary" type="button" onClick={addPage}>Add page</button><button className="button button-secondary" type="button" disabled={activeNote.pages.length <= 1} onClick={deletePage}>Delete page</button></div>
               <div className="notelog-tool-group"><button className="button button-primary" type="button" onClick={() => saveNote()}>Save</button><button className="button button-secondary" type="button" onClick={exportNote}>Export PDF</button></div>
               <div className="notelog-export-preview"><span>{saveStatus}</span>{activeNote.exportedFileName ? <a href={`/api/outputs/notes/${encodeURIComponent(activeNote.exportedFileName)}`} target="_blank" rel="noopener">Open PDF</a> : null}</div>
@@ -3733,7 +3744,13 @@ function drawNotelogCanvas(canvas, page) {
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, canvas.width, canvas.height);
   drawNotelogBackground(context, page);
-  for (const stroke of page.strokes || []) drawNotelogStroke(context, stroke);
+
+  const handwritingCanvas = document.createElement("canvas");
+  handwritingCanvas.width = canvas.width;
+  handwritingCanvas.height = canvas.height;
+  const handwritingContext = handwritingCanvas.getContext("2d");
+  for (const stroke of page.strokes || []) drawNotelogStroke(handwritingContext, stroke);
+  context.drawImage(handwritingCanvas, 0, 0);
 }
 
 function drawNotelogBackground(context, page) {
@@ -3784,7 +3801,8 @@ function drawNotelogStroke(context, stroke) {
   context.save();
   context.lineCap = "round";
   context.lineJoin = "round";
-  context.strokeStyle = stroke.tool === "eraser" ? "#ffffff" : stroke.color || "#111827";
+  context.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+  context.strokeStyle = stroke.tool === "eraser" ? "#000000" : stroke.color || "#111827";
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];

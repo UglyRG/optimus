@@ -6,10 +6,11 @@ Notelog captures handwritten notes from a pen tablet.
 
 - Landscape page canvas.
 - Editable page and stroke data.
-- Pen and eraser tools.
+- Pen and stroke-only eraser tools. Erasing handwriting preserves the selected paper template.
 - Pressure-aware strokes.
 - Stroke stabilization.
 - Undo and redo.
+- Clear current page handwriting while preserving its paper template.
 - Paper styles and page templates.
 - Per-note autosave after edits and completed pen strokes.
 - Vector PDF export.

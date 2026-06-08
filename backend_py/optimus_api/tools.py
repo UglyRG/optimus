@@ -626,6 +626,7 @@ def create_notelog_pdf(note: dict[str, Any]) -> bytes:
             for point in points[1:]:
                 commands.append(f"{float(point.get('x') or 0)*sx:.2f} {media_h - float(point.get('y') or 0)*sy:.2f} l")
             commands.append("S")
+        commands.extend(notelog_pdf_background_commands(page, width, height, sx, sy, media_h))
         stream = "\n".join(commands).encode("utf-8")
         content_id = len(objects) + 1
         objects.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
@@ -651,6 +652,56 @@ def create_notelog_pdf(note: dict[str, Any]) -> bytes:
         output.write(f"{offset:010d} 00000 n \n".encode())
     output.write(f"trailer << /Size {len(objects)+1} /Root {catalog_id} 0 R >>\nstartxref\n{xref_at}\n%%EOF\n".encode())
     return output.getvalue()
+
+
+def notelog_pdf_background_commands(
+    page: dict[str, Any],
+    width: float,
+    height: float,
+    sx: float,
+    sy: float,
+    media_h: float,
+) -> list[str]:
+    background = str(page.get("background") or "grid")
+    commands = ["0.859 0.906 0.965 RG", "0.859 0.906 0.965 rg", "0.5 w"]
+
+    def line(x1: float, y1: float, x2: float, y2: float) -> None:
+        commands.append(f"{x1*sx:.2f} {media_h-y1*sy:.2f} m {x2*sx:.2f} {media_h-y2*sy:.2f} l S")
+
+    if background in {"ruled", "cornell", "meeting"}:
+        y = 96.0
+        while y < height:
+            line(72, y, width - 72, y)
+            y += 44
+    elif background == "dots":
+        y = 52.0
+        while y < height:
+            x = 52.0
+            while x < width:
+                commands.append(f"{x*sx:.2f} {media_h-y*sy:.2f} 1 1 re f")
+                x += 32
+            y += 32
+    elif background == "grid":
+        x = 50.0
+        while x < width:
+            line(x, 0, x, height)
+            x += 32
+        y = 50.0
+        while y < height:
+            line(0, y, width, y)
+            y += 32
+
+    commands.extend(["0.776 0.831 0.918 RG", "1 w"])
+    if background == "cornell":
+        line(330, 70, 330, height - 190)
+        line(72, height - 190, width - 72, height - 190)
+    elif background == "meeting":
+        line(72, 92, width - 72, 92)
+        line(72, 150, width - 72, 150)
+        line(width - 360, 92, width - 360, 150)
+        line(width - 360, 210, width - 360, height - 72)
+        line(width - 360, height - 220, width - 72, height - 220)
+    return commands
 
 
 def hex_to_rgb(value: str) -> tuple[float, float, float]:
