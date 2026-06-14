@@ -4,12 +4,17 @@ import json
 import base64
 import csv
 import html
+import io
 import re
 import urllib.request
 import time
+import zipfile
+from xml.etree import ElementTree
 from io import StringIO
 from pathlib import Path
 from typing import Any
+
+from pypdf import PdfReader
 
 from .config import Settings
 from .store import JsonStore
@@ -20,6 +25,8 @@ KNOWLEDGE_EXPERT_EMBED_MODEL = "text-embedding-3-small"
 KNOWLEDGE_EXPERT_TOP_K = 5
 KNOWLEDGE_EXPERT_ENUMERATIVE_TOP_K = 15
 KNOWLEDGE_EXPERT_DECLINE = "I don't see that in the Knowledge Expert knowledge base."
+KNOWLEDGE_COVERAGE_GOOD_THRESHOLD = 0.8
+KNOWLEDGE_COVERAGE_LOW_THRESHOLD = 0.5
 
 
 def model_names(settings: Settings) -> dict[str, str]:
@@ -55,6 +62,7 @@ def vector_literal(value: list[float] | None) -> str | None:
 
 def normalize_knowledge_entry(raw_entry: dict[str, Any] | None = None) -> dict[str, Any]:
     raw_entry = raw_entry or {}
+    source_chunk_ids = raw_entry.get("sourceChunkIds") or raw_entry.get("source_chunk_ids") or []
     return {
         "id": clean_text(raw_entry.get("id"), new_id(), 80),
         "category": clean_text(raw_entry.get("category"), "General", 200),
@@ -63,6 +71,11 @@ def normalize_knowledge_entry(raw_entry: dict[str, Any] | None = None) -> dict[s
         "link": clean_text(raw_entry.get("link"), "", 1000),
         "sourceDoc": clean_text(raw_entry.get("sourceDoc") or raw_entry.get("source_doc"), "", 300),
         "sourcePage": raw_entry.get("sourcePage") or raw_entry.get("source_page"),
+        "sourceChunkIds": [
+            clean_text(chunk_id, "", 80)
+            for chunk_id in source_chunk_ids
+            if clean_text(chunk_id, "", 80)
+        ][:20] if isinstance(source_chunk_ids, list) else [],
         "questionSource": clean_text(raw_entry.get("questionSource") or raw_entry.get("question_source"), "original", 40),
         "sortOrder": clean_positive_integer(raw_entry.get("sortOrder") or raw_entry.get("sort_order"), 1),
         "embedding": normalize_embedding(raw_entry.get("embedding")),
@@ -77,8 +90,29 @@ def normalize_knowledge_upload(raw_upload: dict[str, Any] | None = None) -> dict
         "fileName": clean_text(raw_upload.get("fileName") or raw_upload.get("file_name"), "knowledge-base", 300),
         "fileType": clean_text(raw_upload.get("fileType") or raw_upload.get("file_type"), "text", 20),
         "rowCount": clean_positive_integer(raw_upload.get("rowCount") or raw_upload.get("row_count"), 0),
+        "chunkCount": clean_positive_integer(raw_upload.get("chunkCount") or raw_upload.get("chunk_count"), 0),
         "uploadedBy": clean_text(raw_upload.get("uploadedBy") or raw_upload.get("uploaded_by"), "", 120),
         "uploadedAt": clean_text(raw_upload.get("uploadedAt") or raw_upload.get("uploaded_at"), now_iso(), 40),
+    }
+
+
+def normalize_knowledge_source_chunk(raw_chunk: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw_chunk = raw_chunk or {}
+    char_start = raw_chunk.get("charStart") if raw_chunk.get("charStart") is not None else raw_chunk.get("char_start")
+    char_end = raw_chunk.get("charEnd") if raw_chunk.get("charEnd") is not None else raw_chunk.get("char_end")
+    return {
+        "id": clean_text(raw_chunk.get("id"), new_id(), 80),
+        "uploadId": clean_text(raw_chunk.get("uploadId") or raw_chunk.get("upload_id"), "", 80),
+        "sourceDoc": clean_text(raw_chunk.get("sourceDoc") or raw_chunk.get("source_doc"), "", 300),
+        "sourceType": clean_text(raw_chunk.get("sourceType") or raw_chunk.get("source_type"), "text", 40),
+        "chunkIndex": clean_positive_integer(raw_chunk.get("chunkIndex") or raw_chunk.get("chunk_index"), 1),
+        "locator": clean_text(raw_chunk.get("locator"), "", 200),
+        "heading": clean_text(raw_chunk.get("heading"), "", 500),
+        "sourcePage": raw_chunk.get("sourcePage") or raw_chunk.get("source_page"),
+        "content": clean_text(raw_chunk.get("content") or raw_chunk.get("text"), "", 20000),
+        "charStart": int(char_start) if isinstance(char_start, int) and char_start >= 0 else None,
+        "charEnd": int(char_end) if isinstance(char_end, int) and char_end >= 0 else None,
+        "createdAt": clean_text(raw_chunk.get("createdAt") or raw_chunk.get("created_at"), now_iso(), 40),
     }
 
 
@@ -119,7 +153,7 @@ def normalize_knowledge_turn(raw_turn: dict[str, Any] | None = None, fallback_co
 
 
 def default_knowledge_store() -> dict[str, list[Any]]:
-    return {"entries": [], "uploads": [], "conversations": [], "turns": []}
+    return {"entries": [], "uploads": [], "sourceChunks": [], "conversations": [], "turns": []}
 
 
 def normalize_knowledge_store(store: dict[str, Any] | None = None) -> dict[str, list[Any]]:
@@ -132,6 +166,10 @@ def normalize_knowledge_store(store: dict[str, Any] | None = None) -> dict[str, 
     return {
         "entries": [normalize_knowledge_entry(item) for item in store.get("entries", [])],
         "uploads": [normalize_knowledge_upload(item) for item in store.get("uploads", [])],
+        "sourceChunks": [
+            normalize_knowledge_source_chunk(item)
+            for item in (store.get("sourceChunks") or store.get("source_chunks") or [])
+        ],
         "conversations": conversations,
         "turns": [normalize_knowledge_turn(item, fallback_conversation_id) for item in store.get("turns", [])[:500]],
     }
@@ -154,12 +192,13 @@ class KnowledgeRepository:
                 SELECT
                   (SELECT COUNT(*) FROM knowledge_entries) +
                   (SELECT COUNT(*) FROM knowledge_uploads) +
+                  (SELECT COUNT(*) FROM knowledge_source_chunks) +
                   (SELECT COUNT(*) FROM knowledge_conversations) +
                   (SELECT COUNT(*) FROM knowledge_turns) AS count
                 """
             ).fetchone()["count"]
             if existing:
-                return {"entries": 0, "uploads": 0, "conversations": 0, "turns": 0, "existingRows": existing, "skipped": 1}
+                return {"entries": 0, "uploads": 0, "sourceChunks": 0, "conversations": 0, "turns": 0, "existingRows": existing, "skipped": 1}
 
         legacy = self.store.get("knowledge_expert", default_knowledge_store(), self.settings.data_dir / "knowledge-expert.json")
         normalized = normalize_knowledge_store(legacy if isinstance(legacy, dict) else default_knowledge_store())
@@ -167,6 +206,7 @@ class KnowledgeRepository:
         return {
             "entries": len(normalized["entries"]),
             "uploads": len(normalized["uploads"]),
+            "sourceChunks": len(normalized["sourceChunks"]),
             "conversations": len(normalized["conversations"]),
             "turns": len(normalized["turns"]),
             "skipped": 0,
@@ -177,12 +217,15 @@ class KnowledgeRepository:
             with connection.transaction():
                 connection.execute("DELETE FROM knowledge_turns")
                 connection.execute("DELETE FROM knowledge_conversations")
-                connection.execute("DELETE FROM knowledge_uploads")
                 connection.execute("DELETE FROM knowledge_entries")
-                for entry in knowledge_store["entries"]:
-                    self.upsert_entry(entry, connection)
+                connection.execute("DELETE FROM knowledge_uploads")
                 for upload in knowledge_store["uploads"]:
                     self.upsert_upload(upload, connection)
+                for chunk in knowledge_store.get("sourceChunks", []):
+                    if chunk["uploadId"]:
+                        self.upsert_source_chunk(chunk, connection)
+                for entry in knowledge_store["entries"]:
+                    self.upsert_entry(entry, connection)
                 for conversation in knowledge_store["conversations"]:
                     self.upsert_conversation(conversation, connection)
                 for turn in knowledge_store["turns"]:
@@ -198,41 +241,52 @@ class KnowledgeRepository:
         texts = [embedding_text(entry) for entry in entries]
         embeddings = embed_texts(texts, self.settings)
         now = now_iso()
-        normalized_entries = [
-            normalize_knowledge_entry(
-                {
-                    **entry,
-                    "id": new_id(),
-                    "sortOrder": existing_count + index + 1,
-                    "embedding": embeddings[index],
-                    "createdAt": now,
-                }
-            )
-            for index, entry in enumerate(entries)
-        ]
-        uploads = [
-            normalize_knowledge_upload(
+        uploads = []
+        normalized_chunks = []
+        normalized_entries = []
+        embedding_index = 0
+        for parsed_file in parsed_files:
+            upload = normalize_knowledge_upload(
                 {
                     "id": new_id(),
                     "fileName": parsed_file["fileName"],
                     "fileType": parsed_file["fileType"],
                     "rowCount": len(parsed_file["entries"]),
+                    "chunkCount": len(parsed_file["sourceChunks"]),
                     "uploadedBy": user_name,
                     "uploadedAt": now,
                 }
             )
-            for parsed_file in parsed_files
-        ]
+            uploads.append(upload)
+            normalized_chunks.extend(
+                normalize_knowledge_source_chunk({**chunk, "uploadId": upload["id"], "createdAt": now})
+                for chunk in parsed_file["sourceChunks"]
+            )
+            for entry in parsed_file["entries"]:
+                normalized_entries.append(
+                    normalize_knowledge_entry(
+                        {
+                            **entry,
+                            "id": new_id(),
+                            "sortOrder": existing_count + len(normalized_entries) + 1,
+                            "embedding": embeddings[embedding_index],
+                            "createdAt": now,
+                        }
+                    )
+                )
+                embedding_index += 1
 
         with self.store.pool.connection() as connection:
             with connection.transaction():
                 if mode == "replace":
                     connection.execute("DELETE FROM knowledge_entries")
                     connection.execute("DELETE FROM knowledge_uploads")
-                for entry in normalized_entries:
-                    self.upsert_entry(entry, connection)
                 for upload in uploads:
                     self.upsert_upload(upload, connection)
+                for chunk in normalized_chunks:
+                    self.upsert_source_chunk(chunk, connection)
+                for entry in normalized_entries:
+                    self.upsert_entry(entry, connection)
 
         all_entries = self.entries_for_snapshot()
         return {
@@ -240,6 +294,7 @@ class KnowledgeRepository:
             "upload": uploads[0] if len(uploads) == 1 else {"fileName": f"{len(uploads)} files", "fileType": "mixed", "rowCount": len(normalized_entries), "uploadedAt": now},
             "fileCount": len(parsed_files),
             "addedEntryCount": len(normalized_entries),
+            "addedChunkCount": len(normalized_chunks),
             "entryCount": len(all_entries),
             "embeddedCount": sum(1 for entry in normalized_entries if entry.get("embedding")),
             "entries": all_entries,
@@ -260,8 +315,8 @@ class KnowledgeRepository:
             connection.execute(
                 """
                 INSERT INTO knowledge_entries
-                  (id, category, question, answer, link, source_doc, source_page, question_source, sort_order, embedding, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
+                  (id, category, question, answer, link, source_doc, source_page, source_chunk_ids, question_source, sort_order, embedding, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::vector, %s)
                 ON CONFLICT (id) DO UPDATE SET
                   category = excluded.category,
                   question = excluded.question,
@@ -269,6 +324,7 @@ class KnowledgeRepository:
                   link = excluded.link,
                   source_doc = excluded.source_doc,
                   source_page = excluded.source_page,
+                  source_chunk_ids = excluded.source_chunk_ids,
                   question_source = excluded.question_source,
                   sort_order = excluded.sort_order,
                   embedding = excluded.embedding
@@ -281,6 +337,7 @@ class KnowledgeRepository:
                     entry["link"],
                     entry["sourceDoc"],
                     entry["sourcePage"],
+                    json.dumps(entry["sourceChunkIds"]),
                     entry["questionSource"],
                     entry["sortOrder"],
                     vector_literal(entry["embedding"]),
@@ -294,15 +351,51 @@ class KnowledgeRepository:
     def upsert_upload(self, upload: dict[str, Any], connection: Any) -> None:
         connection.execute(
             """
-            INSERT INTO knowledge_uploads (id, file_name, file_type, row_count, uploaded_by, uploaded_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO knowledge_uploads (id, file_name, file_type, row_count, chunk_count, uploaded_by, uploaded_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
               file_name = excluded.file_name,
               file_type = excluded.file_type,
               row_count = excluded.row_count,
+              chunk_count = excluded.chunk_count,
               uploaded_by = excluded.uploaded_by
             """,
-            (upload["id"], upload["fileName"], upload["fileType"], upload["rowCount"], upload["uploadedBy"], upload["uploadedAt"]),
+            (upload["id"], upload["fileName"], upload["fileType"], upload["rowCount"], upload["chunkCount"], upload["uploadedBy"], upload["uploadedAt"]),
+        )
+
+    def upsert_source_chunk(self, chunk: dict[str, Any], connection: Any) -> None:
+        connection.execute(
+            """
+            INSERT INTO knowledge_source_chunks
+              (id, upload_id, source_doc, source_type, chunk_index, locator, heading, source_page,
+               content, char_start, char_end, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+              upload_id = excluded.upload_id,
+              source_doc = excluded.source_doc,
+              source_type = excluded.source_type,
+              chunk_index = excluded.chunk_index,
+              locator = excluded.locator,
+              heading = excluded.heading,
+              source_page = excluded.source_page,
+              content = excluded.content,
+              char_start = excluded.char_start,
+              char_end = excluded.char_end
+            """,
+            (
+                chunk["id"],
+                chunk["uploadId"],
+                chunk["sourceDoc"],
+                chunk["sourceType"],
+                chunk["chunkIndex"],
+                chunk["locator"],
+                chunk["heading"],
+                chunk["sourcePage"],
+                chunk["content"],
+                chunk["charStart"],
+                chunk["charEnd"],
+                chunk["createdAt"],
+            ),
         )
 
     def upsert_conversation(self, conversation: dict[str, Any], connection: Any | None = None) -> None:
@@ -369,7 +462,8 @@ class KnowledgeRepository:
         with self.store.pool.connection() as connection:
             rows = connection.execute(
                 """
-                SELECT id, category, question, answer, link, source_doc, source_page, question_source, sort_order, embedding IS NOT NULL AS has_embedding, created_at
+                SELECT id, category, question, answer, link, source_doc, source_page, source_chunk_ids,
+                       question_source, sort_order, embedding IS NOT NULL AS has_embedding, created_at
                 FROM knowledge_entries
                 ORDER BY sort_order ASC, created_at ASC
                 LIMIT 1000
@@ -385,6 +479,7 @@ class KnowledgeRepository:
                 "link": row["link"],
                 "sourceDoc": row["source_doc"],
                 "sourcePage": row["source_page"],
+                "sourceChunkIds": row["source_chunk_ids"] or [],
                 "questionSource": row["question_source"],
                 "sortOrder": row["sort_order"],
                 "hasEmbedding": row["has_embedding"],
@@ -397,7 +492,7 @@ class KnowledgeRepository:
         with self.store.pool.connection() as connection:
             rows = connection.execute(
                 """
-                SELECT id, category, question, answer, link, source_doc, source_page, question_source,
+                SELECT id, category, question, answer, link, source_doc, source_page, source_chunk_ids, question_source,
                        sort_order, embedding::text AS embedding, created_at
                 FROM knowledge_entries
                 ORDER BY sort_order ASC, created_at ASC
@@ -412,6 +507,7 @@ class KnowledgeRepository:
                 "link": row["link"],
                 "sourceDoc": row["source_doc"],
                 "sourcePage": row["source_page"],
+                "sourceChunkIds": row["source_chunk_ids"] or [],
                 "questionSource": row["question_source"],
                 "sortOrder": row["sort_order"],
                 "embedding": normalize_embedding(row["embedding"]),
@@ -420,17 +516,48 @@ class KnowledgeRepository:
             for row in rows
         ]
 
-    def uploads(self) -> list[dict[str, Any]]:
+    def uploads(self, limit: int = 20) -> list[dict[str, Any]]:
         with self.store.pool.connection() as connection:
-            rows = connection.execute("SELECT * FROM knowledge_uploads ORDER BY uploaded_at DESC LIMIT 20").fetchall()
+            rows = connection.execute(
+                "SELECT * FROM knowledge_uploads ORDER BY uploaded_at DESC LIMIT %s",
+                (max(1, limit),),
+            ).fetchall()
         return [
             {
                 "id": row["id"],
                 "fileName": row["file_name"],
                 "fileType": row["file_type"],
                 "rowCount": row["row_count"],
+                "chunkCount": row["chunk_count"],
                 "uploadedBy": row["uploaded_by"],
                 "uploadedAt": row["uploaded_at"].isoformat(),
+            }
+            for row in rows
+        ]
+
+    def source_chunks_for_backup(self) -> list[dict[str, Any]]:
+        with self.store.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM knowledge_source_chunks
+                ORDER BY upload_id ASC, chunk_index ASC
+                """
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "uploadId": row["upload_id"],
+                "sourceDoc": row["source_doc"],
+                "sourceType": row["source_type"],
+                "chunkIndex": row["chunk_index"],
+                "locator": row["locator"],
+                "heading": row["heading"],
+                "sourcePage": row["source_page"],
+                "content": row["content"],
+                "charStart": row["char_start"],
+                "charEnd": row["char_end"],
+                "createdAt": row["created_at"].isoformat(),
             }
             for row in rows
         ]
@@ -525,7 +652,8 @@ class KnowledgeRepository:
     def backup_snapshot(self) -> dict[str, Any]:
         return {
             "entries": self.entries_for_backup(),
-            "uploads": self.uploads(),
+            "uploads": self.uploads(10000),
+            "sourceChunks": self.source_chunks_for_backup(),
             "conversations": self.conversations(),
             "turns": self.turns_for_backup(),
             "models": model_names(self.settings),
@@ -629,7 +757,8 @@ class KnowledgeRepository:
         with self.store.pool.connection() as connection:
             entry_rows = connection.execute(
                 """
-                SELECT id, category, question, answer, link, source_doc, source_page, question_source, sort_order, created_at
+                SELECT id, category, question, answer, link, source_doc, source_page, source_chunk_ids,
+                       question_source, sort_order, created_at
                 FROM knowledge_entries
                 ORDER BY sort_order ASC, created_at ASC
                 LIMIT 1000
@@ -648,6 +777,7 @@ class KnowledgeRepository:
                 "link": row["link"],
                 "sourceDoc": row["source_doc"],
                 "sourcePage": row["source_page"],
+                "sourceChunkIds": row["source_chunk_ids"] or [],
                 "questionSource": row["question_source"],
                 "sortOrder": row["sort_order"],
                 "createdAt": row["created_at"].isoformat(),
@@ -657,6 +787,36 @@ class KnowledgeRepository:
             if not entry["retrieved"] or not entry["cited"]:
                 entries.append(entry)
         return {"entries": entries}
+
+    def source_coverage_report(self) -> dict[str, Any]:
+        with self.store.pool.connection() as connection:
+            chunk_rows = connection.execute(
+                """
+                SELECT id, upload_id, source_doc, source_type, chunk_index, locator, heading, source_page,
+                       content, char_start, char_end, created_at
+                FROM knowledge_source_chunks
+                ORDER BY source_doc ASC, chunk_index ASC
+                """
+            ).fetchall()
+            entry_rows = connection.execute(
+                """
+                SELECT id, category, question, answer, source_doc, source_chunk_ids, question_source
+                FROM knowledge_entries
+                ORDER BY sort_order ASC, created_at ASC
+                """
+            ).fetchall()
+            upload_rows = connection.execute(
+                """
+                SELECT id, file_name, file_type, row_count, chunk_count, uploaded_at
+                FROM knowledge_uploads
+                ORDER BY uploaded_at DESC
+                """
+            ).fetchall()
+        return build_source_coverage_report(
+            [dict(row) for row in chunk_rows],
+            [dict(row) for row in entry_rows],
+            [dict(row) for row in upload_rows],
+        )
 
     def gaps_report(self) -> dict[str, Any]:
         with self.store.pool.connection() as connection:
@@ -971,19 +1131,28 @@ def file_type(file_name: str) -> str:
         return "json"
     if extension in {".md", ".markdown"}:
         return "markdown"
-    if extension in {".pdf", ".docx"}:
-        raise bad_request("PDF and DOCX parsing will be ported in the next backend slice. Upload CSV, HTML, TXT, Markdown, or JSON for now.")
+    if extension == ".pdf":
+        return "pdf"
+    if extension == ".docx":
+        return "docx"
     return "text"
+
+
+def payload_bytes(file_payload: dict[str, Any]) -> bytes:
+    compact_base64 = re.sub(r"^data:[^,]+,", "", str(file_payload.get("base64") or "").strip())
+    if not compact_base64:
+        raise bad_request("Choose a knowledge-base file first.")
+    try:
+        return base64.b64decode(compact_base64, validate=True)
+    except Exception as exc:
+        raise bad_request("Could not decode the knowledge-base file.") from exc
 
 
 def payload_text(file_payload: dict[str, Any]) -> str:
     if isinstance(file_payload.get("text"), str):
         return file_payload["text"]
-    compact_base64 = re.sub(r"^data:[^,]+,", "", str(file_payload.get("base64") or "").strip())
-    if not compact_base64:
-        raise bad_request("Choose a knowledge-base file first.")
     try:
-        return base64.b64decode(compact_base64).decode("utf-8")
+        return payload_bytes(file_payload).decode("utf-8")
     except Exception as exc:
         raise bad_request("Could not decode the knowledge-base file as UTF-8 text.") from exc
 
@@ -991,23 +1160,39 @@ def payload_text(file_payload: dict[str, Any]) -> str:
 def parse_knowledge_file(file_payload: dict[str, Any]) -> dict[str, Any]:
     file_name = clean_text(file_payload.get("fileName"), "knowledge-base.txt", 300)
     kind = file_type(file_name)
-    raw_text = payload_text(file_payload)
-    entries = parse_entries(raw_text, file_name, kind)
-    return {"fileName": file_name, "fileType": kind, "entries": entries}
+    if kind == "pdf":
+        parsed = parse_pdf_document(payload_bytes(file_payload), file_name)
+    elif kind == "docx":
+        parsed = parse_docx_document(payload_bytes(file_payload), file_name)
+    else:
+        parsed = parse_document(payload_text(file_payload), file_name, kind)
+    return {"fileName": file_name, "fileType": kind, **parsed}
 
 
 def parse_entries(raw_text: str, file_name: str, kind: str) -> list[dict[str, Any]]:
+    return parse_document(raw_text, file_name, kind)["entries"]
+
+
+def parse_document(raw_text: str, file_name: str, kind: str) -> dict[str, list[dict[str, Any]]]:
     text = str(raw_text or "").strip()
     if not text:
         raise bad_request("The knowledge base file is empty.")
     if kind == "csv":
-        entries = parse_csv_entries(text, file_name)
+        entries, source_chunks = parse_csv_document(text, file_name)
     elif kind == "json":
-        entries = parse_json_entries(text, file_name)
+        entries, source_chunks = parse_json_document(text, file_name)
     elif kind == "html":
-        entries = parse_text_entries(strip_html(text), file_name)
+        entries, source_chunks = parse_text_document(strip_html(text), file_name, "html")
     else:
-        entries = parse_text_entries(text, file_name)
+        entries, source_chunks = parse_text_document(text, file_name, kind)
+    return finalize_parsed_document(entries, source_chunks, file_name)
+
+
+def finalize_parsed_document(
+    entries: list[dict[str, Any]],
+    source_chunks: list[dict[str, Any]],
+    file_name: str,
+) -> dict[str, list[dict[str, Any]]]:
     normalized = [
         normalize_knowledge_entry({**entry, "sortOrder": index + 1, "sourceDoc": entry.get("sourceDoc") or file_name})
         for index, entry in enumerate(entries)
@@ -1015,10 +1200,188 @@ def parse_entries(raw_text: str, file_name: str, kind: str) -> list[dict[str, An
     valid = [entry for entry in normalized if entry["question"] and entry["answer"]]
     if not valid:
         raise bad_request("No usable knowledge entries were found.")
-    return valid[:1000]
+    return {
+        "entries": valid[:1000],
+        "sourceChunks": [normalize_knowledge_source_chunk(chunk) for chunk in source_chunks[:5000]],
+    }
 
 
-def parse_csv_entries(text: str, file_name: str) -> list[dict[str, Any]]:
+def parse_pdf_document(pdf_bytes: bytes, file_name: str) -> dict[str, list[dict[str, Any]]]:
+    if not pdf_bytes[:1024].lstrip().startswith(b"%PDF-"):
+        raise bad_request("Choose a valid PDF file.")
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+    except Exception as exc:
+        raise bad_request("Could not read the PDF file.") from exc
+    if reader.is_encrypted:
+        try:
+            if not reader.decrypt(""):
+                raise bad_request("Password-protected PDF files are not supported.")
+        except Exception as exc:
+            if getattr(exc, "status_code", None):
+                raise
+            raise bad_request("Password-protected PDF files are not supported.") from exc
+    entries = []
+    source_chunks = []
+    for page_number, page in enumerate(reader.pages, start=1):
+        try:
+            page_text = str(page.extract_text() or "").strip()
+        except Exception as exc:
+            raise bad_request(f"Could not extract text from PDF page {page_number}.") from exc
+        if not page_text:
+            continue
+        page_entries, page_chunks = parse_text_document(
+            page_text,
+            file_name,
+            "pdf",
+            source_page=page_number,
+            locator_prefix=f"page {page_number} block",
+            starting_chunk_index=len(source_chunks),
+        )
+        entries.extend(page_entries)
+        source_chunks.extend(page_chunks)
+    if not source_chunks:
+        raise bad_request("No extractable text was found in the PDF. Scanned PDFs need OCR before upload.")
+    return finalize_parsed_document(entries, source_chunks, file_name)
+
+
+DOCX_WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+DOCX_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+DOCX_NAMESPACES = {"w": DOCX_WORD_NAMESPACE, "r": DOCX_RELATIONSHIP_NAMESPACE}
+
+
+def docx_tag(name: str) -> str:
+    return f"{{{DOCX_WORD_NAMESPACE}}}{name}"
+
+
+def docx_text(element: ElementTree.Element) -> str:
+    parts = []
+    for node in element.iter():
+        if node.tag == docx_tag("t"):
+            parts.append(node.text or "")
+        elif node.tag == docx_tag("tab"):
+            parts.append("\t")
+        elif node.tag in {docx_tag("br"), docx_tag("cr")}:
+            parts.append("\n")
+    return re.sub(r"[ \t]+\n", "\n", "".join(parts)).strip()
+
+
+def docx_paragraph_style(paragraph: ElementTree.Element) -> str:
+    style = paragraph.find("./w:pPr/w:pStyle", DOCX_NAMESPACES)
+    return str(style.get(docx_tag("val")) or "") if style is not None else ""
+
+
+def is_docx_heading(style: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "", str(style or "").lower())
+    return normalized == "title" or normalized.startswith("heading")
+
+
+def docx_table_cell_text(cell: ElementTree.Element) -> str:
+    paragraphs = [
+        docx_text(paragraph)
+        for paragraph in cell.findall(".//w:p", DOCX_NAMESPACES)
+    ]
+    return "\n".join(paragraph for paragraph in paragraphs if paragraph)
+
+
+def parse_docx_document(docx_bytes: bytes, file_name: str) -> dict[str, list[dict[str, Any]]]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(docx_bytes)) as archive:
+            document_xml = archive.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise bad_request("Choose a valid DOCX file.") from exc
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:
+        raise bad_request("Could not parse the DOCX document structure.") from exc
+    body = root.find("w:body", DOCX_NAMESPACES)
+    if body is None:
+        raise bad_request("The DOCX file does not contain a document body.")
+
+    blocks = []
+    current_heading = "General"
+    paragraph_number = 0
+    table_number = 0
+    for child in body:
+        if child.tag == docx_tag("p"):
+            paragraph_number += 1
+            text = docx_text(child)
+            if not text:
+                continue
+            style = docx_paragraph_style(child)
+            if is_docx_heading(style):
+                current_heading = text
+                continue
+            blocks.append(
+                {
+                    "text": text,
+                    "heading": current_heading,
+                    "sourceType": "docx-paragraph",
+                    "locator": f"paragraph {paragraph_number}",
+                }
+            )
+        elif child.tag == docx_tag("tbl"):
+            table_number += 1
+            for row_number, row in enumerate(child.findall("./w:tr", DOCX_NAMESPACES), start=1):
+                cells = [docx_table_cell_text(cell) for cell in row.findall("./w:tc", DOCX_NAMESPACES)]
+                text = " | ".join(cell for cell in cells if cell)
+                if text:
+                    blocks.append(
+                        {
+                            "text": text,
+                            "heading": current_heading,
+                            "sourceType": "docx-table-row",
+                            "locator": f"table {table_number} row {row_number}",
+                        }
+                    )
+    blocks = combine_docx_qa_blocks(blocks)
+    entries = []
+    source_chunks = []
+    for block in blocks:
+        chunk, entry = source_chunk_and_entry(
+            block["text"],
+            file_name,
+            block["heading"],
+            block["sourceType"],
+            len(source_chunks) + 1,
+            block["locator"],
+        )
+        source_chunks.append(chunk)
+        entries.append(entry)
+    if not source_chunks:
+        raise bad_request("No extractable text was found in the DOCX file.")
+    return finalize_parsed_document(entries, source_chunks, file_name)
+
+
+def combine_docx_qa_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    combined = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        next_block = blocks[index + 1] if index + 1 < len(blocks) else None
+        if (
+            next_block
+            and block["sourceType"] == "docx-paragraph"
+            and next_block["sourceType"] == "docx-paragraph"
+            and block["heading"] == next_block["heading"]
+            and re.match(r"^q(?:uestion)?[:.)]\s*", block["text"], flags=re.I)
+            and re.match(r"^a(?:nswer)?[:.)]\s*", next_block["text"], flags=re.I)
+        ):
+            combined.append(
+                {
+                    **block,
+                    "text": f"{block['text']}\n{next_block['text']}",
+                    "locator": f"{block['locator']} + {next_block['locator']}",
+                }
+            )
+            index += 2
+            continue
+        combined.append(block)
+        index += 1
+    return combined
+
+
+def parse_csv_document(text: str, file_name: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows = list(csv.reader(StringIO(text)))
     if len(rows) < 2:
         raise bad_request("CSV needs a header row and at least one data row.")
@@ -1036,20 +1399,42 @@ def parse_csv_entries(text: str, file_name: str) -> list[dict[str, Any]]:
     link_index = find_header("link", "url", "resource")
     if question_index == -1:
         raise bad_request("CSV needs a question column.")
-    return [
-        {
+    entries = []
+    source_chunks = []
+    for row_index, row in enumerate(rows[1:], start=2):
+        chunk_id = new_id()
+        row_content = {
+            (headers[index] or f"column_{index + 1}"): value
+            for index, value in enumerate(row)
+        }
+        source_chunks.append(
+            {
+                "id": chunk_id,
+                "sourceDoc": file_name,
+                "sourceType": "csv-row",
+                "chunkIndex": row_index - 1,
+                "locator": f"row {row_index}",
+                "heading": row[category_index] if category_index >= 0 and category_index < len(row) else "",
+                "content": json.dumps(row_content, ensure_ascii=True),
+            }
+        )
+        entries.append({
             "category": row[category_index] if category_index >= 0 and category_index < len(row) else "General",
             "question": row[question_index] if question_index < len(row) else "",
             "answer": row[answer_index] if answer_index >= 0 and answer_index < len(row) else "",
             "link": row[link_index] if link_index >= 0 and link_index < len(row) else "",
             "sourceDoc": file_name,
+            "sourceChunkIds": [chunk_id],
             "questionSource": "original",
-        }
-        for row in rows[1:]
-    ]
+        })
+    return entries, source_chunks
 
 
-def parse_json_entries(text: str, file_name: str) -> list[dict[str, Any]]:
+def parse_csv_entries(text: str, file_name: str) -> list[dict[str, Any]]:
+    return parse_csv_document(text, file_name)[0]
+
+
+def parse_json_document(text: str, file_name: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -1057,66 +1442,146 @@ def parse_json_entries(text: str, file_name: str) -> list[dict[str, Any]]:
     rows = parsed if isinstance(parsed, list) else parsed.get("entries", []) if isinstance(parsed, dict) else []
     if not rows:
         raise bad_request("JSON must be an array or an object with an entries array.")
-    return [
-        {
+    entries = []
+    source_chunks = []
+    locator_prefix = "" if isinstance(parsed, list) else "entries"
+    for row_index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        chunk_id = new_id()
+        locator = f"{locator_prefix}[{row_index}]" if locator_prefix else f"[{row_index}]"
+        source_chunks.append(
+            {
+                "id": chunk_id,
+                "sourceDoc": file_name,
+                "sourceType": "json-entry",
+                "chunkIndex": row_index + 1,
+                "locator": locator,
+                "heading": row.get("category") or "",
+                "content": json.dumps(row, ensure_ascii=True, sort_keys=True),
+            }
+        )
+        entries.append({
             "category": row.get("category") or "General",
             "question": row.get("question") or row.get("q") or row.get("title") or "",
             "answer": row.get("answer") or row.get("a") or row.get("text") or "",
             "link": row.get("link") or row.get("url") or "",
             "sourceDoc": file_name,
+            "sourceChunkIds": [chunk_id],
             "questionSource": "original" if row.get("question") or row.get("q") else "heuristic",
-        }
-        for row in rows
-        if isinstance(row, dict)
-    ]
+        })
+    return entries, source_chunks
+
+
+def parse_json_entries(text: str, file_name: str) -> list[dict[str, Any]]:
+    return parse_json_document(text, file_name)[0]
 
 
 def strip_html(text: str) -> str:
     stripped = re.sub(r"<script[\s\S]*?</script>", " ", text, flags=re.I)
     stripped = re.sub(r"<style[\s\S]*?</style>", " ", stripped, flags=re.I)
     stripped = re.sub(r"<(h[1-4])[^>]*>", "\n\n## ", stripped, flags=re.I)
-    stripped = re.sub(r"</h[1-4]>", "\n", stripped, flags=re.I)
+    stripped = re.sub(r"</h[1-4]>", "\n\n", stripped, flags=re.I)
     stripped = re.sub(r"<br\s*/?>", "\n", stripped, flags=re.I)
-    stripped = re.sub(r"</(p|li|tr|div|section|article)>", "\n", stripped, flags=re.I)
+    stripped = re.sub(r"</(p|li|tr|div|section|article)>", "\n\n", stripped, flags=re.I)
     stripped = re.sub(r"<[^>]+>", " ", stripped)
     return html.unescape(stripped)
 
 
-def parse_text_entries(text: str, file_name: str) -> list[dict[str, Any]]:
-    blocks = [block.strip() for block in re.split(r"\n{2,}", text.replace("\r\n", "\n")) if block.strip()]
+def parse_text_document(
+    text: str,
+    file_name: str,
+    source_type: str = "text",
+    source_page: int | str | None = None,
+    locator_prefix: str = "block",
+    starting_chunk_index: int = 0,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized_text = text.replace("\r\n", "\n")
     entries = []
+    source_chunks = []
     current_heading = "General"
-    for block in blocks:
+    for match in re.finditer(r"\S(?:[\s\S]*?\S)?(?=\n{2,}|$)", normalized_text):
+        raw_block = match.group(0)
+        block = raw_block.strip()
+        if not block:
+            continue
         heading = re.sub(r"^#+\s*", "", block).strip()
-        if block.startswith("#") or (len(block) <= 120 and not re.search(r"[.!?]\s", block) and ":" not in block):
+        if block.startswith("#") or (len(block) <= 120 and not re.search(r"[.!?]", block) and ":" not in block):
             current_heading = heading or current_heading
             continue
-        qa_match = re.match(r"^(?:q(?:uestion)?[:.)]\s*)([\s\S]*?)(?:\n|$)(?:a(?:nswer)?[:.)]\s*)([\s\S]*)$", block, flags=re.I)
-        if qa_match:
-            entries.append(
-                {
-                    "category": current_heading,
-                    "question": qa_match.group(1).strip(),
-                    "answer": qa_match.group(2).strip(),
-                    "sourceDoc": file_name,
-                    "questionSource": "extracted",
-                }
-            )
-            continue
+        char_start = match.start() + len(raw_block) - len(raw_block.lstrip())
+        char_end = char_start + len(block)
+        chunk_index = starting_chunk_index + len(source_chunks) + 1
+        chunk, entry = source_chunk_and_entry(
+            block,
+            file_name,
+            current_heading,
+            f"{source_type}-block",
+            chunk_index,
+            f"{locator_prefix} {len(source_chunks) + 1}",
+            source_page=source_page,
+            char_start=char_start,
+            char_end=char_end,
+        )
+        source_chunks.append(chunk)
+        entries.append(entry)
+    return entries, source_chunks
+
+
+def source_chunk_and_entry(
+    block: str,
+    file_name: str,
+    heading: str,
+    source_type: str,
+    chunk_index: int,
+    locator: str,
+    *,
+    source_page: int | str | None = None,
+    char_start: int | None = None,
+    char_end: int | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    chunk_id = new_id()
+    chunk = {
+        "id": chunk_id,
+        "sourceDoc": file_name,
+        "sourceType": source_type,
+        "chunkIndex": chunk_index,
+        "locator": locator,
+        "heading": heading,
+        "sourcePage": source_page,
+        "content": block,
+        "charStart": char_start,
+        "charEnd": char_end,
+    }
+    qa_match = re.match(
+        r"^(?:q(?:uestion)?[:.)]\s*)([\s\S]*?)(?:\n|$)(?:a(?:nswer)?[:.)]\s*)([\s\S]*)$",
+        block,
+        flags=re.I,
+    )
+    if qa_match:
+        question = qa_match.group(1).strip()
+        answer = qa_match.group(2).strip()
+        question_source = "extracted"
+    else:
         lines = block.split("\n")
         first_line = lines[0]
         question = first_line if first_line.endswith("?") or len(first_line) <= 140 else first_sentence(first_line)
         answer = "\n".join(lines[1:]).strip() if len(lines) > 1 else block
-        entries.append(
-            {
-                "category": current_heading,
-                "question": question,
-                "answer": answer,
-                "sourceDoc": file_name,
-                "questionSource": "heuristic",
-            }
-        )
-    return entries
+        question_source = "heuristic"
+    entry = {
+        "category": heading,
+        "question": question,
+        "answer": answer,
+        "sourceDoc": file_name,
+        "sourcePage": source_page,
+        "sourceChunkIds": [chunk_id],
+        "questionSource": question_source,
+    }
+    return chunk, entry
+
+
+def parse_text_entries(text: str, file_name: str) -> list[dict[str, Any]]:
+    return parse_text_document(text, file_name)[0]
 
 
 def first_sentence(text: str) -> str:
@@ -1153,6 +1618,164 @@ def meaningful_tokens(text: str) -> list[str]:
         for token in re.split(r"[^a-z0-9]+", str(text or "").lower())
         if len(token) >= 3 and token not in stopwords
     ]
+
+
+def token_coverage(source_text: str, compared_text: str) -> dict[str, Any]:
+    source_tokens = set(meaningful_tokens(source_text))
+    compared_tokens = set(meaningful_tokens(compared_text))
+    covered_tokens = source_tokens & compared_tokens
+    ratio = len(covered_tokens) / len(source_tokens) if source_tokens else 1.0
+    return {
+        "ratio": ratio,
+        "sourceTokenCount": len(source_tokens),
+        "coveredTokenCount": len(covered_tokens),
+        "uncoveredTokens": sorted(source_tokens - covered_tokens)[:20],
+    }
+
+
+def percentage(value: float) -> float:
+    return round(max(0.0, min(1.0, value)) * 100, 1)
+
+
+def build_source_coverage_report(
+    chunks: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+    uploads: list[dict[str, Any]],
+) -> dict[str, Any]:
+    entries_by_chunk: dict[str, list[dict[str, Any]]] = {}
+    traceable_entries = []
+    untraceable_entries = []
+    for entry in entries:
+        chunk_ids = entry.get("source_chunk_ids") or entry.get("sourceChunkIds") or []
+        if not isinstance(chunk_ids, list) or not chunk_ids:
+            untraceable_entries.append(entry)
+            continue
+        traceable_entries.append(entry)
+        for chunk_id in chunk_ids:
+            entries_by_chunk.setdefault(str(chunk_id), []).append(entry)
+
+    analyzed_chunks = []
+    total_source_tokens = 0
+    total_covered_tokens = 0
+    linked_chunks = 0
+    for chunk in chunks:
+        chunk_entries = entries_by_chunk.get(str(chunk.get("id")), [])
+        compared_text = "\n".join(
+            f"{entry.get('question', '')}\n{entry.get('answer', '')}"
+            for entry in chunk_entries
+        )
+        coverage = token_coverage(str(chunk.get("content") or ""), compared_text)
+        total_source_tokens += coverage["sourceTokenCount"]
+        total_covered_tokens += coverage["coveredTokenCount"]
+        if chunk_entries:
+            linked_chunks += 1
+        ratio = coverage["ratio"] if chunk_entries else 0.0
+        status = (
+            "uncovered"
+            if not chunk_entries
+            else "covered"
+            if ratio >= KNOWLEDGE_COVERAGE_GOOD_THRESHOLD
+            else "low"
+            if ratio < KNOWLEDGE_COVERAGE_LOW_THRESHOLD
+            else "partial"
+        )
+        analyzed_chunks.append(
+            {
+                "id": chunk.get("id"),
+                "uploadId": chunk.get("upload_id") or chunk.get("uploadId") or "",
+                "sourceDoc": chunk.get("source_doc") or chunk.get("sourceDoc") or "",
+                "sourceType": chunk.get("source_type") or chunk.get("sourceType") or "",
+                "chunkIndex": chunk.get("chunk_index") or chunk.get("chunkIndex") or 0,
+                "locator": chunk.get("locator") or "",
+                "heading": chunk.get("heading") or "",
+                "contentPreview": clean_text(chunk.get("content"), "", 320),
+                "entryCount": len(chunk_entries),
+                "entryIds": [entry.get("id") for entry in chunk_entries],
+                "coveragePercent": percentage(ratio),
+                "sourceTokenCount": coverage["sourceTokenCount"],
+                "coveredTokenCount": coverage["coveredTokenCount"],
+                "status": status,
+                "uncoveredTokens": coverage["uncoveredTokens"],
+            }
+        )
+
+    answer_source_tokens = 0
+    answer_supported_tokens = 0
+    low_support_entries = []
+    chunks_by_id = {str(chunk.get("id")): chunk for chunk in chunks}
+    for entry in traceable_entries:
+        chunk_ids = entry.get("source_chunk_ids") or entry.get("sourceChunkIds") or []
+        source_text = "\n".join(
+            str(chunks_by_id.get(str(chunk_id), {}).get("content") or "")
+            for chunk_id in chunk_ids
+        )
+        support = token_coverage(str(entry.get("answer") or ""), source_text)
+        answer_source_tokens += support["sourceTokenCount"]
+        answer_supported_tokens += support["coveredTokenCount"]
+        if support["ratio"] < KNOWLEDGE_COVERAGE_LOW_THRESHOLD:
+            low_support_entries.append(
+                {
+                    "id": entry.get("id"),
+                    "sourceDoc": entry.get("source_doc") or entry.get("sourceDoc") or "",
+                    "question": entry.get("question") or "",
+                    "answerPreview": clean_text(entry.get("answer"), "", 280),
+                    "supportPercent": percentage(support["ratio"]),
+                    "unsupportedTokens": support["uncoveredTokens"],
+                }
+            )
+
+    issues = sorted(
+        [chunk for chunk in analyzed_chunks if chunk["status"] != "covered"],
+        key=lambda chunk: (
+            {"uncovered": 0, "low": 1, "partial": 2}.get(chunk["status"], 3),
+            chunk["sourceDoc"],
+            chunk["chunkIndex"],
+        ),
+    )
+    upload_by_id = {str(upload.get("id")): upload for upload in uploads}
+    documents = []
+    for upload_id in dict.fromkeys(str(chunk.get("uploadId") or "") for chunk in analyzed_chunks):
+        document_chunks = [chunk for chunk in analyzed_chunks if str(chunk.get("uploadId") or "") == upload_id]
+        upload = upload_by_id.get(upload_id, {})
+        document_tokens = sum(chunk["sourceTokenCount"] for chunk in document_chunks)
+        covered_document_tokens = sum(chunk["coveredTokenCount"] for chunk in document_chunks)
+        documents.append(
+            {
+                "uploadId": upload_id,
+                "fileName": upload.get("file_name") or upload.get("fileName") or document_chunks[0]["sourceDoc"],
+                "fileType": upload.get("file_type") or upload.get("fileType") or "",
+                "chunkCount": len(document_chunks),
+                "linkedChunkCount": sum(1 for chunk in document_chunks if chunk["entryCount"]),
+                "coveredChunkCount": sum(1 for chunk in document_chunks if chunk["status"] == "covered"),
+                "coveragePercent": percentage(covered_document_tokens / document_tokens) if document_tokens else 100.0,
+            }
+        )
+
+    total_chunks = len(analyzed_chunks)
+    covered_chunks = sum(1 for chunk in analyzed_chunks if chunk["status"] == "covered")
+    return {
+        "totals": {
+            "chunks": total_chunks,
+            "linkedChunks": linked_chunks,
+            "coveredChunks": covered_chunks,
+            "uncoveredChunks": sum(1 for chunk in analyzed_chunks if chunk["status"] == "uncovered"),
+            "partialChunks": sum(1 for chunk in analyzed_chunks if chunk["status"] in {"partial", "low"}),
+            "traceabilityPercent": percentage(linked_chunks / total_chunks) if total_chunks else 0.0,
+            "lexicalCoveragePercent": percentage(total_covered_tokens / total_source_tokens) if total_source_tokens else 0.0,
+            "answerSupportPercent": percentage(answer_supported_tokens / answer_source_tokens) if answer_source_tokens else 0.0,
+            "entries": len(entries),
+            "traceableEntries": len(traceable_entries),
+            "untraceableEntries": len(untraceable_entries),
+        },
+        "documents": documents,
+        "issues": issues[:200],
+        "lowSupportEntries": low_support_entries[:100],
+        "limitations": [
+            "Lexical coverage measures shared normalized words, not semantic equivalence.",
+            "Answer support can flag wording absent from the source, but it does not prove a contradiction.",
+            "Legacy entries uploaded before source traceability are counted as untraceable.",
+        ],
+    }
 
 
 def keyword_score(entry: dict[str, Any], tokens: list[str]) -> int:

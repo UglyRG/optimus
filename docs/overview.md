@@ -6,14 +6,14 @@ Optimus is a local productivity platform that hosts a growing catalog of small, 
 
 - React frontend: the application shell, dashboard, hosted tool screens, admin UI, and client-side utilities.
 - FastAPI backend: authentication, tool APIs, file generation, backup/restore, AI-provider calls, and persistence.
-- Postgres: stores app data, Knowledge Expert conversations, knowledge entries, vector embeddings, and metadata.
+- Postgres: stores app data, Knowledge Expert source chunks, knowledge entries, conversations, vector embeddings, and metadata.
 - Outputs folder: stores generated files such as PDFs, HTML exports, and Base64 iframe source files.
 
 ## Main Capabilities
 
 - Tool catalog dashboard with admin-managed groups, visibility, and display order.
 - Personal tracking tools: Padelog, Betlog, and Notelog.
-- Knowledge Expert: upload a small knowledge base and ask grounded questions with citations.
+- Knowledge Expert: upload structured files or prose documents, including PDF and DOCX, retain source provenance, measure lexical coverage, and ask grounded questions with citations.
 - Builder tools: Demo Builder and Presentation Suite Builder.
 - Utility tools: Base64 iframe conversion, PDF combination, CSV conversion, and AI token usage reporting.
 - Backup and restore for persisted Optimus data.

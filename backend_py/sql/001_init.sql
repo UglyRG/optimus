@@ -14,11 +14,15 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
   link text NOT NULL DEFAULT '',
   source_doc text NOT NULL DEFAULT '',
   source_page text,
+  source_chunk_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   question_source text NOT NULL DEFAULT 'original',
   sort_order integer NOT NULL DEFAULT 1,
   embedding vector(1536),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE knowledge_entries
+ADD COLUMN IF NOT EXISTS source_chunk_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS knowledge_entries_embedding_hnsw
 ON knowledge_entries
@@ -29,9 +33,31 @@ CREATE TABLE IF NOT EXISTS knowledge_uploads (
   file_name text NOT NULL DEFAULT 'knowledge-base',
   file_type text NOT NULL DEFAULT 'text',
   row_count integer NOT NULL DEFAULT 0,
+  chunk_count integer NOT NULL DEFAULT 0,
   uploaded_by text NOT NULL DEFAULT '',
   uploaded_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE knowledge_uploads
+ADD COLUMN IF NOT EXISTS chunk_count integer NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS knowledge_source_chunks (
+  id text PRIMARY KEY,
+  upload_id text NOT NULL REFERENCES knowledge_uploads(id) ON DELETE CASCADE,
+  source_doc text NOT NULL DEFAULT '',
+  source_type text NOT NULL DEFAULT 'text',
+  chunk_index integer NOT NULL DEFAULT 1,
+  locator text NOT NULL DEFAULT '',
+  heading text NOT NULL DEFAULT '',
+  source_page text,
+  content text NOT NULL DEFAULT '',
+  char_start integer,
+  char_end integer,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS knowledge_source_chunks_upload_idx
+ON knowledge_source_chunks (upload_id, chunk_index);
 
 CREATE TABLE IF NOT EXISTS knowledge_conversations (
   id text PRIMARY KEY,

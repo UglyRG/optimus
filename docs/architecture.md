@@ -42,13 +42,13 @@ Important modules:
 - `catalog.py`: hosted tools and default catalog layout.
 - `domain.py`: normalization and validation for persisted tool data.
 - `tools.py`: file generators, usage reports, performance analysis, and utility services.
-- `knowledge.py`: Knowledge Expert parsing, storage, retrieval, chat, traces, reports, and migration.
+- `knowledge.py`: Knowledge Expert text/PDF/DOCX parsing, source traceability, storage, retrieval, chat, coverage reports, traces, and migration.
 - `store.py`: Postgres-backed JSON store.
 - `config.py`: environment-backed settings.
 
 ## Persistence
 
-General app data is stored in Postgres `app_data` as JSONB documents. Knowledge Expert uses dedicated tables for entries, uploads, conversations, and turns.
+General app data is stored in Postgres `app_data` as JSONB documents. Knowledge Expert uses dedicated tables for entries, uploads, retained source chunks, conversations, and turns. Entries store source-chunk IDs so derived Q&A remains traceable to the uploaded content.
 
 Older JSON files under `data/` can be migrated into Postgres by the store/repository code. `data/*.json` is ignored by Git and should be treated as local user data.
 

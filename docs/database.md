@@ -11,6 +11,7 @@ It creates:
 - `app_data`: JSONB key/value store for general app data.
 - `knowledge_entries`: Knowledge Expert source entries and optional embeddings.
 - `knowledge_uploads`: uploaded knowledge file metadata.
+- `knowledge_source_chunks`: retained source blocks or structured rows used to derive entries.
 - `knowledge_conversations`: Knowledge Expert chat conversations.
 - `knowledge_turns`: Knowledge Expert turns, citations, traces, feedback, and optional message embeddings.
 
@@ -28,6 +29,8 @@ The backend currently uses these logical stores:
 Some legacy JSON files can be imported into these stores when first read.
 
 ## pgvector
+
+`knowledge_entries.source_chunk_ids` links each derived Q&A to its retained source material. Text-like files retain content blocks with headings and character offsets; CSV and JSON retain row/entry locators; PDF chunks retain page numbers; DOCX chunks retain paragraph and table-row locators.
 
 `knowledge_entries.embedding` and `knowledge_turns.user_message_embedding` use `vector(1536)`, matching the default `text-embedding-3-small` embedding size.
 

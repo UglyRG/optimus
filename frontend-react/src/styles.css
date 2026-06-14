@@ -2369,6 +2369,11 @@ iframe {
   line-height: 1.4;
 }
 
+.knowledge-report-output h3 {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+}
+
 .knowledge-report-summary {
   display: flex;
   flex-wrap: wrap;

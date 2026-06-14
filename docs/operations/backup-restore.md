@@ -11,7 +11,7 @@ Backup downloads a zip containing JSON exports for:
 - `betlog-bets`
 - `notelog-notes`
 - `performance-insights`
-- Knowledge Expert snapshot generated from the database
+- Knowledge Expert snapshot generated from the database, including retained source chunks and entry-to-source links
 
 Generated files in `Outputs/` are not included.
 

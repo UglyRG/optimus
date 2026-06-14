@@ -93,3 +93,19 @@ Accepted wrapper payloads:
 ## Internal Tool APIs
 
 Internal tool routes live under `/api/tools/...` and require a logged-in browser session. Use `/docs` as the source of truth for route details while the backend is running.
+
+Knowledge Expert uploads use:
+
+```text
+POST /api/tools/knowledge-expert/upload
+```
+
+The JSON body accepts `mode` (`append` or `replace`) and between 1 and 20 Base64-encoded files. Supported extensions are CSV, JSON, HTML, TXT, Markdown, PDF, and DOCX. The response includes added entry and source-chunk counts.
+
+Knowledge Expert source analysis is available at:
+
+```text
+GET /api/tools/knowledge-expert/admin/reports/source-coverage
+```
+
+The response includes aggregate traceability, lexical coverage, answer-support metrics, per-document coverage, uncovered or partially covered chunks, low-support entries, and scoring limitations.

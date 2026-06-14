@@ -2192,12 +2192,14 @@ function KnowledgeExpertPage({ onBack }) {
       conversations: ["Conversations", "Recent chat turns, grounded status, and response text."],
       errors: ["Errors", "Persisted Knowledge Expert errors and failed turns."],
       dead: ["Dead entries", "Knowledge entries that were never retrieved or never cited."],
+      coverage: ["Source coverage", "Traceability, lexical coverage, and answer-support checks for uploaded sources."],
       gaps: ["Knowledge gaps", "Similar declined questions grouped together."],
     };
     const paths = {
       conversations: "/tools/knowledge-expert/admin/conversations",
       errors: "/tools/knowledge-expert/admin/reports/errors",
       dead: "/tools/knowledge-expert/admin/reports/dead-entries",
+      coverage: "/tools/knowledge-expert/admin/reports/source-coverage",
       gaps: "/tools/knowledge-expert/admin/reports/knowledge-gaps",
     };
     setReportModal({ report, title: labels[report]?.[0] || "Report", subtitle: labels[report]?.[1] || "Knowledge Expert admin report.", loading: true, error: "", payload: null });
@@ -2279,6 +2281,7 @@ function KnowledgeExpertPage({ onBack }) {
                 <button className="button button-secondary" type="button" onClick={() => openReport("conversations")}>Conversations</button>
                 <button className="button button-secondary" type="button" onClick={() => openReport("errors")}>Errors</button>
                 <button className="button button-secondary" type="button" onClick={() => openReport("dead")}>Dead entries</button>
+                <button className="button button-secondary" type="button" onClick={() => openReport("coverage")}>Source coverage</button>
                 <button className="button button-secondary" type="button" onClick={() => openReport("gaps")}>Knowledge gaps</button>
               </div>
             </div>
@@ -2487,11 +2490,14 @@ function KnowledgeHowModal({ onClose }) {
           <button className="button button-secondary" type="button" onClick={onClose}>Close</button>
         </div>
         <div className="ai-modal-body knowledge-how-body">
-          <section><h3>1. Upload trusted content</h3><p>Upload CSV, JSON, HTML, TXT, Markdown, PDF, or DOCX files. Append adds entries; Replace starts from a clean dataset.</p></section>
-          <section><h3>2. Optimus prepares entries</h3><p>Files are parsed into knowledge entries. OpenAI embeddings enable semantic search; otherwise the tool uses keyword matching.</p></section>
-          <section><h3>3. Questions retrieve matching entries</h3><p>Each chat turn uses the current conversation and recent turns to interpret follow-ups, then searches the active dataset.</p></section>
-          <section><h3>4. Answers must cite sources</h3><p>Answers must come from retrieved knowledge entries, include citation IDs, and pass citation validation.</p></section>
-          <section><h3>5. Chats stay separate</h3><p>New chat starts a separate conversation while keeping the knowledge base. Clear current removes only that chat's turns.</p></section>
+          <section><h3>1. Upload trusted content</h3><p>Upload CSV, JSON, HTML, TXT, Markdown, PDF, or DOCX files. Append adds to the dataset; Replace rebuilds it from the selected files.</p></section>
+          <section><h3>2. Extract source chunks</h3><p>Optimus retains the source behind each entry. PDFs use page and block locators; DOCX files use headings, paragraphs, and table rows.</p></section>
+          <section><h3>3. Prepare Q&amp;A entries</h3><p>Structured Q&amp;A fields are preserved. Prose blocks are converted heuristically, and every new entry links back to its supporting source chunk.</p></section>
+          <section><h3>4. Retrieve matching entries</h3><p>Each question searches the active dataset. OpenAI embeddings enable semantic search; without an OpenAI key, retrieval falls back to keyword matching.</p></section>
+          <section><h3>5. Enforce grounded answers</h3><p>Claude can answer only from retrieved entries. Grounded answers must include valid entry citations; otherwise Knowledge Expert declines.</p></section>
+          <section><h3>6. Check source coverage</h3><p>The Source coverage report highlights unlinked chunks, partial lexical coverage, low answer support, and legacy entries without traceability.</p></section>
+          <section><h3>7. Keep chats separate</h3><p>Chats keep their own saved turns while sharing the current knowledge base. Clear current removes only the selected chat's turns.</p></section>
+          <section><h3>Extraction limits</h3><p>Scanned PDFs need OCR before upload, password-protected PDFs are rejected, and DOCX locations use document structure rather than page numbers.</p></section>
         </div>
       </div>
     </div>
@@ -2541,6 +2547,45 @@ function KnowledgeReportBody({ report, payload }) {
   if (report === "dead") {
     const entries = payload.entries || [];
     return entries.length ? entries.slice(0, 20).map((entry) => <article key={entry.id}><strong>{entry.question}</strong><p>{entry.retrieved ? "Retrieved" : "Never retrieved"} · {entry.cited ? "Cited" : "Never cited"}</p></article>) : <div className="tool-list-state">No dead entries yet.</div>;
+  }
+  if (report === "coverage") {
+    const totals = payload.totals || {};
+    const issues = payload.issues || [];
+    const lowSupportEntries = payload.lowSupportEntries || [];
+    const documents = payload.documents || [];
+    const limitations = payload.limitations || [];
+    return (
+      <>
+        <div className="knowledge-report-summary">
+          <span>{totals.traceabilityPercent ?? 0}% traceable chunks</span>
+          <span>{totals.lexicalCoveragePercent ?? 0}% lexical coverage</span>
+          <span>{totals.answerSupportPercent ?? 0}% answer support</span>
+          <span>{formatInteger(totals.untraceableEntries)} legacy/untraceable entries</span>
+        </div>
+        {documents.map((document) => (
+          <article key={document.uploadId || document.fileName}>
+            <strong>{document.fileName}</strong>
+            <p>{document.coveragePercent}% lexical coverage · {formatInteger(document.linkedChunkCount)} of {formatInteger(document.chunkCount)} chunks linked</p>
+          </article>
+        ))}
+        {issues.length ? <h3>Source issues</h3> : null}
+        {issues.slice(0, 20).map((issue) => (
+          <article key={issue.id}>
+            <strong>{issue.sourceDoc}{issue.locator ? ` · ${issue.locator}` : ""}</strong>
+            <p>{issue.status === "uncovered" ? "No Q&A linked" : `${issue.coveragePercent}% lexical coverage`} · {issue.contentPreview}</p>
+          </article>
+        ))}
+        {lowSupportEntries.length ? <h3>Low answer support</h3> : null}
+        {lowSupportEntries.slice(0, 12).map((entry) => (
+          <article key={entry.id}>
+            <strong>{entry.question}</strong>
+            <p>{entry.supportPercent}% of answer vocabulary appears in linked source text.</p>
+          </article>
+        ))}
+        {limitations.length ? <article><strong>How to read these scores</strong><p>{limitations.join(" ")}</p></article> : null}
+        {!documents.length && !issues.length && !lowSupportEntries.length ? <div className="tool-list-state">No traceable source chunks yet. Re-upload documents to generate provenance data.</div> : null}
+      </>
+    );
   }
   const clusters = payload.clusters || [];
   return clusters.length ? clusters.slice(0, 12).map((cluster) => <article key={cluster.id}><strong>{cluster.centroidQuestion}</strong><p>{formatInteger(cluster.memberCount)} similar declined question(s)</p></article>) : <div className="tool-list-state">No knowledge gaps yet.</div>;

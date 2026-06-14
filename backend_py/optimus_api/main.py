@@ -672,6 +672,11 @@ def get_knowledge_admin_dead_entries(_: dict[str, Any] = Depends(require_session
     return knowledge_repo.dead_entries_report()
 
 
+@app.get("/api/tools/knowledge-expert/admin/reports/source-coverage")
+def get_knowledge_admin_source_coverage(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    return knowledge_repo.source_coverage_report()
+
+
 @app.get("/api/tools/knowledge-expert/admin/reports/knowledge-gaps")
 def get_knowledge_admin_gaps(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return knowledge_repo.gaps_report()

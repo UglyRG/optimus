@@ -38,6 +38,13 @@ Some tools need external provider keys:
 - Knowledge Expert answers need `ANTHROPIC_API_KEY`.
 - Token usage reports need `OPENAI_ADMIN_KEY` or `ANTHROPIC_ADMIN_KEY`.
 
+## Knowledge Document Extraction Fails
+
+- Password-protected PDFs are not supported.
+- Scanned or image-only PDFs need OCR before upload.
+- DOCX files must contain a valid `word/document.xml` document body.
+- Re-upload older Knowledge Expert documents to generate source chunks and coverage metrics.
+
 ## Generated Output Is Missing
 
 Generated files are written under `Outputs/`. This folder is ignored by Git except for `.gitkeep`.
