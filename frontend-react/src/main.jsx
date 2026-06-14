@@ -2057,6 +2057,7 @@ function KnowledgeExpertPage({ onBack }) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState({ loading: true, uploading: false, chatting: false });
   const [showHow, setShowHow] = useState(false);
+  const [showKnowledgeMap, setShowKnowledgeMap] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [entriesModalFile, setEntriesModalFile] = useState("");
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
@@ -2220,6 +2221,7 @@ function KnowledgeExpertPage({ onBack }) {
           <p>Upload a small knowledge base and ask grounded questions with source citations.</p>
         </div>
         <div className="knowledge-page-actions">
+          <button className="button button-primary knowledge-header-button" type="button" onClick={() => setShowKnowledgeMap(true)}>Knowledge Map</button>
           <button className="button button-secondary knowledge-header-button" type="button" onClick={() => setShowHow(true)}>How it works</button>
           <button className="button button-secondary react-icon-button knowledge-header-button" type="button" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" /><span>Back</span></button>
         </div>
@@ -2303,7 +2305,7 @@ function KnowledgeExpertPage({ onBack }) {
           <div className="knowledge-chat-head">
             <div>
               <h2>{activeConversation?.title || "Chat"}</h2>
-              <p>Uses this conversation to understand follow-ups. Answers still need knowledge base citations.</p>
+              <p>Each question searches the active dataset independently. Answers still need knowledge base citations.</p>
             </div>
             <span>{models.chat || ""}</span>
           </div>
@@ -2319,6 +2321,7 @@ function KnowledgeExpertPage({ onBack }) {
       </section>
 
       {showHow ? <KnowledgeHowModal onClose={() => setShowHow(false)} /> : null}
+      {showKnowledgeMap ? <KnowledgeMapModal onClose={() => setShowKnowledgeMap(false)} /> : null}
       {reportModal ? <KnowledgeReportModal state={reportModal} onClose={() => setReportModal(null)} /> : null}
       {entriesModalFile ? (
         <KnowledgeEntriesModal
@@ -2502,6 +2505,188 @@ function KnowledgeHowModal({ onClose }) {
       </div>
     </div>
   );
+}
+
+function KnowledgeMapModal({ onClose }) {
+  const [state, setState] = useState({ loading: true, error: "", payload: null });
+  const [query, setQuery] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const [selectedId, setSelectedId] = useState("");
+  const [visibleTypes, setVisibleTypes] = useState({ document: true, chunk: true, entry: true });
+
+  useEffect(() => {
+    let active = true;
+    request("/tools/knowledge-expert/knowledge-map")
+      .then((payload) => {
+        if (!active) return;
+        setState({ loading: false, error: "", payload });
+        setSelectedId(payload.nodes?.[0]?.id || "");
+      })
+      .catch((error) => {
+        if (active) setState({ loading: false, error: error.message, payload: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const graph = useMemo(() => layoutKnowledgeMap(state.payload || {}), [state.payload]);
+  const nodeById = useMemo(() => new Map((state.payload?.nodes || []).map((node) => [node.id, node])), [state.payload]);
+  const selectedNode = nodeById.get(selectedId);
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchingIds = useMemo(() => {
+    if (!normalizedQuery) return new Set();
+    return new Set(
+      (state.payload?.nodes || [])
+        .filter((node) => knowledgeMapNodeText(node).includes(normalizedQuery))
+        .map((node) => node.id)
+    );
+  }, [normalizedQuery, state.payload]);
+  const visibleNodeIds = useMemo(
+    () => new Set((state.payload?.nodes || []).filter((node) => visibleTypes[node.type]).map((node) => node.id)),
+    [state.payload, visibleTypes]
+  );
+
+  function toggleType(type) {
+    setVisibleTypes((current) => ({ ...current, [type]: !current[type] }));
+  }
+
+  return (
+    <div className="ai-modal knowledge-map-modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="ai-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-map-title">
+        <div className="ai-modal-head">
+          <div><h2 id="knowledge-map-title">Knowledge Map</h2><p>Documents, retained source chunks, and the Q&amp;A entries they support.</p></div>
+          <button className="button button-secondary" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="knowledge-map-toolbar">
+          <input value={query} placeholder="Search the map..." aria-label="Search knowledge map" onChange={(event) => setQuery(event.target.value)} />
+          {["document", "chunk", "entry"].map((type) => (
+            <button className={`button button-secondary ${visibleTypes[type] ? "is-active" : ""}`} type="button" key={type} onClick={() => toggleType(type)}>
+              {type === "entry" ? "Q&A" : `${type[0].toUpperCase()}${type.slice(1)}s`}
+            </button>
+          ))}
+          <label className="knowledge-map-zoom">Zoom <input type="range" min="0.65" max="1.8" step="0.05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
+          <button className="button button-secondary" type="button" onClick={() => setZoom(1)}>Fit graph</button>
+        </div>
+        <div className="knowledge-map-summary">
+          <span>{formatInteger(state.payload?.totals?.documents)} documents</span>
+          <span>{formatInteger(state.payload?.totals?.chunks)} chunks</span>
+          <span>{formatInteger(state.payload?.totals?.entries)} Q&amp;A entries</span>
+          <span>{formatInteger(state.payload?.totals?.citations)} citations</span>
+          {state.payload?.truncated ? <strong>Large graph: showing {formatInteger(state.payload?.totals?.displayedNodes)} nodes</strong> : null}
+        </div>
+        <div className="knowledge-map-body">
+          <div className="knowledge-map-canvas">
+            {state.loading ? <div className="tool-list-state">Loading knowledge map...</div> : null}
+            {!state.loading && state.error ? <p className="error is-visible">{state.error}</p> : null}
+            {!state.loading && !state.error && !graph.nodes.length ? <div className="tool-list-state">Upload traceable knowledge files to build the map.</div> : null}
+            {!state.loading && !state.error && graph.nodes.length ? (
+              <svg viewBox="0 0 1200 760" role="img" aria-label="Knowledge graph">
+                <g transform={`translate(${600 * (1 - zoom)} ${380 * (1 - zoom)}) scale(${zoom})`}>
+                  {graph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)).map((edge) => (
+                    <line className={`knowledge-map-edge is-${edge.type}`} x1={edge.sourcePosition.x} y1={edge.sourcePosition.y} x2={edge.targetPosition.x} y2={edge.targetPosition.y} key={edge.id} />
+                  ))}
+                  {graph.nodes.filter((node) => visibleNodeIds.has(node.id)).map((node) => {
+                    const isMatch = matchingIds.has(node.id);
+                    const isDimmed = normalizedQuery && !isMatch;
+                    const radius = knowledgeMapNodeRadius(node);
+                    return (
+                      <g
+                        className={`knowledge-map-node is-${node.type} coverage-${node.coverageStatus || "none"} ${selectedId === node.id ? "is-selected" : ""} ${isMatch ? "is-match" : ""} ${isDimmed ? "is-dimmed" : ""}`}
+                        transform={`translate(${node.x} ${node.y})`}
+                        role="button"
+                        tabIndex="0"
+                        key={node.id}
+                        onClick={() => setSelectedId(node.id)}
+                        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedId(node.id); }}
+                      >
+                        <circle r={radius} />
+                        <title>{node.label}</title>
+                        {(node.type === "document" || selectedId === node.id || isMatch) ? <text y={radius + 16} textAnchor="middle">{truncateKnowledgeMapLabel(node.label)}</text> : null}
+                      </g>
+                    );
+                  })}
+                </g>
+              </svg>
+            ) : null}
+          </div>
+          <aside className="knowledge-map-details">
+            <KnowledgeMapDetails node={selectedNode} />
+            <div className="knowledge-map-legend">
+              <strong>Legend</strong>
+              <span><i className="is-document" />Document</span>
+              <span><i className="is-chunk" />Source chunk</span>
+              <span><i className="is-entry" />Q&amp;A entry</span>
+              <span><i className="is-issue" />Coverage issue</span>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KnowledgeMapDetails({ node }) {
+  if (!node) return <div className="tool-list-state">Select a node to inspect it.</div>;
+  if (node.type === "document") {
+    return <><span className="knowledge-map-type">Document</span><h3>{node.label}</h3><p>{node.fileType?.toUpperCase()} · {formatInteger(node.chunkCount)} chunks · {formatInteger(node.entryCount)} entries</p></>;
+  }
+  if (node.type === "chunk") {
+    return <><span className="knowledge-map-type">Source chunk</span><h3>{node.heading || node.locator || node.label}</h3><p>{node.sourceDoc}{node.locator ? ` · ${node.locator}` : ""}</p><p>{node.preview}</p><p><strong>{node.coveragePercent}% lexical coverage</strong> · {node.coverageStatus}</p></>;
+  }
+  return <><span className="knowledge-map-type">Q&amp;A entry</span><h3>{node.label}</h3><p>{node.category} · {node.sourceDoc}</p><p>{node.answerPreview}</p><p><strong>{formatInteger(node.retrievedCount)} retrievals</strong> · {formatInteger(node.citedCount)} citations</p></>;
+}
+
+function layoutKnowledgeMap(payload) {
+  const nodes = (payload.nodes || []).map((node) => ({ ...node }));
+  const edges = payload.edges || [];
+  const positions = new Map();
+  const documents = nodes.filter((node) => node.type === "document");
+  const chunks = nodes.filter((node) => node.type === "chunk");
+  const entries = nodes.filter((node) => node.type === "entry");
+  const center = { x: 600, y: 380 };
+  documents.forEach((node, index) => {
+    const angle = documents.length === 1 ? -Math.PI / 2 : (Math.PI * 2 * index / Math.max(1, documents.length)) - Math.PI / 2;
+    positions.set(node.id, { x: center.x + Math.cos(angle) * 125, y: center.y + Math.sin(angle) * 125, angle });
+  });
+  chunks.forEach((node, index) => {
+    const parent = positions.get(`document:${node.uploadId}`);
+    const baseAngle = parent?.angle ?? (Math.PI * 2 * index / Math.max(1, chunks.length));
+    const siblings = chunks.filter((chunk) => chunk.uploadId === node.uploadId);
+    const siblingIndex = siblings.findIndex((chunk) => chunk.id === node.id);
+    const spread = Math.min(Math.PI * 0.75, Math.PI * 2 / Math.max(1, documents.length));
+    const angle = baseAngle + (siblings.length > 1 ? ((siblingIndex / (siblings.length - 1)) - 0.5) * spread : 0);
+    positions.set(node.id, { x: center.x + Math.cos(angle) * 275, y: center.y + Math.sin(angle) * 275, angle });
+  });
+  const parentChunkByEntry = new Map(edges.filter((edge) => edge.type === "supports").map((edge) => [edge.target, edge.source]));
+  entries.forEach((node, index) => {
+    const parent = positions.get(parentChunkByEntry.get(node.id));
+    const angle = (parent?.angle ?? (Math.PI * 2 * index / Math.max(1, entries.length))) + ((index % 5) - 2) * 0.018;
+    const radius = 355 + (index % 3) * 22;
+    positions.set(node.id, { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius, angle });
+  });
+  const positionedNodes = nodes.map((node) => ({ ...node, ...(positions.get(node.id) || center) }));
+  const positionedEdges = edges.map((edge) => ({
+    ...edge,
+    sourcePosition: positions.get(edge.source) || center,
+    targetPosition: positions.get(edge.target) || center,
+  }));
+  return { nodes: positionedNodes, edges: positionedEdges };
+}
+
+function knowledgeMapNodeText(node) {
+  return [node.label, node.category, node.sourceDoc, node.locator, node.preview, node.answerPreview].filter(Boolean).join(" ").toLowerCase();
+}
+
+function knowledgeMapNodeRadius(node) {
+  if (node.type === "document") return 15;
+  if (node.type === "chunk") return 8;
+  return Math.min(12, 6 + Math.log2(1 + Number(node.retrievedCount || 0) + Number(node.citedCount || 0)));
+}
+
+function truncateKnowledgeMapLabel(value) {
+  const text = String(value || "");
+  return text.length > 28 ? `${text.slice(0, 25)}...` : text;
 }
 
 function KnowledgeReportModal({ state, onClose }) {

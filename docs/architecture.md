@@ -42,7 +42,7 @@ Important modules:
 - `catalog.py`: hosted tools and default catalog layout.
 - `domain.py`: normalization and validation for persisted tool data.
 - `tools.py`: file generators, usage reports, performance analysis, and utility services.
-- `knowledge.py`: Knowledge Expert text/PDF/DOCX parsing, source traceability, storage, retrieval, chat, coverage reports, traces, and migration.
+- `knowledge.py`: Knowledge Expert text/PDF/DOCX parsing, source traceability, storage, retrieval, chat, coverage reports, Knowledge Map graph data, traces, and migration.
 - `store.py`: Postgres-backed JSON store.
 - `config.py`: environment-backed settings.
 

@@ -109,3 +109,11 @@ GET /api/tools/knowledge-expert/admin/reports/source-coverage
 ```
 
 The response includes aggregate traceability, lexical coverage, answer-support metrics, per-document coverage, uncovered or partially covered chunks, low-support entries, and scoring limitations.
+
+The structural Knowledge Map is available at:
+
+```text
+GET /api/tools/knowledge-expert/knowledge-map
+```
+
+The response contains bounded document, source-chunk, and Q&A nodes; structural edges; coverage status; retrieval/citation counts; graph totals; and a truncation flag for large datasets.

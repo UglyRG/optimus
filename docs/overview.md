@@ -13,7 +13,7 @@ Optimus is a local productivity platform that hosts a growing catalog of small, 
 
 - Tool catalog dashboard with admin-managed groups, visibility, and display order.
 - Personal tracking tools: Padelog, Betlog, and Notelog.
-- Knowledge Expert: upload structured files or prose documents, including PDF and DOCX, retain source provenance, measure lexical coverage, and ask grounded questions with citations.
+- Knowledge Expert: upload structured files or prose documents, including PDF and DOCX, retain source provenance, visualize the knowledge structure, measure lexical coverage, and ask grounded questions with citations.
 - Builder tools: Demo Builder and Presentation Suite Builder.
 - Utility tools: Base64 iframe conversion, PDF combination, CSV conversion, and AI token usage reporting.
 - Backup and restore for persisted Optimus data.

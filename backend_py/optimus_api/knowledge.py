@@ -818,6 +818,38 @@ class KnowledgeRepository:
             [dict(row) for row in upload_rows],
         )
 
+    def knowledge_map(self) -> dict[str, Any]:
+        with self.store.pool.connection() as connection:
+            upload_rows = connection.execute(
+                """
+                SELECT id, file_name, file_type, row_count, chunk_count, uploaded_at
+                FROM knowledge_uploads
+                ORDER BY uploaded_at DESC
+                """
+            ).fetchall()
+            chunk_rows = connection.execute(
+                """
+                SELECT id, upload_id, source_doc, source_type, chunk_index, locator, heading, source_page, content
+                FROM knowledge_source_chunks
+                ORDER BY upload_id ASC, chunk_index ASC
+                """
+            ).fetchall()
+            entry_rows = connection.execute(
+                """
+                SELECT id, category, question, answer, source_doc, source_page, source_chunk_ids,
+                       question_source, sort_order
+                FROM knowledge_entries
+                ORDER BY sort_order ASC, created_at ASC
+                """
+            ).fetchall()
+            turn_rows = connection.execute("SELECT citations, retrieved_entry_ids FROM knowledge_turns").fetchall()
+        return build_knowledge_map_graph(
+            [dict(row) for row in upload_rows],
+            [dict(row) for row in chunk_rows],
+            [dict(row) for row in entry_rows],
+            [dict(row) for row in turn_rows],
+        )
+
     def gaps_report(self) -> dict[str, Any]:
         with self.store.pool.connection() as connection:
             rows = connection.execute(
@@ -1775,6 +1807,160 @@ def build_source_coverage_report(
             "Answer support can flag wording absent from the source, but it does not prove a contradiction.",
             "Legacy entries uploaded before source traceability are counted as untraceable.",
         ],
+    }
+
+
+def build_knowledge_map_graph(
+    uploads: list[dict[str, Any]],
+    chunks: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+    turns: list[dict[str, Any]],
+    max_nodes: int = 900,
+) -> dict[str, Any]:
+    coverage = build_source_coverage_report(chunks, entries, uploads)
+    entries_by_chunk: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        for chunk_id in entry.get("source_chunk_ids") or entry.get("sourceChunkIds") or []:
+            entries_by_chunk.setdefault(str(chunk_id), []).append(entry)
+    retrieved_counts: dict[str, int] = {}
+    cited_counts: dict[str, int] = {}
+    for turn in turns:
+        for entry_id in turn.get("retrieved_entry_ids") or turn.get("retrievedEntryIds") or []:
+            key = str(entry_id)
+            retrieved_counts[key] = retrieved_counts.get(key, 0) + 1
+        for citation in turn.get("citations") or []:
+            if isinstance(citation, dict) and citation.get("id"):
+                key = str(citation["id"])
+                cited_counts[key] = cited_counts.get(key, 0) + 1
+
+    selected_uploads = uploads[:max_nodes]
+    selected_upload_ids = {str(upload.get("id")) for upload in selected_uploads}
+    upload_nodes = [
+        {
+            "id": f"document:{upload['id']}",
+            "entityId": str(upload["id"]),
+            "type": "document",
+            "label": upload.get("file_name") or upload.get("fileName") or "Knowledge document",
+            "fileType": upload.get("file_type") or upload.get("fileType") or "",
+            "entryCount": upload.get("row_count") or upload.get("rowCount") or 0,
+            "chunkCount": upload.get("chunk_count") or upload.get("chunkCount") or 0,
+        }
+        for upload in selected_uploads
+    ]
+    available_slots = max(0, max_nodes - len(upload_nodes))
+    chunk_slots = min(len(chunks), max(0, round(available_slots * 0.55)))
+    selected_chunks = [
+        chunk
+        for chunk in chunks
+        if str(chunk.get("upload_id") or chunk.get("uploadId") or "") in selected_upload_ids
+    ][:chunk_slots]
+    available_slots -= len(selected_chunks)
+    selected_chunk_ids = {str(chunk.get("id")) for chunk in selected_chunks}
+    selected_entries = [
+        entry
+        for entry in entries
+        if any(
+            str(chunk_id) in selected_chunk_ids
+            for chunk_id in (entry.get("source_chunk_ids") or entry.get("sourceChunkIds") or [])
+        )
+    ][:available_slots]
+    selected_entry_ids = {str(entry.get("id")) for entry in selected_entries}
+
+    chunk_nodes = []
+    for chunk in selected_chunks:
+        chunk_id = str(chunk.get("id"))
+        chunk_entries = entries_by_chunk.get(chunk_id, [])
+        compared_text = "\n".join(
+            f"{entry.get('question', '')}\n{entry.get('answer', '')}"
+            for entry in chunk_entries
+        )
+        chunk_coverage = token_coverage(str(chunk.get("content") or ""), compared_text)
+        ratio = chunk_coverage["ratio"] if chunk_entries else 0.0
+        coverage_status = (
+            "uncovered"
+            if not chunk_entries
+            else "covered"
+            if ratio >= KNOWLEDGE_COVERAGE_GOOD_THRESHOLD
+            else "low"
+            if ratio < KNOWLEDGE_COVERAGE_LOW_THRESHOLD
+            else "partial"
+        )
+        chunk_nodes.append(
+            {
+                "id": f"chunk:{chunk_id}",
+                "entityId": chunk_id,
+                "type": "chunk",
+                "label": chunk.get("heading") or chunk.get("locator") or f"Chunk {chunk.get('chunk_index') or ''}",
+                "sourceDoc": chunk.get("source_doc") or chunk.get("sourceDoc") or "",
+                "sourceType": chunk.get("source_type") or chunk.get("sourceType") or "",
+                "locator": chunk.get("locator") or "",
+                "sourcePage": chunk.get("source_page") or chunk.get("sourcePage"),
+                "preview": clean_text(chunk.get("content"), "", 360),
+                "coverageStatus": coverage_status,
+                "coveragePercent": percentage(ratio),
+                "uploadId": str(chunk.get("upload_id") or chunk.get("uploadId") or ""),
+            }
+        )
+
+    entry_nodes = []
+    for entry in selected_entries:
+        entry_id = str(entry.get("id"))
+        entry_nodes.append(
+            {
+                "id": f"entry:{entry_id}",
+                "entityId": entry_id,
+                "type": "entry",
+                "label": entry.get("question") or "Knowledge entry",
+                "category": entry.get("category") or "General",
+                "answerPreview": clean_text(entry.get("answer"), "", 360),
+                "sourceDoc": entry.get("source_doc") or entry.get("sourceDoc") or "",
+                "sourcePage": entry.get("source_page") or entry.get("sourcePage"),
+                "questionSource": entry.get("question_source") or entry.get("questionSource") or "",
+                "retrievedCount": retrieved_counts.get(entry_id, 0),
+                "citedCount": cited_counts.get(entry_id, 0),
+            }
+        )
+
+    edges = []
+    for chunk in selected_chunks:
+        chunk_id = str(chunk.get("id"))
+        upload_id = str(chunk.get("upload_id") or chunk.get("uploadId") or "")
+        edges.append(
+            {
+                "id": f"document:{upload_id}->chunk:{chunk_id}",
+                "source": f"document:{upload_id}",
+                "target": f"chunk:{chunk_id}",
+                "type": "contains",
+            }
+        )
+    for entry in selected_entries:
+        entry_id = str(entry.get("id"))
+        for chunk_id in entry.get("source_chunk_ids") or entry.get("sourceChunkIds") or []:
+            chunk_id = str(chunk_id)
+            if chunk_id in selected_chunk_ids and entry_id in selected_entry_ids:
+                edges.append(
+                    {
+                        "id": f"chunk:{chunk_id}->entry:{entry_id}",
+                        "source": f"chunk:{chunk_id}",
+                        "target": f"entry:{entry_id}",
+                        "type": "supports",
+                    }
+                )
+
+    nodes = [*upload_nodes, *chunk_nodes, *entry_nodes]
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "totals": {
+            "documents": len(uploads),
+            "chunks": len(chunks),
+            "entries": len(entries),
+            "retrievals": sum(retrieved_counts.values()),
+            "citations": sum(cited_counts.values()),
+            "displayedNodes": len(nodes),
+        },
+        "truncated": len(nodes) < len(uploads) + len(chunks) + len(entries),
+        "coverage": coverage["totals"],
     }
 
 

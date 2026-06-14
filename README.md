@@ -1,8 +1,14 @@
 # Optimus
 
-Version: `v6.2.2`
+Version: `v6.3`
 
 Optimus is a local productivity platform made of a React frontend, a FastAPI backend, and Postgres/pgvector persistence. It hosts a growing catalog of tools for personal tracking, knowledge work, demos, document utilities, and AI usage reporting.
+
+## v6.3
+
+- Adds the interactive Knowledge Expert Knowledge Map.
+- Visualizes documents, source chunks, Q&A entries, coverage issues, retrievals, and citations.
+- Includes search, node filters, zoom controls, and selected-node details.
 
 ## Quick Start
 

@@ -64,7 +64,7 @@ settings = get_settings()
 store = JsonStore(settings)
 knowledge_repo = KnowledgeRepository(store, settings)
 
-app = FastAPI(title="Optimus API", version="6.0.0")
+app = FastAPI(title="Optimus API", version="6.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
@@ -675,6 +675,11 @@ def get_knowledge_admin_dead_entries(_: dict[str, Any] = Depends(require_session
 @app.get("/api/tools/knowledge-expert/admin/reports/source-coverage")
 def get_knowledge_admin_source_coverage(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return knowledge_repo.source_coverage_report()
+
+
+@app.get("/api/tools/knowledge-expert/knowledge-map")
+def get_knowledge_map(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    return knowledge_repo.knowledge_map()
 
 
 @app.get("/api/tools/knowledge-expert/admin/reports/knowledge-gaps")

@@ -52,6 +52,20 @@ The Source coverage admin report calculates:
 
 These are deterministic lexical checks, not semantic proof. Paraphrases can score lower than their meaning warrants, and a high answer-support score does not detect contradictions.
 
+## Knowledge Map
+
+The Knowledge Map opens from the Knowledge Expert page header and visualizes:
+
+- uploaded documents
+- retained source chunks
+- Q&A entries supported by each chunk
+- chunk coverage status
+- Q&A retrieval and citation activity
+
+The map provides search, node-type filters, zoom controls, and a selected-node details panel. Documents appear in the inner layer, chunks in the middle, and Q&A entries in the outer layer. Large datasets are bounded for browser performance and the modal reports when nodes have been omitted from the display.
+
+The first map uses persisted structural relationships. Semantic-similarity edges between entries or chunks are not required for this view and are not calculated yet.
+
 ## PDF and DOCX Extraction
 
 PDF text is extracted page by page. Password-protected PDFs are rejected. Image-only or scanned PDFs require OCR before upload.
@@ -93,4 +107,5 @@ The tool includes:
 - error reports
 - dead-entry reports
 - source-coverage reports
+- interactive Knowledge Map
 - knowledge-gap reports

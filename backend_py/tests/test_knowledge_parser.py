@@ -7,6 +7,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from optimus_api.knowledge import (
+    build_knowledge_map_graph,
     build_source_coverage_report,
     normalize_knowledge_store,
     parse_document,
@@ -197,6 +198,39 @@ class KnowledgeParserTraceabilityTests(unittest.TestCase):
         self.assertEqual("uncovered", report["issues"][0]["status"])
         self.assertEqual("chunk-2", report["issues"][0]["id"])
         self.assertEqual("entry-2", report["lowSupportEntries"][0]["id"])
+
+    def test_knowledge_map_builds_structural_edges_and_activity(self):
+        uploads = [{"id": "upload-1", "file_name": "policy.md", "file_type": "markdown", "row_count": 1, "chunk_count": 2}]
+        chunks = [
+            {"id": "chunk-1", "upload_id": "upload-1", "source_doc": "policy.md", "chunk_index": 1, "locator": "block 1", "content": "MFA is required for admins."},
+            {"id": "chunk-2", "upload_id": "upload-1", "source_doc": "policy.md", "chunk_index": 2, "locator": "block 2", "content": "Backups run daily."},
+        ]
+        entries = [
+            {
+                "id": "entry-1",
+                "category": "Security",
+                "question": "What is required?",
+                "answer": "MFA is required for admins.",
+                "source_chunk_ids": ["chunk-1"],
+            }
+        ]
+        turns = [
+            {
+                "retrieved_entry_ids": ["entry-1"],
+                "citations": [{"id": "entry-1"}],
+            }
+        ]
+
+        graph = build_knowledge_map_graph(uploads, chunks, entries, turns)
+
+        nodes = {node["id"]: node for node in graph["nodes"]}
+        edge_ids = {edge["id"] for edge in graph["edges"]}
+        self.assertIn("document:upload-1", nodes)
+        self.assertEqual("uncovered", nodes["chunk:chunk-2"]["coverageStatus"])
+        self.assertEqual(1, nodes["entry:entry-1"]["retrievedCount"])
+        self.assertEqual(1, nodes["entry:entry-1"]["citedCount"])
+        self.assertIn("document:upload-1->chunk:chunk-1", edge_ids)
+        self.assertIn("chunk:chunk-1->entry:entry-1", edge_ids)
 
 
 def make_pdf(page_texts):
