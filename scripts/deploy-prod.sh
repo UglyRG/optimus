@@ -10,6 +10,10 @@ git fetch --tags origin "$BRANCH"
 git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
 
+DEPLOY_VERSION="$(git describe --tags --always)"
+test -n "$DEPLOY_VERSION"
+printf '%s\n' "$DEPLOY_VERSION" > .optimus-version
+
 npm ci
 npm run build:react
 

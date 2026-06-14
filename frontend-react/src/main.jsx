@@ -3041,8 +3041,9 @@ function applyTheme(theme) {
 
 function formatAppVersion(version) {
   const cleanVersion = String(version || "").replace(/-dirty$/, "").trim();
-  const tagVersion = cleanVersion.match(/^v?\d+(?:\.\d+)*/)?.[0];
-  if (tagVersion) return tagVersion.startsWith("v") ? tagVersion : `v${tagVersion}`;
+  if (/^v?\d+(?:\.\d+)+(?:-\d+-g[0-9a-f]+)?$/i.test(cleanVersion)) {
+    return cleanVersion.startsWith("v") ? cleanVersion : `v${cleanVersion}`;
+  }
   return cleanVersion || "Version unavailable";
 }
 

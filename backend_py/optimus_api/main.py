@@ -3,9 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import mimetypes
-import os
 import secrets
-import subprocess
 import time
 import zipfile
 from pathlib import Path
@@ -46,6 +44,7 @@ from .tools import (
     save_pdf_iframe_source,
     save_presentation_suite,
 )
+from .versioning import resolve_app_version
 from .utils import bad_request, now_iso
 
 DATA_STORES = {
@@ -92,24 +91,7 @@ def shutdown() -> None:
 
 
 def app_version() -> str:
-    env_version = os.getenv("OPTIMUS_VERSION", "").strip()
-    if env_version:
-        return env_version
-    try:
-        result = subprocess.run(
-            ["git", "describe", "--tags", "--always", "--dirty"],
-            cwd=settings.data_dir.parent,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        return result.stdout.strip() or "unknown"
-    except Exception:
-        try:
-            return (settings.data_dir.parent / "VERSION").read_text(encoding="utf-8").strip() or "unknown"
-        except Exception:
-            return "unknown"
+    return resolve_app_version(settings.data_dir.parent)
 
 
 def clean_expired_sessions() -> None:
