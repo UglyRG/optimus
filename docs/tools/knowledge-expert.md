@@ -45,12 +45,14 @@ Source chunks are included in backup and restore snapshots and feed the Source c
 The Source coverage admin report calculates:
 
 - traceability: source chunks linked to at least one knowledge entry
-- lexical coverage: normalized source words represented in linked questions and answers
+- lexical coverage: normalized Unicode source words represented in linked questions and answers
 - answer support: normalized answer words also present in linked source chunks
 - uncovered and partially covered source chunks
 - legacy entries that have no source links
 
 These are deterministic lexical checks, not semantic proof. Paraphrases can score lower than their meaning warrants, and a high answer-support score does not detect contradictions.
+
+For structured CSV and JSON Q&A, lexical coverage compares the recognized question and answer values rather than serialized field names or metadata such as category and link. The complete original row or object remains retained as the traceable source chunk.
 
 ## Knowledge Map
 

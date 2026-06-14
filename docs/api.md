@@ -108,7 +108,7 @@ Knowledge Expert source analysis is available at:
 GET /api/tools/knowledge-expert/admin/reports/source-coverage
 ```
 
-The response includes aggregate traceability, lexical coverage, answer-support metrics, per-document coverage, uncovered or partially covered chunks, low-support entries, and scoring limitations.
+The response includes aggregate traceability, Unicode-aware lexical coverage, answer-support metrics, per-document coverage, uncovered or partially covered chunks, low-support entries, and scoring limitations. Structured CSV and JSON Q&A coverage uses recognized question and answer values while retaining the complete row or object for source traceability.
 
 The structural Knowledge Map is available at:
 

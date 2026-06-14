@@ -199,6 +199,61 @@ class KnowledgeParserTraceabilityTests(unittest.TestCase):
         self.assertEqual("chunk-2", report["issues"][0]["id"])
         self.assertEqual("entry-2", report["lowSupportEntries"][0]["id"])
 
+    def test_structured_multilingual_qa_coverage_ignores_field_names_and_metadata(self):
+        for kind, text in [
+            (
+                "csv",
+                (
+                    "category,question,answer,link\n"
+                    "Framework & Assessment,Πώς υπολογίζεται το Επίπεδο Συμμόρφωσης;"
+                    ",Το Επίπεδο Συμμόρφωσης υπολογίζεται ανά έλεγχο.,https://example.test\n"
+                ),
+            ),
+            (
+                "json",
+                (
+                    '{"entries":[{"category":"Framework & Assessment",'
+                    '"question":"Πώς υπολογίζεται το Επίπεδο Συμμόρφωσης;",'
+                    '"answer":"Το Επίπεδο Συμμόρφωσης υπολογίζεται ανά έλεγχο.",'
+                    '"link":"https://example.test"}]}'
+                ),
+            ),
+        ]:
+            with self.subTest(kind=kind):
+                result = parse_document(text, f"guide.{kind}", kind)
+                report = build_source_coverage_report(
+                    result["sourceChunks"],
+                    result["entries"],
+                    [{"id": "upload-1", "file_name": f"guide.{kind}", "file_type": kind}],
+                )
+
+                self.assertEqual(100.0, report["totals"]["lexicalCoveragePercent"])
+                self.assertEqual(100.0, report["totals"]["answerSupportPercent"])
+                self.assertEqual([], report["issues"])
+
+    def test_coverage_parses_legacy_ascii_escaped_structured_chunks(self):
+        chunk = {
+            "id": "chunk-1",
+            "source_type": "csv-row",
+            "content": (
+                '{"category":"Framework","question":"\\u03a0\\u03ce\\u03c2 '
+                '\\u03c5\\u03c0\\u03bf\\u03bb\\u03bf\\u03b3\\u03af\\u03b6\\u03b5\\u03c4\\u03b1\\u03b9;",'
+                '"answer":"\\u03a5\\u03c0\\u03bf\\u03bb\\u03bf\\u03b3\\u03af\\u03b6\\u03b5\\u03c4\\u03b1\\u03b9 '
+                '\\u03b1\\u03bd\\u03ac \\u03ad\\u03bb\\u03b5\\u03b3\\u03c7\\u03bf.","link":""}'
+            ),
+        }
+        entry = {
+            "id": "entry-1",
+            "question": "Πώς υπολογίζεται;",
+            "answer": "Υπολογίζεται ανά έλεγχο.",
+            "source_chunk_ids": ["chunk-1"],
+        }
+
+        report = build_source_coverage_report([chunk], [entry], [])
+
+        self.assertEqual(100.0, report["totals"]["lexicalCoveragePercent"])
+        self.assertEqual(100.0, report["totals"]["answerSupportPercent"])
+
     def test_knowledge_map_builds_structural_edges_and_activity(self):
         uploads = [{"id": "upload-1", "file_name": "policy.md", "file_type": "markdown", "row_count": 1, "chunk_count": 2}]
         chunks = [

@@ -8,6 +8,7 @@ import io
 import re
 import urllib.request
 import time
+import unicodedata
 import zipfile
 from xml.etree import ElementTree
 from io import StringIO
@@ -1478,7 +1479,7 @@ def parse_csv_document(text: str, file_name: str) -> tuple[list[dict[str, Any]],
                 "chunkIndex": row_index - 1,
                 "locator": f"row {row_index}",
                 "heading": row[category_index] if category_index >= 0 and category_index < len(row) else "",
-                "content": json.dumps(row_content, ensure_ascii=True),
+                "content": json.dumps(row_content, ensure_ascii=False),
             }
         )
         entries.append({
@@ -1521,7 +1522,7 @@ def parse_json_document(text: str, file_name: str) -> tuple[list[dict[str, Any]]
                 "chunkIndex": row_index + 1,
                 "locator": locator,
                 "heading": row.get("category") or "",
-                "content": json.dumps(row, ensure_ascii=True, sort_keys=True),
+                "content": json.dumps(row, ensure_ascii=False, sort_keys=True),
             }
         )
         entries.append({
@@ -1678,9 +1679,31 @@ def meaningful_tokens(text: str) -> list[str]:
     stopwords = {"the", "and", "for", "with", "that", "this", "what", "how", "are", "can", "you", "about", "from", "into", "all"}
     return [
         token
-        for token in re.split(r"[^a-z0-9]+", str(text or "").lower())
+        for token in re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", str(text or "")).casefold())
         if len(token) >= 3 and token not in stopwords
     ]
+
+
+def structured_qa_coverage_text(chunk: dict[str, Any]) -> str:
+    content = str(chunk.get("content") or "")
+    source_type = chunk.get("source_type") or chunk.get("sourceType") or ""
+    if source_type not in {"csv-row", "json-entry"}:
+        return content
+    try:
+        row = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return content
+    if not isinstance(row, dict):
+        return content
+    question = next(
+        (row.get(key) for key in ("question", "q", "title") if row.get(key)),
+        "",
+    )
+    answer = next(
+        (row.get(key) for key in ("answer", "a", "text") if row.get(key)),
+        "",
+    )
+    return f"{question}\n{answer}".strip() or content
 
 
 def token_coverage(source_text: str, compared_text: str) -> dict[str, Any]:
@@ -1727,7 +1750,7 @@ def build_source_coverage_report(
             f"{entry.get('question', '')}\n{entry.get('answer', '')}"
             for entry in chunk_entries
         )
-        coverage = token_coverage(str(chunk.get("content") or ""), compared_text)
+        coverage = token_coverage(structured_qa_coverage_text(chunk), compared_text)
         total_source_tokens += coverage["sourceTokenCount"]
         total_covered_tokens += coverage["coveredTokenCount"]
         if chunk_entries:
@@ -1769,7 +1792,7 @@ def build_source_coverage_report(
     for entry in traceable_entries:
         chunk_ids = entry.get("source_chunk_ids") or entry.get("sourceChunkIds") or []
         source_text = "\n".join(
-            str(chunks_by_id.get(str(chunk_id), {}).get("content") or "")
+            structured_qa_coverage_text(chunks_by_id.get(str(chunk_id), {}))
             for chunk_id in chunk_ids
         )
         support = token_coverage(str(entry.get("answer") or ""), source_text)
@@ -1906,7 +1929,7 @@ def build_knowledge_map_graph(
             f"{entry.get('question', '')}\n{entry.get('answer', '')}"
             for entry in chunk_entries
         )
-        chunk_coverage = token_coverage(str(chunk.get("content") or ""), compared_text)
+        chunk_coverage = token_coverage(structured_qa_coverage_text(chunk), compared_text)
         ratio = chunk_coverage["ratio"] if chunk_entries else 0.0
         coverage_status = (
             "uncovered"
