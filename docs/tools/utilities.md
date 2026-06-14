@@ -32,7 +32,8 @@ Converts every row in a CSV file into matching JSON files saved inside an `Outpu
 
 ## CSV Q&A to Markdown
 
-Converts a Q&A CSV with question and answer columns into a Markdown knowledge-base file.
+Converts a comma- or semicolon-delimited Q&A CSV with question and answer columns into a Markdown knowledge-base file.
+Standard CSV quoting is supported for delimiters, double quotes, and line breaks inside values.
 
 ## Check My Token Usage
 

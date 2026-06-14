@@ -189,6 +189,28 @@ def unique_headers(headers: list[str], column_count: int) -> list[str]:
     return result
 
 
+def qa_csv_reader(csv_text: str) -> csv.DictReader:
+    text = csv_text.lstrip("\ufeff")
+    if not text.strip():
+        raise bad_request("The CSV file is empty")
+
+    delimiter = None
+    for candidate in (",", ";"):
+        try:
+            header = next(csv.reader(io.StringIO(text, newline=""), delimiter=candidate, strict=True))
+        except (csv.Error, StopIteration):
+            continue
+        normalized = {str(field or "").strip().lower() for field in header}
+        if {"question", "answer"}.issubset(normalized):
+            delimiter = candidate
+            break
+
+    if delimiter is None:
+        raise bad_request("The CSV must use commas or semicolons and include question and answer columns")
+
+    return csv.DictReader(io.StringIO(text, newline=""), delimiter=delimiter, strict=True)
+
+
 def save_csv_qa_markdown(payload: dict[str, Any], settings: Settings) -> dict[str, Any]:
     file_name = str(payload.get("fileName") or "")
     csv_text = payload.get("csv")
@@ -197,7 +219,7 @@ def save_csv_qa_markdown(payload: dict[str, Any], settings: Settings) -> dict[st
     if Path(file_name).suffix.lower() != ".csv":
         raise bad_request("Choose a CSV file")
 
-    reader = csv.DictReader(io.StringIO(csv_text.lstrip("\ufeff")))
+    reader = qa_csv_reader(csv_text)
     if not reader.fieldnames:
         raise bad_request("The CSV file needs a header row")
 
@@ -216,24 +238,30 @@ def save_csv_qa_markdown(payload: dict[str, Any], settings: Settings) -> dict[st
     current_category = None
     written = 0
     skipped = 0
-    for row in reader:
-        category = str(row.get(category_field) or "").strip() if category_field else ""
-        question = str(row.get(question_field) or "").strip()
-        answer = str(row.get(answer_field) or "").strip()
-        link = str(row.get(link_field) or "").strip() if link_field else ""
+    try:
+        for row_number, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise bad_request(f"CSV row {row_number} does not match the header column count")
 
-        if not question or not answer:
-            skipped += 1
-            continue
+            category = str(row.get(category_field) or "").strip() if category_field else ""
+            question = str(row.get(question_field) or "").strip()
+            answer = str(row.get(answer_field) or "").strip()
+            link = str(row.get(link_field) or "").strip() if link_field else ""
 
-        if category and category != current_category:
-            lines.extend([f"## {category}", ""])
-            current_category = category
+            if not question or not answer:
+                skipped += 1
+                continue
 
-        lines.extend([f"### {question}", "", answer, ""])
-        if link:
-            lines.extend([f"Source: {link}", ""])
-        written += 1
+            if category and category != current_category:
+                lines.extend([f"## {category}", ""])
+                current_category = category
+
+            lines.extend([f"### {question}", "", answer, ""])
+            if link:
+                lines.extend([f"Source: {link}", ""])
+            written += 1
+    except csv.Error as exc:
+        raise bad_request(f"The CSV contains malformed quoting or escaping near row {reader.line_num}") from exc
 
     if not written:
         raise bad_request("No complete Q&A rows were found")
