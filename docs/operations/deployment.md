@@ -19,14 +19,14 @@ The deployment script:
 2. Fetches tags from the target branch.
 3. Checks out the branch.
 4. Pulls with `--ff-only`.
-5. Resolves the checked-out revision with `git describe --tags --always` and writes it to `.optimus-version`.
+5. Resolves the latest Git release tag, falling back to the short commit SHA when no tag exists, and writes it to `.optimus-version`.
 6. Runs `npm ci`.
 7. Builds the React frontend.
 8. Installs the backend package into the backend virtual environment.
 9. Restarts the `optimus` systemd service.
 10. Verifies that the service is active.
 
-The backend reads `.optimus-version` before runtime environment overrides or fallbacks. This keeps `/api/version` tied to the exact revision deployed even when the systemd process cannot access Git metadata. A tagged commit reports the tag, while later commits report the nearest tag plus commit distance and short SHA, such as `v6.3-1-g3d7d90e`.
+The backend reads `.optimus-version` before runtime environment overrides or fallbacks. This keeps `/api/version` aligned with the latest fetched release tag even when the systemd process cannot access Git metadata. Pushing a new `v*` tag triggers deployment again, so the displayed version updates without editing application source files.
 
 ## Production Assumptions
 

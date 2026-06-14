@@ -10,7 +10,7 @@ git fetch --tags origin "$BRANCH"
 git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
 
-DEPLOY_VERSION="$(git describe --tags --always)"
+DEPLOY_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)"
 test -n "$DEPLOY_VERSION"
 printf '%s\n' "$DEPLOY_VERSION" > .optimus-version
 
