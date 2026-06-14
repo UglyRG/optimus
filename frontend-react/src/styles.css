@@ -2469,6 +2469,12 @@ iframe {
   stroke: color-mix(in srgb, var(--brand) 42%, transparent);
 }
 
+.knowledge-map-edge.is-similar {
+  stroke: color-mix(in srgb, #7b61c9 64%, transparent);
+  stroke-width: 1.25;
+  stroke-dasharray: 5 5;
+}
+
 .knowledge-map-node {
   cursor: pointer;
   outline: none;
@@ -2588,6 +2594,14 @@ iframe {
 
 .knowledge-map-legend i.is-issue {
   background: var(--danger);
+}
+
+.knowledge-map-legend i.is-similar {
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed #7b61c9;
+  border-radius: 0;
+  background: transparent;
 }
 
 .knowledge-file-list {

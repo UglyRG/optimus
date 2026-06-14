@@ -27,6 +27,9 @@ KNOWLEDGE_EXPERT_ENUMERATIVE_TOP_K = 15
 KNOWLEDGE_EXPERT_DECLINE = "I don't see that in the Knowledge Expert knowledge base."
 KNOWLEDGE_COVERAGE_GOOD_THRESHOLD = 0.8
 KNOWLEDGE_COVERAGE_LOW_THRESHOLD = 0.5
+KNOWLEDGE_MAP_SIMILARITY_THRESHOLD = 0.82
+KNOWLEDGE_MAP_SIMILARITY_NEIGHBORS = 3
+KNOWLEDGE_MAP_SIMILARITY_SOURCE_LIMIT = 900
 
 
 def model_names(settings: Settings) -> dict[str, str]:
@@ -837,17 +840,45 @@ class KnowledgeRepository:
             entry_rows = connection.execute(
                 """
                 SELECT id, category, question, answer, source_doc, source_page, source_chunk_ids,
-                       question_source, sort_order
+                       question_source, sort_order, embedding IS NOT NULL AS has_embedding
                 FROM knowledge_entries
                 ORDER BY sort_order ASC, created_at ASC
                 """
             ).fetchall()
             turn_rows = connection.execute("SELECT citations, retrieved_entry_ids FROM knowledge_turns").fetchall()
+            similarity_rows = connection.execute(
+                """
+                WITH sources AS (
+                    SELECT id, embedding
+                    FROM knowledge_entries
+                    WHERE embedding IS NOT NULL
+                    ORDER BY sort_order ASC, created_at ASC
+                    LIMIT %s
+                )
+                SELECT source.id AS source_id, neighbor.id AS target_id, neighbor.similarity
+                FROM sources AS source
+                CROSS JOIN LATERAL (
+                    SELECT target.id, 1 - (source.embedding <=> target.embedding) AS similarity
+                    FROM knowledge_entries AS target
+                    WHERE target.embedding IS NOT NULL
+                      AND target.id <> source.id
+                    ORDER BY source.embedding <=> target.embedding
+                    LIMIT %s
+                ) AS neighbor
+                WHERE neighbor.similarity >= %s
+                """,
+                (
+                    KNOWLEDGE_MAP_SIMILARITY_SOURCE_LIMIT,
+                    KNOWLEDGE_MAP_SIMILARITY_NEIGHBORS,
+                    KNOWLEDGE_MAP_SIMILARITY_THRESHOLD,
+                ),
+            ).fetchall()
         return build_knowledge_map_graph(
             [dict(row) for row in upload_rows],
             [dict(row) for row in chunk_rows],
             [dict(row) for row in entry_rows],
             [dict(row) for row in turn_rows],
+            [dict(row) for row in similarity_rows],
         )
 
     def gaps_report(self) -> dict[str, Any]:
@@ -1815,6 +1846,7 @@ def build_knowledge_map_graph(
     chunks: list[dict[str, Any]],
     entries: list[dict[str, Any]],
     turns: list[dict[str, Any]],
+    similarities: list[dict[str, Any]] | None = None,
     max_nodes: int = 900,
 ) -> dict[str, Any]:
     coverage = build_source_coverage_report(chunks, entries, uploads)
@@ -1916,8 +1948,10 @@ def build_knowledge_map_graph(
                 "sourceDoc": entry.get("source_doc") or entry.get("sourceDoc") or "",
                 "sourcePage": entry.get("source_page") or entry.get("sourcePage"),
                 "questionSource": entry.get("question_source") or entry.get("questionSource") or "",
+                "hasEmbedding": bool(entry.get("has_embedding") or entry.get("hasEmbedding")),
                 "retrievedCount": retrieved_counts.get(entry_id, 0),
                 "citedCount": cited_counts.get(entry_id, 0),
+                "similarityCount": 0,
             }
         )
 
@@ -1947,7 +1981,33 @@ def build_knowledge_map_graph(
                     }
                 )
 
+    similarity_edges: dict[tuple[str, str], dict[str, Any]] = {}
+    for similarity in similarities or []:
+        source_id = str(similarity.get("source_id") or similarity.get("sourceId") or "")
+        target_id = str(similarity.get("target_id") or similarity.get("targetId") or "")
+        if not source_id or not target_id or source_id == target_id:
+            continue
+        if source_id not in selected_entry_ids or target_id not in selected_entry_ids:
+            continue
+        pair = tuple(sorted((source_id, target_id)))
+        score = float(similarity.get("similarity") or 0)
+        existing = similarity_edges.get(pair)
+        if existing and existing["similarity"] >= score:
+            continue
+        similarity_edges[pair] = {
+            "id": f"similar:entry:{pair[0]}<->entry:{pair[1]}",
+            "source": f"entry:{pair[0]}",
+            "target": f"entry:{pair[1]}",
+            "type": "similar",
+            "similarity": round(score, 4),
+        }
+    edges.extend(similarity_edges.values())
+
     nodes = [*upload_nodes, *chunk_nodes, *entry_nodes]
+    node_by_id = {node["id"]: node for node in nodes}
+    for edge in similarity_edges.values():
+        node_by_id[edge["source"]]["similarityCount"] += 1
+        node_by_id[edge["target"]]["similarityCount"] += 1
     return {
         "nodes": nodes,
         "edges": edges,
@@ -1957,6 +2017,10 @@ def build_knowledge_map_graph(
             "entries": len(entries),
             "retrievals": sum(retrieved_counts.values()),
             "citations": sum(cited_counts.values()),
+            "embeddedEntries": sum(
+                1 for entry in entries if entry.get("has_embedding") or entry.get("hasEmbedding")
+            ),
+            "similarityEdges": len(similarity_edges),
             "displayedNodes": len(nodes),
         },
         "truncated": len(nodes) < len(uploads) + len(chunks) + len(entries),

@@ -61,10 +61,11 @@ The Knowledge Map opens from the Knowledge Expert page header and visualizes:
 - Q&A entries supported by each chunk
 - chunk coverage status
 - Q&A retrieval and citation activity
+- semantic similarity between embedded Q&A entries
 
 The map provides search, node-type filters, zoom controls, and a selected-node details panel. Documents appear in the inner layer, chunks in the middle, and Q&A entries in the outer layer. Large datasets are bounded for browser performance and the modal reports when nodes have been omitted from the display.
 
-The first map uses persisted structural relationships. Semantic-similarity edges between entries or chunks are not required for this view and are not calculated yet.
+Semantic links are hidden by default to keep the graph readable. The toggle displays up to three nearest neighbors per embedded Q&A entry when cosine similarity is at least `0.82`. These links use embeddings already stored in Postgres; opening the map does not call an AI provider. Entries without embeddings remain in the structural map but do not receive semantic links.
 
 ## PDF and DOCX Extraction
 

@@ -116,4 +116,4 @@ The structural Knowledge Map is available at:
 GET /api/tools/knowledge-expert/knowledge-map
 ```
 
-The response contains bounded document, source-chunk, and Q&A nodes; structural edges; coverage status; retrieval/citation counts; graph totals; and a truncation flag for large datasets.
+The response contains bounded document, source-chunk, and Q&A nodes; structural edges; optional Q&A semantic-similarity edges; coverage status; retrieval/citation counts; graph totals; and a truncation flag for large datasets. Similarity edges use existing pgvector embeddings, keep up to three nearest neighbors per embedded Q&A entry, and require cosine similarity of at least `0.82`.

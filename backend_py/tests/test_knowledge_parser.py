@@ -212,7 +212,16 @@ class KnowledgeParserTraceabilityTests(unittest.TestCase):
                 "question": "What is required?",
                 "answer": "MFA is required for admins.",
                 "source_chunk_ids": ["chunk-1"],
-            }
+                "has_embedding": True,
+            },
+            {
+                "id": "entry-2",
+                "category": "Operations",
+                "question": "How often do backups run?",
+                "answer": "Backups run daily.",
+                "source_chunk_ids": ["chunk-2"],
+                "has_embedding": True,
+            },
         ]
         turns = [
             {
@@ -221,16 +230,26 @@ class KnowledgeParserTraceabilityTests(unittest.TestCase):
             }
         ]
 
-        graph = build_knowledge_map_graph(uploads, chunks, entries, turns)
+        similarities = [
+            {"source_id": "entry-1", "target_id": "entry-2", "similarity": 0.91},
+            {"source_id": "entry-2", "target_id": "entry-1", "similarity": 0.90},
+        ]
+
+        graph = build_knowledge_map_graph(uploads, chunks, entries, turns, similarities)
 
         nodes = {node["id"]: node for node in graph["nodes"]}
         edge_ids = {edge["id"] for edge in graph["edges"]}
         self.assertIn("document:upload-1", nodes)
-        self.assertEqual("uncovered", nodes["chunk:chunk-2"]["coverageStatus"])
+        self.assertEqual("covered", nodes["chunk:chunk-2"]["coverageStatus"])
         self.assertEqual(1, nodes["entry:entry-1"]["retrievedCount"])
         self.assertEqual(1, nodes["entry:entry-1"]["citedCount"])
+        self.assertEqual(1, nodes["entry:entry-1"]["similarityCount"])
+        self.assertTrue(nodes["entry:entry-2"]["hasEmbedding"])
         self.assertIn("document:upload-1->chunk:chunk-1", edge_ids)
         self.assertIn("chunk:chunk-1->entry:entry-1", edge_ids)
+        self.assertIn("similar:entry:entry-1<->entry:entry-2", edge_ids)
+        self.assertEqual(1, graph["totals"]["similarityEdges"])
+        self.assertEqual(2, graph["totals"]["embeddedEntries"])
 
 
 def make_pdf(page_texts):

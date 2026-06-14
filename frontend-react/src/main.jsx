@@ -2499,7 +2499,8 @@ function KnowledgeHowModal({ onClose }) {
           <section><h3>4. Retrieve matching entries</h3><p>Each question searches the active dataset. OpenAI embeddings enable semantic search; without an OpenAI key, retrieval falls back to keyword matching.</p></section>
           <section><h3>5. Enforce grounded answers</h3><p>Claude can answer only from retrieved entries. Grounded answers must include valid entry citations; otherwise Knowledge Expert declines.</p></section>
           <section><h3>6. Check source coverage</h3><p>The Source coverage report highlights unlinked chunks, partial lexical coverage, low answer support, and legacy entries without traceability.</p></section>
-          <section><h3>7. Keep chats separate</h3><p>Chats keep their own saved turns while sharing the current knowledge base. Clear current removes only the selected chat's turns.</p></section>
+          <section><h3>7. Explore the Knowledge Map</h3><p>The map shows document, source-chunk, and Q&amp;A relationships. An optional semantic-links toggle connects similar Q&amp;A entries using their stored embeddings.</p></section>
+          <section><h3>8. Keep chats separate</h3><p>Chats keep their own saved turns while sharing the current knowledge base. Clear current removes only the selected chat's turns.</p></section>
           <section><h3>Extraction limits</h3><p>Scanned PDFs need OCR before upload, password-protected PDFs are rejected, and DOCX locations use document structure rather than page numbers.</p></section>
         </div>
       </div>
@@ -2512,6 +2513,7 @@ function KnowledgeMapModal({ onClose }) {
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
   const [selectedId, setSelectedId] = useState("");
+  const [showSimilarity, setShowSimilarity] = useState(false);
   const [visibleTypes, setVisibleTypes] = useState({ document: true, chunk: true, entry: true });
 
   useEffect(() => {
@@ -2565,6 +2567,15 @@ function KnowledgeMapModal({ onClose }) {
               {type === "entry" ? "Q&A" : `${type[0].toUpperCase()}${type.slice(1)}s`}
             </button>
           ))}
+          <button
+            className={`button button-secondary ${showSimilarity ? "is-active" : ""}`}
+            type="button"
+            disabled={!state.payload?.totals?.similarityEdges}
+            title={state.payload?.totals?.similarityEdges ? "Show semantic similarity between embedded Q&A entries" : "No semantic links are available"}
+            onClick={() => setShowSimilarity((current) => !current)}
+          >
+            Semantic links ({formatInteger(state.payload?.totals?.similarityEdges)})
+          </button>
           <label className="knowledge-map-zoom">Zoom <input type="range" min="0.65" max="1.8" step="0.05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
           <button className="button button-secondary" type="button" onClick={() => setZoom(1)}>Fit graph</button>
         </div>
@@ -2572,6 +2583,7 @@ function KnowledgeMapModal({ onClose }) {
           <span>{formatInteger(state.payload?.totals?.documents)} documents</span>
           <span>{formatInteger(state.payload?.totals?.chunks)} chunks</span>
           <span>{formatInteger(state.payload?.totals?.entries)} Q&amp;A entries</span>
+          <span>{formatInteger(state.payload?.totals?.embeddedEntries)} embedded</span>
           <span>{formatInteger(state.payload?.totals?.citations)} citations</span>
           {state.payload?.truncated ? <strong>Large graph: showing {formatInteger(state.payload?.totals?.displayedNodes)} nodes</strong> : null}
         </div>
@@ -2583,8 +2595,10 @@ function KnowledgeMapModal({ onClose }) {
             {!state.loading && !state.error && graph.nodes.length ? (
               <svg viewBox="0 0 1200 760" role="img" aria-label="Knowledge graph">
                 <g transform={`translate(${600 * (1 - zoom)} ${380 * (1 - zoom)}) scale(${zoom})`}>
-                  {graph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)).map((edge) => (
-                    <line className={`knowledge-map-edge is-${edge.type}`} x1={edge.sourcePosition.x} y1={edge.sourcePosition.y} x2={edge.targetPosition.x} y2={edge.targetPosition.y} key={edge.id} />
+                  {graph.edges.filter((edge) => (edge.type !== "similar" || showSimilarity) && visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)).map((edge) => (
+                    <line className={`knowledge-map-edge is-${edge.type}`} x1={edge.sourcePosition.x} y1={edge.sourcePosition.y} x2={edge.targetPosition.x} y2={edge.targetPosition.y} key={edge.id}>
+                      {edge.type === "similar" ? <title>{Math.round(Number(edge.similarity || 0) * 100)}% semantic similarity</title> : null}
+                    </line>
                   ))}
                   {graph.nodes.filter((node) => visibleNodeIds.has(node.id)).map((node) => {
                     const isMatch = matchingIds.has(node.id);
@@ -2618,6 +2632,7 @@ function KnowledgeMapModal({ onClose }) {
               <span><i className="is-chunk" />Source chunk</span>
               <span><i className="is-entry" />Q&amp;A entry</span>
               <span><i className="is-issue" />Coverage issue</span>
+              <span><i className="is-similar" />Semantic link</span>
             </div>
           </aside>
         </div>
@@ -2634,7 +2649,7 @@ function KnowledgeMapDetails({ node }) {
   if (node.type === "chunk") {
     return <><span className="knowledge-map-type">Source chunk</span><h3>{node.heading || node.locator || node.label}</h3><p>{node.sourceDoc}{node.locator ? ` · ${node.locator}` : ""}</p><p>{node.preview}</p><p><strong>{node.coveragePercent}% lexical coverage</strong> · {node.coverageStatus}</p></>;
   }
-  return <><span className="knowledge-map-type">Q&amp;A entry</span><h3>{node.label}</h3><p>{node.category} · {node.sourceDoc}</p><p>{node.answerPreview}</p><p><strong>{formatInteger(node.retrievedCount)} retrievals</strong> · {formatInteger(node.citedCount)} citations</p></>;
+  return <><span className="knowledge-map-type">Q&amp;A entry</span><h3>{node.label}</h3><p>{node.category} · {node.sourceDoc}</p><p>{node.answerPreview}</p><p><strong>{formatInteger(node.retrievedCount)} retrievals</strong> · {formatInteger(node.citedCount)} citations · {formatInteger(node.similarityCount)} semantic links</p></>;
 }
 
 function layoutKnowledgeMap(payload) {
