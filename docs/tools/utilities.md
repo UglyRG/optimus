@@ -35,6 +35,17 @@ Converts every row in a CSV file into matching JSON files saved inside an `Outpu
 Converts a comma- or semicolon-delimited Q&A CSV with question and answer columns into a Markdown knowledge-base file.
 Standard CSV quoting is supported for delimiters, double quotes, and line breaks inside values.
 
+## Document to Markdown
+
+Converts a source document with Microsoft MarkItDown and saves a Markdown file in `Outputs/`.
+The output filename uses the source file stem:
+
+```text
+initialfilename.md
+```
+
+Supported formats depend on the installed MarkItDown extras. The Optimus backend declares `markitdown[all]` so local setup should install the full converter set.
+
 ## Check My Token Usage
 
 Checks OpenAI and Anthropic token usage for:

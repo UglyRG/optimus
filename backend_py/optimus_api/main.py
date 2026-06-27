@@ -33,6 +33,7 @@ from .tools import (
     analyze_padelog_performance,
     check_token_usage,
     combine_pdf_documents,
+    convert_document_to_markdown,
     create_backup_archive,
     create_notelog_pdf,
     list_iframe_source_files,
@@ -63,7 +64,7 @@ settings = get_settings()
 store = JsonStore(settings)
 knowledge_repo = KnowledgeRepository(store, settings)
 
-app = FastAPI(title="Optimus API", version="6.3.1")
+app = FastAPI(title="Optimus API", version="6.3.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
@@ -557,6 +558,11 @@ def post_csv_json_rows(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
 @app.post("/api/tools/csv-qa-markdown")
 def post_csv_qa_markdown(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return save_csv_qa_markdown(payload, settings)
+
+
+@app.post("/api/tools/document-markdown")
+def post_document_markdown(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    return convert_document_to_markdown(payload, settings)
 
 
 @app.post("/api/tools/token-usage")

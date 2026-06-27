@@ -31,6 +31,7 @@ const TOOL_VIEW_IDS = new Set([
   "combine-pdfs",
   "csv-json-rows",
   "csv-qa-markdown",
+  "document-markdown",
   "token-usage",
   "presentation-suite",
   "demo-builder",
@@ -211,6 +212,8 @@ function App() {
         <CsvJsonRowsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "csv-qa-markdown" ? (
         <CsvQaMarkdownPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
+      ) : view.name === "document-markdown" ? (
+        <DocumentMarkdownPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "token-usage" ? (
         <TokenUsagePage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "presentation-suite" ? (
@@ -1709,6 +1712,63 @@ function CsvQaMarkdownPage({ onBack }) {
   );
 }
 
+function DocumentMarkdownPage({ onBack }) {
+  const [result, setResult] = useState(null);
+  const [message, setMessage] = useState({ type: "", text: "" });
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    const file = event.currentTarget.elements.documentFile.files?.[0];
+    if (!file) {
+      setMessage({ type: "error", text: "Choose a document first." });
+      return;
+    }
+    setBusy(true);
+    setMessage({ type: "", text: "" });
+    setResult(null);
+    try {
+      setResult(await request("/tools/document-markdown", {
+        method: "POST",
+        body: JSON.stringify({ fileName: file.name, base64: await fileToBase64(file) }),
+      }));
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ToolPageShell title="Document to Markdown" description="Convert a document with Microsoft MarkItDown and save the Markdown file to Outputs." onBack={onBack}>
+      <form className="tool-panel" onSubmit={submit}>
+        <Field label="Document file">
+          <input
+            name="documentFile"
+            type="file"
+            accept=".pdf,.docx,.pptx,.xlsx,.xls,.csv,.json,.xml,.html,.htm,.txt,.md,.markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/*,application/json"
+            required
+            onChange={() => setResult(null)}
+          />
+        </Field>
+        <ScopedMessage message={message} />
+        <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Converting..." : "Create Markdown"}</button>
+      </form>
+      {result ? (
+        <section className="result-panel">
+          <div className="result-head">
+            <div><h2>Output</h2><p>Saved as {result.fileName}</p></div>
+            <a className="button button-secondary" href={outputDownloadUrl(result.fileName)} download={result.fileName}>
+              <Download size={16} aria-hidden="true" /> Download
+            </a>
+          </div>
+          <textarea className="markdown-preview" value={result.markdown || ""} readOnly spellCheck="false" />
+        </section>
+      ) : null}
+    </ToolPageShell>
+  );
+}
+
 function TokenUsagePage({ onBack }) {
   const [range, setRange] = useState({ from: "", to: "" });
   const [result, setResult] = useState(null);
@@ -2242,13 +2302,14 @@ function KnowledgeExpertPage({ onBack }) {
           <details className="knowledge-template-box" open>
             <summary>Upload templates</summary>
             <div className="knowledge-template-body">
-              <p>Best results come from one row per question the assistant should be able to answer. You can upload one file or many mixed files, including PDF and DOCX.</p>
+              <p>Best results come from one row per question the assistant should be able to answer. The templates use the canonical fields; prose files such as TXT, Markdown, HTML, PDF, and DOCX are also accepted.</p>
               <div className="knowledge-template-actions">
                 <button className="button button-secondary" type="button" onClick={() => downloadKnowledgeTemplate("csv")}>Download CSV</button>
                 <button className="button button-secondary" type="button" onClick={() => downloadKnowledgeTemplate("json")}>Download JSON</button>
               </div>
               <div className="knowledge-template-example"><strong>CSV columns</strong><code>category,question,answer,link</code></div>
               <div className="knowledge-template-example"><strong>JSON shape</strong><code>{'{ "entries": [{ "category": "...", "question": "...", "answer": "...", "link": "..." }] }'}</code></div>
+              <div className="knowledge-template-example"><strong>Accepted aliases</strong><code>q/title, a/text, cat, url/resource</code></div>
             </div>
           </details>
           <ScopedMessage message={message} />
@@ -2494,14 +2555,27 @@ function KnowledgeHowModal({ onClose }) {
         </div>
         <div className="ai-modal-body knowledge-how-body">
           <section><h3>1. Upload trusted content</h3><p>Upload CSV, JSON, HTML, TXT, Markdown, PDF, or DOCX files. Append adds to the dataset; Replace rebuilds it from the selected files.</p></section>
+          <section>
+            <h3>Supported file formats</h3>
+            <div className="knowledge-format-list">
+              <article><strong>CSV Q&amp;A</strong><p><code>.csv</code> files need a header row. They require <code>question</code> or <code>q</code>, and use <code>answer</code>, <code>a</code>, or <code>text</code> for answers. Optional fields: <code>category</code>, <code>cat</code>, <code>link</code>, <code>url</code>, <code>resource</code>.</p></article>
+              <article><strong>JSON Q&amp;A</strong><p><code>.json</code> files can be an array of entries or <code>{'{ "entries": [...] }'}</code>. Entries can use <code>question</code>, <code>q</code>, or <code>title</code>; <code>answer</code>, <code>a</code>, or <code>text</code>; plus optional <code>category</code>, <code>link</code>, or <code>url</code>.</p></article>
+              <article><strong>Plain text prose</strong><p><code>.txt</code> files and unknown extensions are read as UTF-8 text, split into prose blocks, and converted into entries.</p></article>
+              <article><strong>Markdown prose</strong><p><code>.md</code> and <code>.markdown</code> files are read as UTF-8 Markdown. Headings become categories and content blocks become entries.</p></article>
+              <article><strong>HTML prose</strong><p><code>.html</code> and <code>.htm</code> files are stripped to text first, then parsed like prose with headings and blocks.</p></article>
+              <article><strong>PDF prose</strong><p><code>.pdf</code> files must contain extractable text. Page text is retained with page and block locators for citations.</p></article>
+              <article><strong>DOCX prose</strong><p><code>.docx</code> files read Word headings, paragraphs, and table rows. Citations use paragraph and table-row locators.</p></article>
+            </div>
+          </section>
           <section><h3>2. Extract source chunks</h3><p>Optimus retains the source behind each entry. PDFs use page and block locators; DOCX files use headings, paragraphs, and table rows.</p></section>
-          <section><h3>3. Prepare Q&amp;A entries</h3><p>Structured Q&amp;A fields are preserved. Prose blocks are converted heuristically, and every new entry links back to its supporting source chunk.</p></section>
+          <section><h3>3. Prepare Q&amp;A entries</h3><p>Structured CSV and JSON Q&amp;A fields are preserved. Prose can use explicit <code>Question:</code> and <code>Answer:</code> blocks; otherwise a short first line or first sentence becomes the question and the block becomes the answer.</p></section>
           <section><h3>4. Retrieve matching entries</h3><p>Each question searches the active dataset. OpenAI embeddings enable semantic search; without an OpenAI key, retrieval falls back to keyword matching.</p></section>
           <section><h3>5. Enforce grounded answers</h3><p>Claude can answer only from retrieved entries. Grounded answers must include valid entry citations; otherwise Knowledge Expert declines.</p></section>
           <section><h3>6. Check source coverage</h3><p>The report separates traceability, Unicode-aware lexical coverage, and answer support. For structured CSV and JSON Q&amp;A, coverage compares question and answer values while ignoring field names and metadata such as category and link.</p></section>
           <section><h3>7. Explore the Knowledge Map</h3><p>The map shows document, source-chunk, and Q&amp;A relationships. An optional semantic-links toggle connects similar Q&amp;A entries using their stored embeddings.</p></section>
           <section><h3>8. Keep chats separate</h3><p>Chats keep their own saved turns while sharing the current knowledge base. Clear current removes only the selected chat's turns.</p></section>
-          <section><h3>Extraction limits</h3><p>Scanned PDFs need OCR before upload, password-protected PDFs are rejected, and DOCX locations use document structure rather than page numbers.</p></section>
+          <section><h3>Upload and extraction limits</h3><p>Upload 1 to 20 files at a time. Each file contributes up to 1,000 usable entries and 5,000 retained source chunks. Text-like files must decode as UTF-8. Scanned PDFs need OCR before upload, password-protected PDFs are rejected, and DOCX locations use document structure rather than page numbers.</p></section>
+          <section><h3>Not supported here</h3><p>Knowledge Expert does not directly ingest PPTX, XLSX, XLS, DOC, images, audio, or OCR. Convert those files first, for example with Document to Markdown or an OCR tool, then upload the resulting text or Markdown.</p></section>
         </div>
       </div>
     </div>

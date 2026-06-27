@@ -6,6 +6,7 @@ import io
 import json
 import re
 import shutil
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
@@ -16,6 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
+
+try:
+    from markitdown import MarkItDown
+except ImportError:  # pragma: no cover - exercised through the runtime error path
+    MarkItDown = None
 
 from .config import Settings
 from .domain import normalize_betlog_bet, normalize_padelog_match
@@ -48,6 +54,10 @@ def output_csv_json_base_name(file_name: str) -> str:
 
 def output_qa_markdown_file_name(file_name: str) -> str:
     return safe_file_stem(Path(file_name or "qa").stem or "qa") + "-qa.md"
+
+
+def output_document_markdown_file_name(file_name: str) -> str:
+    return safe_file_stem(Path(file_name or "document").stem or "document") + ".md"
 
 
 def safe_file_stem(value: str) -> str:
@@ -275,6 +285,46 @@ def save_csv_qa_markdown(payload: dict[str, Any], settings: Settings) -> dict[st
         "outputPath": str(output_path),
         "entryCount": written,
         "skippedRows": skipped,
+        "markdown": output_path.read_text(encoding="utf-8"),
+    }
+
+
+def convert_document_to_markdown(payload: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    file_name = str(payload.get("fileName") or "")
+    compact_base64 = str(payload.get("base64") or "").strip()
+    if not file_name or not compact_base64:
+        raise bad_request("A source document is required")
+
+    try:
+        document_bytes = base64.b64decode(compact_base64, validate=True)
+    except Exception as exc:
+        raise bad_request("Document content must be a Base64 string") from exc
+    if not document_bytes:
+        raise bad_request("The selected document is empty")
+
+    if MarkItDown is None:
+        raise bad_request("MarkItDown is not installed. Install the backend dependency with markitdown[all].")
+
+    suffix = Path(file_name).suffix.lower()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir) / f"source{suffix}"
+        temp_path.write_bytes(document_bytes)
+        try:
+            result = MarkItDown(enable_plugins=False).convert(str(temp_path))
+        except Exception as exc:
+            raise bad_request(f"{file_name} could not be converted to Markdown") from exc
+
+    markdown = str(getattr(result, "text_content", "") or "").strip()
+    if not markdown:
+        raise bad_request("MarkItDown did not return any Markdown content for this document")
+
+    saved_file_name = output_document_markdown_file_name(file_name)
+    output_path = settings.outputs_dir / saved_file_name
+    settings.outputs_dir.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(markdown + "\n", encoding="utf-8")
+    return {
+        "fileName": saved_file_name,
+        "outputPath": str(output_path),
         "markdown": output_path.read_text(encoding="utf-8"),
     }
 

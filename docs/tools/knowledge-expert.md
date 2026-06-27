@@ -6,28 +6,33 @@ Knowledge Expert lets the user upload a curated knowledge base and ask grounded 
 
 Supported upload types:
 
-- CSV
-- HTML
-- TXT
-- Markdown
-- JSON
-- PDF
-- DOCX
+- CSV Q&A (`.csv`)
+- JSON Q&A (`.json`)
+- plain text prose (`.txt` and unknown extensions)
+- Markdown prose (`.md`, `.markdown`)
+- HTML prose (`.html`, `.htm`)
+- PDF prose (`.pdf`)
+- DOCX prose (`.docx`)
 
-CSV headers support:
+The in-app CSV and JSON templates use the canonical fields:
 
 - `category`
 - `question`
 - `answer`
 - `link`
 
-JSON can be an array of entries or an object with an `entries` array.
+CSV files require a `question` or `q` column. Answers can come from `answer`, `a`, or `text`.
+Optional CSV fields include `category` or `cat`, and `link`, `url`, or `resource`.
+
+JSON can be an array of entries or an object with an `entries` array. Entries can use `question`, `q`, or `title`; `answer`, `a`, or `text`; optional `category`; and optional `link` or `url`.
 
 Uploads can append to the active dataset or replace the dataset atomically.
 
 The backend accepts between 1 and 20 files in one upload. Each parsed file contributes at most 1,000 usable knowledge entries and 5,000 retained source chunks.
 
 Structured CSV and JSON Q&A fields are preserved directly. Text-like prose is split into blocks and converted into Q&A entries with deterministic heuristics. A short first line or first sentence becomes the question; the remaining block becomes the answer. Explicit `Question:` and `Answer:` content is extracted directly.
+
+Knowledge Expert does not directly ingest PPTX, XLSX, XLS, DOC, images, audio, or OCR. Convert those files first, then upload the resulting text or Markdown.
 
 ## Source Traceability
 

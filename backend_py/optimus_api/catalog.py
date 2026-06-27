@@ -50,6 +50,11 @@ HOSTED_TOOLS = [
         "description": "Convert a Q&A CSV with question and answer columns into a Markdown knowledge-base file.",
     },
     {
+        "id": "document-markdown",
+        "title": "Document to Markdown",
+        "description": "Convert documents with Microsoft MarkItDown and save the Markdown file to Outputs.",
+    },
+    {
         "id": "token-usage",
         "title": "Check My Token Usage",
         "description": "Check OpenAI and Anthropic token usage for month-to-date, year-to-date, and a custom range.",
@@ -77,7 +82,8 @@ DEFAULT_TOOL_CATALOG_CONFIG = {
         {"id": "combine-pdfs", "groupId": "utilities", "displayOrder": 6, "enabled": True},
         {"id": "csv-json-rows", "groupId": "utilities", "displayOrder": 7, "enabled": True},
         {"id": "csv-qa-markdown", "groupId": "utilities", "displayOrder": 8, "enabled": True},
-        {"id": "token-usage", "groupId": "utilities", "displayOrder": 9, "enabled": True},
-        {"id": "knowledge-expert", "groupId": "utilities", "displayOrder": 10, "enabled": True},
+        {"id": "document-markdown", "groupId": "utilities", "displayOrder": 9, "enabled": True},
+        {"id": "token-usage", "groupId": "utilities", "displayOrder": 10, "enabled": True},
+        {"id": "knowledge-expert", "groupId": "utilities", "displayOrder": 11, "enabled": True},
     ],
 }
