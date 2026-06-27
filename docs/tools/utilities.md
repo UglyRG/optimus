@@ -44,7 +44,7 @@ The output filename uses the source file stem:
 initialfilename.md
 ```
 
-Supported formats depend on the installed MarkItDown extras. The Optimus backend declares `markitdown[all]` so local setup should install the full converter set.
+Supported formats depend on the installed MarkItDown extras. The Optimus backend installs the local document extras for DOCX, PDF, PPTX, XLS, and XLSX conversion without the remote, audio, and video extras from `markitdown[all]`.
 
 ## Check My Token Usage
 

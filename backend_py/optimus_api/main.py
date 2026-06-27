@@ -64,7 +64,7 @@ settings = get_settings()
 store = JsonStore(settings)
 knowledge_repo = KnowledgeRepository(store, settings)
 
-app = FastAPI(title="Optimus API", version="6.3.3")
+app = FastAPI(title="Optimus API", version="6.3.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
