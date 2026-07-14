@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
+  Copy,
   DatabaseBackup,
   Download,
   Eye,
@@ -31,6 +32,7 @@ const TOOL_VIEW_IDS = new Set([
   "combine-pdfs",
   "csv-json-rows",
   "csv-qa-markdown",
+  "faq-jsonld",
   "document-markdown",
   "token-usage",
   "presentation-suite",
@@ -212,6 +214,8 @@ function App() {
         <CsvJsonRowsPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "csv-qa-markdown" ? (
         <CsvQaMarkdownPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
+      ) : view.name === "faq-jsonld" ? (
+        <FaqJsonLdPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "document-markdown" ? (
         <DocumentMarkdownPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "token-usage" ? (
@@ -1708,6 +1712,127 @@ function CsvQaMarkdownPage({ onBack }) {
           <textarea value={result.markdown || ""} readOnly spellCheck="false" />
         </section>
       ) : null}
+    </ToolPageShell>
+  );
+}
+
+function FaqJsonLdPage({ onBack }) {
+  const [pageUrl, setPageUrl] = useState("");
+  const [language, setLanguage] = useState("en-US");
+  const [rows, setRows] = useState([{ id: randomId(), question: "", answer: "" }]);
+  const [copied, setCopied] = useState(false);
+
+  const result = useMemo(() => buildFaqJsonLd({ pageUrl, language, rows }), [pageUrl, language, rows]);
+
+  function updateRow(id, patch) {
+    setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+    setCopied(false);
+  }
+
+  function addRow() {
+    setRows((current) => [...current, { id: randomId(), question: "", answer: "" }]);
+    setCopied(false);
+  }
+
+  function removeRow(id) {
+    setRows((current) => {
+      const next = current.filter((row) => row.id !== id);
+      return next.length ? next : [{ id: randomId(), question: "", answer: "" }];
+    });
+    setCopied(false);
+  }
+
+  function clearRows() {
+    setRows([{ id: randomId(), question: "", answer: "" }]);
+    setCopied(false);
+  }
+
+  async function copyOutput() {
+    if (!result.canCopy) return;
+    await navigator.clipboard.writeText(result.block);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  function downloadOutput() {
+    if (!result.canCopy) return;
+    downloadTextFile(result.block, "faq-jsonld.html", "text/html;charset=utf-8");
+  }
+
+  const statusMessage = result.issues.length
+    ? { type: "error", text: `${result.completeCount} complete Q&A entr${result.completeCount === 1 ? "y" : "ies"}. ${result.issues.join(" ")}` }
+    : result.completeCount
+      ? { type: "success", text: `Ready: ${result.completeCount} Q&A entr${result.completeCount === 1 ? "y" : "ies"}. Confirm each question and answer is visible on the target page before publishing.` }
+      : { type: "", text: "" };
+
+  return (
+    <ToolPageShell title="FAQPage JSON-LD Generator" description="Create a copy-ready FAQPage schema block for one page at a time." onBack={onBack}>
+      <section className="tool-panel faq-jsonld-panel">
+        <div className="form-grid">
+          <Field label="Page URL">
+            <input type="url" placeholder="https://example.com/page/" value={pageUrl} onChange={(event) => { setPageUrl(event.target.value); setCopied(false); }} />
+          </Field>
+          <Field label="Language">
+            <select value={language} onChange={(event) => { setLanguage(event.target.value); setCopied(false); }}>
+              <option value="en-US">en-US</option>
+              <option value="en-GB">en-GB</option>
+              <option value="el">el</option>
+            </select>
+          </Field>
+        </div>
+        <p className="field-hint">The URL is used for the schema block's <code>url</code> and <code>@id</code> values.</p>
+      </section>
+
+      <section className="tool-panel faq-jsonld-panel">
+        <PanelTitle title="Questions & Answers" body="Answers may include light HTML when the same HTML-backed content appears on the page." />
+        <div className="faq-jsonld-list">
+          {rows.map((row, index) => (
+            <article className="faq-jsonld-row" key={row.id}>
+              <div className="faq-jsonld-row-head">
+                <span className="badge">Q{index + 1}</span>
+                <button className="button button-secondary react-icon-button" type="button" onClick={() => removeRow(row.id)} aria-label={`Remove question ${index + 1}`}>
+                  <Trash2 size={16} aria-hidden="true" />
+                  <span>Remove</span>
+                </button>
+              </div>
+              <Field label="Question">
+                <input value={row.question} placeholder="How quickly can we deploy?" onChange={(event) => updateRow(row.id, { question: event.target.value })} />
+              </Field>
+              <Field label="Answer">
+                <textarea className="faq-jsonld-answer" value={row.answer} placeholder="The answer exactly as shown on the page." onChange={(event) => updateRow(row.id, { answer: event.target.value })} />
+              </Field>
+            </article>
+          ))}
+        </div>
+        <div className="result-actions faq-jsonld-actions">
+          <button className="button button-secondary react-icon-button" type="button" onClick={addRow}>
+            <Plus size={16} aria-hidden="true" />
+            <span>Add question</span>
+          </button>
+          <button className="button button-secondary" type="button" onClick={clearRows}>Clear all</button>
+        </div>
+      </section>
+
+      <section className="result-panel faq-jsonld-output">
+        <div className="result-head">
+          <div><h2>Output</h2><p>{result.canCopy ? "Copy the whole script block into the page." : "Add at least one complete question and answer."}</p></div>
+          <div className="result-actions">
+            <button className="button button-secondary react-icon-button" type="button" disabled={!result.canCopy} onClick={downloadOutput}>
+              <Download size={16} aria-hidden="true" />
+              <span>Download</span>
+            </button>
+            <button className="button button-primary react-icon-button" type="button" disabled={!result.canCopy} onClick={copyOutput}>
+              <Copy size={16} aria-hidden="true" />
+              <span>{copied ? "Copied" : "Copy block"}</span>
+            </button>
+          </div>
+        </div>
+        <textarea className="faq-jsonld-code" value={result.output} readOnly spellCheck="false" />
+        <ScopedMessage message={statusMessage} />
+        <div className="faq-jsonld-callout">
+          <strong>Where it goes:</strong> paste the script into the page body or head, then validate it with <a href="https://search.google.com/test/rich-results" target="_blank" rel="noreferrer">Rich Results Test</a> or <a href="https://validator.schema.org/" target="_blank" rel="noreferrer">Schema.org validator</a>.
+        </div>
+      </section>
     </ToolPageShell>
   );
 }
@@ -3891,6 +4016,65 @@ function betlogTemplate() {
     "date,time,bet_id,bet_type,stake,free_bet,status,return_amount,selection,odds,market,match,score,outcome_type,legs",
     "2026-05-15,22:57,20020850127,Μονό,5.00,false,Χαμένο,0.00,Ααράου,2.55,Επόμενο Γκολ (Γκολ 5),Ααράου - Ιβερντόν,2-2,single,1",
   ].join("\n") + "\n";
+}
+
+function buildFaqJsonLd({ pageUrl, language, rows }) {
+  const cleanUrl = String(pageUrl || "").trim().replace(/#.*$/, "");
+  const pairs = rows
+    .map((row, index) => ({
+      index,
+      question: String(row.question || "").trim(),
+      answer: String(row.answer || "").trim(),
+    }))
+    .filter((row) => row.question || row.answer);
+  const completePairs = pairs.filter((row) => row.question && row.answer);
+  const issues = [];
+  if (!cleanUrl) issues.push("No page URL is set, so url and @id will be omitted.");
+  for (const row of pairs) {
+    if (!row.question) issues.push(`Q${row.index + 1} has an answer but no question.`);
+    if (!row.answer) issues.push(`Q${row.index + 1} has a question but no answer.`);
+  }
+
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    inLanguage: language,
+    mainEntity: completePairs.map((row) => ({
+      "@type": "Question",
+      name: row.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: row.answer,
+      },
+    })),
+  };
+  if (cleanUrl) {
+    schema["@id"] = `${cleanUrl}#faq`;
+    schema.url = cleanUrl;
+  }
+  const orderedSchema = {
+    "@context": schema["@context"],
+    "@type": schema["@type"],
+    ...(schema["@id"] ? { "@id": schema["@id"], url: schema.url } : {}),
+    inLanguage: schema.inLanguage,
+    mainEntity: schema.mainEntity,
+  };
+  const json = JSON.stringify(orderedSchema, null, 2);
+  const block = `<script type="application/ld+json">\n${escapeJsonLdScript(json)}\n</script>`;
+  return {
+    block,
+    canCopy: completePairs.length > 0,
+    completeCount: completePairs.length,
+    issues,
+    output: completePairs.length ? block : "Add at least one complete question and answer to generate a block.",
+  };
+}
+
+function escapeJsonLdScript(text) {
+  return String(text || "")
+    .replace(/<\/(script)/gi, "<\\/$1")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 function downloadTextFile(text, fileName, mimeType) {

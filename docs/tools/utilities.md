@@ -35,6 +35,18 @@ Converts every row in a CSV file into matching JSON files saved inside an `Outpu
 Converts a comma- or semicolon-delimited Q&A CSV with question and answer columns into a Markdown knowledge-base file.
 Standard CSV quoting is supported for delimiters, double quotes, and line breaks inside values.
 
+## FAQPage JSON-LD Generator
+
+Creates a copy-ready `FAQPage` JSON-LD script block for one page at a time.
+
+Inputs:
+
+- page URL
+- language
+- one or more visible question and answer pairs
+
+The generated block is browser-local and is not saved to `Outputs/`. Copy the full script block into the matching page, then validate it with [Google's Rich Results Test](https://search.google.com/test/rich-results) or [Schema.org validator](https://validator.schema.org/).
+
 ## Document to Markdown
 
 Converts a source document with Microsoft MarkItDown and saves a Markdown file in `Outputs/`.

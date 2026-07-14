@@ -71,6 +71,7 @@ Agent/project guidance lives in [AGENTS.md](AGENTS.md). Update it when the engin
 - Combine PDFs
 - CSV to JSON Rows
 - CSV Q&A to Markdown
+- FAQPage JSON-LD Generator
 - Document to Markdown
 - Check My Token Usage
 

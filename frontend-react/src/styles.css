@@ -415,6 +415,85 @@ button {
   padding: 6px 9px;
 }
 
+.field-hint {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.field-hint code,
+.faq-jsonld-callout code {
+  color: var(--code-ink);
+  font-size: 0.9em;
+}
+
+.faq-jsonld-list {
+  display: grid;
+  gap: 12px;
+}
+
+.faq-jsonld-row {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--soft-bg);
+}
+
+.faq-jsonld-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.faq-jsonld-row-head .button {
+  min-height: 34px;
+  padding: 6px 9px;
+}
+
+.faq-jsonld-answer {
+  min-height: 94px;
+  font-family: inherit;
+}
+
+.faq-jsonld-actions {
+  justify-content: flex-start;
+}
+
+.faq-jsonld-code {
+  min-height: 360px;
+  background: var(--soft-bg);
+  color: var(--code-ink);
+}
+
+.faq-jsonld-output {
+  display: grid;
+  gap: 12px;
+}
+
+.faq-jsonld-output .error,
+.faq-jsonld-output .success {
+  margin: 0;
+}
+
+.faq-jsonld-callout {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--soft-bg);
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.faq-jsonld-callout strong {
+  color: var(--ink);
+}
+
 .button {
   display: inline-flex;
   align-items: center;
