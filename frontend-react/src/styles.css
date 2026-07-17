@@ -1048,6 +1048,62 @@ button {
   line-height: 1.5;
 }
 
+.web-audit-history {
+  margin-top: 18px;
+}
+
+.web-audit-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.web-audit-history-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--soft-bg);
+}
+
+.web-audit-history-row.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
+.web-audit-history-score {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  font-weight: 900;
+}
+
+.web-audit-history-score.rating-good { border-color: #27845a; }
+.web-audit-history-score.rating-warning { border-color: #bd7c12; }
+.web-audit-history-score.rating-poor { border-color: #c84444; }
+
+.web-audit-history-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.web-audit-history-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-audit-history-copy span,
+.web-audit-history-copy small {
+  color: var(--muted);
+}
+
 .web-audit-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1191,6 +1247,14 @@ button {
 
   .web-audit-check {
     grid-template-columns: 1fr auto;
+  }
+
+  .web-audit-history-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .web-audit-history-row .result-actions {
+    grid-column: 1 / -1;
   }
 
   .web-audit-check > div {

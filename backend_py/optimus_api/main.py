@@ -47,7 +47,7 @@ from .tools import (
 )
 from .versioning import resolve_app_version
 from .utils import bad_request, now_iso
-from .web_audit import audit_page
+from .web_audit import audit_page, create_audit_pdf
 
 DATA_STORES = {
     "toolCatalog": "tool_catalog",
@@ -56,6 +56,7 @@ DATA_STORES = {
     "notelogNotes": "notelog_notes",
     "performanceInsights": "performance_insights",
     "knowledgeExpert": "knowledge_expert",
+    "webAuditHistory": "web_audit_history",
 }
 
 SESSION_COOKIE = "optimus_session"
@@ -162,6 +163,40 @@ def save_tool_catalog_config(payload: dict[str, Any]) -> dict[str, Any]:
     catalog = normalize_tool_catalog_config(payload, strict=True)
     store.set(DATA_STORES["toolCatalog"], catalog)
     return admin_tool_catalog(load_tool_catalog_config())
+
+
+def load_web_audit_history() -> list[dict[str, Any]]:
+    value = store.get(DATA_STORES["webAuditHistory"], {"audits": []})
+    rows = value.get("audits") if isinstance(value, dict) else []
+    return [row for row in rows if isinstance(row, dict) and row.get("id") and row.get("mode") in {"seo", "geo"}]
+
+
+def save_web_audit_history(audits: list[dict[str, Any]]) -> None:
+    store.set(DATA_STORES["webAuditHistory"], {"audits": audits})
+
+
+def add_web_audit(payload: dict[str, Any], result: dict[str, Any], mode: str, user_name: str) -> dict[str, Any]:
+    record = {
+        "id": new_id(),
+        "mode": mode,
+        "createdAt": now_iso(),
+        "createdBy": user_name,
+        "request": {
+            "url": str(payload.get("url") or "").strip(),
+            "topic": str(payload.get("topic") or "").strip()[:240],
+            "locale": str(payload.get("locale") or "").strip()[:40],
+        },
+        "result": result,
+    }
+    save_web_audit_history([record, *load_web_audit_history()])
+    return record
+
+
+def get_web_audit_record(audit_id: str, mode: str | None = None) -> dict[str, Any]:
+    record = next((row for row in load_web_audit_history() if row.get("id") == audit_id), None)
+    if not record or (mode and record.get("mode") != mode):
+        raise HTTPException(status_code=404, detail="Saved audit not found")
+    return record
 
 
 def load_padelog_matches() -> list[dict[str, Any]]:
@@ -400,6 +435,7 @@ def get_admin_backup(_: dict[str, Any] = Depends(require_session)) -> dict[str, 
             "betlog-bets.json": {"bets": load_betlog_bets()},
             "notelog-notes.json": {"notes": load_notelog_notes()},
             "performance-insights.json": {"insights": load_performance_insights()},
+            "web-audit-history.json": {"audits": load_web_audit_history()},
             "knowledge-expert.json": knowledge_repo.backup_snapshot(),
         }
     )
@@ -413,6 +449,7 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     betlog = files.get("betlog-bets.json", {}).get("bets", [])
     notelog = files.get("notelog-notes.json", {}).get("notes", [])
     insights = files.get("performance-insights.json", {}).get("insights", [])
+    web_audits = files.get("web-audit-history.json", {}).get("audits", [])
     knowledge = files.get("knowledge-expert.json")
     normalized_knowledge = normalize_knowledge_store(knowledge) if isinstance(knowledge, dict) else None
     store.set(DATA_STORES["toolCatalog"], catalog)
@@ -420,6 +457,7 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     save_betlog_bets([normalize_betlog_bet(row) for row in betlog])
     save_notelog_notes([normalize_notelog_note(row) for row in notelog])
     save_performance_insights(insights if isinstance(insights, list) else [])
+    save_web_audit_history(web_audits if isinstance(web_audits, list) else [])
     if normalized_knowledge is not None:
         knowledge_repo.replace_all(normalized_knowledge)
     return {
@@ -429,6 +467,7 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
             "bets": len(betlog),
             "notes": len(notelog),
             "insights": len(insights) if isinstance(insights, list) else 0,
+            "webAudits": len(web_audits) if isinstance(web_audits, list) else 0,
             "knowledgeExpertEntries": len(normalized_knowledge["entries"]) if normalized_knowledge is not None else 0,
         },
         "catalog": admin_tool_catalog(load_tool_catalog_config()),
@@ -572,13 +611,47 @@ def post_token_usage(payload: dict[str, Any], _: dict[str, Any] = Depends(requir
 
 
 @app.post("/api/tools/seo-checker")
-def post_seo_checker(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
-    return audit_page(payload, "seo")
+def post_seo_checker(payload: dict[str, Any], session: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    record = add_web_audit(payload, audit_page(payload, "seo"), "seo", session["name"])
+    return {**record["result"], "auditId": record["id"], "createdAt": record["createdAt"], "createdBy": record["createdBy"]}
 
 
 @app.post("/api/tools/geo-checker")
-def post_geo_checker(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
-    return audit_page(payload, "geo")
+def post_geo_checker(payload: dict[str, Any], session: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    record = add_web_audit(payload, audit_page(payload, "geo"), "geo", session["name"])
+    return {**record["result"], "auditId": record["id"], "createdAt": record["createdAt"], "createdBy": record["createdBy"]}
+
+
+@app.get("/api/tools/{mode}-checker/history")
+def get_web_checker_history(mode: str, _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    if mode not in {"seo", "geo"}:
+        raise HTTPException(status_code=404, detail="Audit tool not found")
+    records = [row for row in load_web_audit_history() if row.get("mode") == mode]
+    return {"audits": records}
+
+
+@app.post("/api/tools/{mode}-checker/history/delete")
+def delete_web_checker_history(mode: str, payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    if mode not in {"seo", "geo"}:
+        raise HTTPException(status_code=404, detail="Audit tool not found")
+    audit_id = str(payload.get("id") or "").strip()
+    get_web_audit_record(audit_id, mode)
+    remaining = [row for row in load_web_audit_history() if row.get("id") != audit_id]
+    save_web_audit_history(remaining)
+    return {"ok": True, "id": audit_id}
+
+
+@app.get("/api/tools/{mode}-checker/history/{audit_id}/pdf")
+def get_web_checker_pdf(mode: str, audit_id: str, _: dict[str, Any] = Depends(require_session)) -> FastAPIResponse:
+    if mode not in {"seo", "geo"}:
+        raise HTTPException(status_code=404, detail="Audit tool not found")
+    record = get_web_audit_record(audit_id, mode)
+    file_name = f"{mode}-audit-{audit_id[:8]}.pdf"
+    return FastAPIResponse(
+        content=create_audit_pdf(record),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
 
 
 @app.get("/api/outputs/iframe-sources")

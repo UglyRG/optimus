@@ -69,3 +69,11 @@ def test_missing_topic_is_not_assessed(monkeypatch):
     topic_check = next(check for category in result["categories"] for check in category["checks"] if check["id"] == "topic-fit")
     assert topic_check["status"] == "not_applicable"
     assert topic_check["pointsEarned"] == 0
+
+
+def test_saved_audit_pdf_contains_report_pages(monkeypatch):
+    monkeypatch.setattr(web_audit, "_fetch", fake_fetch)
+    result = web_audit.audit_page({"url": "https://example.com/local-seo", "topic": "local SEO consulting"}, "seo")
+    pdf = web_audit.create_audit_pdf({"id": "audit-1", "createdAt": "2026-07-17T12:00:00Z", "result": result})
+    assert pdf.startswith(b"%PDF-")
+    assert len(pdf) > 5_000

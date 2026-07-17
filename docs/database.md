@@ -25,8 +25,11 @@ The backend currently uses these logical stores:
 - `notelog_notes`
 - `performance_insights`
 - `knowledge_expert`
+- `web_audit_history`
 
 Some legacy JSON files can be imported into these stores when first read.
+
+`web_audit_history` stores all successful SEO and GEO audit inputs, complete scored results, timestamps, and creator names as one JSONB document. It does not store fetched raw HTML. Individual saved audits can be deleted from their tool page.
 
 ## pgvector
 

@@ -10,7 +10,13 @@ This distinction is intentional. Actual AI visibility varies by engine, prompt, 
 - **Target topic** is recommended because generative visibility is query-dependent. Without it, alignment is marked `not_applicable`.
 - **Locale** is optional context and does not change framework v1.0 weights.
 
-Private, loopback, link-local, and reserved network destinations are rejected. Redirect destinations receive the same validation. Page content is not persisted.
+Private, loopback, link-local, and reserved network destinations are rejected. Redirect destinations receive the same validation.
+
+## Saved audit history
+
+Every successful audit is saved in Postgres. A record contains the submitted URL, target topic and locale, creator and timestamp, and the complete readiness result including framework version, category results, individual checks, evidence, recommendations, caps, summary, and limitations. Raw downloaded HTML is not retained.
+
+Past results are available on the tool page. A saved result can be reopened, deleted, or exported as a PDF snapshot. Deletion is permanent after confirmation.
 
 ## Framework v1.0
 
@@ -47,4 +53,3 @@ Including statistics or citations does not automatically make content trustworth
 ## Future live visibility report
 
 A provider-backed visibility feature should be reported separately with repeated observations. Suitable measures include mention rate, citation rate, citation prominence, representation accuracy, and engine coverage. Results should include the tested prompts, engines, locale, run count, and observation dates.
-

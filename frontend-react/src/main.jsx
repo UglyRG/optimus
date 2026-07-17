@@ -3030,6 +3030,24 @@ function WebCheckerPage({ mode, onBack }) {
   const [message, setMessage] = useState({ type: "", text: "" });
   const [busy, setBusy] = useState(false);
   const [showFramework, setShowFramework] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  useEffect(() => {
+    loadHistory();
+  }, [mode]);
+
+  async function loadHistory() {
+    setHistoryLoading(true);
+    try {
+      const payload = await request(`/tools/${mode}-checker/history`);
+      setHistory(payload.audits || []);
+    } catch (error) {
+      setMessage({ type: "error", text: `Could not load saved audits: ${error.message}` });
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -3037,7 +3055,9 @@ function WebCheckerPage({ mode, onBack }) {
     setMessage({ type: "", text: "" });
     setResult(null);
     try {
-      setResult(await request(`/tools/${mode}-checker`, { method: "POST", body: JSON.stringify({ url, topic, locale }) }));
+      const nextResult = await request(`/tools/${mode}-checker`, { method: "POST", body: JSON.stringify({ url, topic, locale }) });
+      setResult(nextResult);
+      await loadHistory();
     } catch (error) {
       setMessage({ type: "error", text: error.message });
     } finally {
@@ -3061,6 +3081,23 @@ function WebCheckerPage({ mode, onBack }) {
         <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Auditing page..." : `Calculate ${framework.scoreTitle}`}</button>
       </form>
       {result ? <WebAuditResult result={result} onExplain={() => setShowFramework(true)} /> : null}
+      <WebAuditHistory
+        mode={mode}
+        audits={history}
+        loading={historyLoading}
+        activeId={result?.auditId || ""}
+        onView={(record) => { setResult({ ...record.result, auditId: record.id, createdAt: record.createdAt, createdBy: record.createdBy }); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+        onDelete={async (record) => {
+          if (!window.confirm(`Delete the saved ${mode.toUpperCase()} audit for ${record.result?.url || record.request?.url}?`)) return;
+          try {
+            await request(`/tools/${mode}-checker/history/delete`, { method: "POST", body: JSON.stringify({ id: record.id }) });
+            if (result?.auditId === record.id) setResult(null);
+            await loadHistory();
+          } catch (error) {
+            setMessage({ type: "error", text: error.message });
+          }
+        }}
+      />
       {showFramework ? <WebFrameworkModal mode={mode} onClose={() => setShowFramework(false)} /> : null}
     </ToolPageShell>
   );
@@ -3076,7 +3113,10 @@ function WebAuditResult({ result, onExplain }) {
           <h2>{result.title}: {result.rating}</h2>
           <p>{result.url}{result.topic ? ` · Topic: ${result.topic}` : " · General readiness; target-topic alignment not assessed"}</p>
         </div>
-        <button className="button button-secondary" type="button" onClick={onExplain}>Explain the score</button>
+        <div className="result-actions">
+          {result.auditId ? <a className="button button-primary" href={`${API_BASE}/tools/${result.mode}-checker/history/${encodeURIComponent(result.auditId)}/pdf`} download>Export PDF</a> : null}
+          <button className="button button-secondary" type="button" onClick={onExplain}>Explain the score</button>
+        </div>
       </div>
       <div className="web-audit-summary">
         <span><strong>{result.summary.passed}</strong> passed</span>
@@ -3107,6 +3147,41 @@ function WebAuditResult({ result, onExplain }) {
       <div className="web-audit-limitations"><strong>How to read this result</strong><p>{result.limitations.join(" ")}</p></div>
     </section>
   );
+}
+
+function WebAuditHistory({ mode, audits, loading, activeId, onView, onDelete }) {
+  return (
+    <section className="result-panel web-audit-history">
+      <div className="result-head"><div><h2>Past audit results</h2><p>{audits.length} saved {mode.toUpperCase()} audit{audits.length === 1 ? "" : "s"}</p></div></div>
+      {loading ? <div className="tool-list-state">Loading saved audits...</div> : null}
+      {!loading && !audits.length ? <div className="tool-list-state">No saved audits yet. Successful audits will appear here automatically.</div> : null}
+      <div className="web-audit-history-list">
+        {audits.map((record) => {
+          const saved = record.result || {};
+          return (
+            <article className={`web-audit-history-row ${activeId === record.id ? "is-active" : ""}`} key={record.id}>
+              <div className={`web-audit-history-score rating-${scoreTone(saved.score || 0)}`}>{saved.score ?? "—"}</div>
+              <div className="web-audit-history-copy">
+                <strong>{saved.url || record.request?.url || "Saved audit"}</strong>
+                <span>{saved.rating || ""}{saved.topic ? ` · ${saved.topic}` : " · General readiness"}</span>
+                <small>{formatAuditTimestamp(record.createdAt)}{record.createdBy ? ` · ${record.createdBy}` : ""} · Framework v{saved.frameworkVersion || "1.0"}</small>
+              </div>
+              <div className="result-actions">
+                <button className="button button-secondary" type="button" onClick={() => onView(record)}>View</button>
+                <a className="button button-secondary" href={`${API_BASE}/tools/${mode}-checker/history/${encodeURIComponent(record.id)}/pdf`} download>PDF</a>
+                <button className="button button-secondary" type="button" onClick={() => onDelete(record)}>Delete</button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function formatAuditTimestamp(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value || "") : date.toLocaleString();
 }
 
 function WebFrameworkModal({ mode, onClose }) {

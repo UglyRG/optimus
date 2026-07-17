@@ -4,12 +4,14 @@ import ipaddress
 import json
 import re
 import socket
+from io import BytesIO
 from collections import Counter
 from html.parser import HTMLParser
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from xml.sax.saxutils import escape
 
 from .utils import bad_request
 
@@ -356,3 +358,92 @@ def _response(mode: str, title: str, fetched: dict[str, Any], topic: str, locale
             "Checks that require field data, a rendered browser, backlinks, or repeated live engine observations are reported separately or marked not assessed.",
         ],
     }
+
+
+def create_audit_pdf(record: dict[str, Any]) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    import reportlab
+    from pathlib import Path
+
+    result = record.get("result") if isinstance(record.get("result"), dict) else {}
+    buffer = BytesIO()
+    font_path = Path(reportlab.__file__).parent / "fonts" / "Vera.ttf"
+    bold_font_path = Path(reportlab.__file__).parent / "fonts" / "VeraBd.ttf"
+    body_font, bold_font = "Helvetica", "Helvetica-Bold"
+    if font_path.exists() and bold_font_path.exists():
+        pdfmetrics.registerFont(TTFont("OptimusVera", str(font_path)))
+        pdfmetrics.registerFont(TTFont("OptimusVeraBold", str(bold_font_path)))
+        body_font, bold_font = "OptimusVera", "OptimusVeraBold"
+
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=16 * mm,
+        leftMargin=16 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title=str(result.get("title") or "Optimus web audit"),
+        author="Optimus",
+    )
+    base = getSampleStyleSheet()
+    title_style = ParagraphStyle("AuditTitle", parent=base["Title"], fontName=bold_font, fontSize=20, leading=24, textColor=colors.HexColor("#173766"), spaceAfter=8)
+    heading_style = ParagraphStyle("AuditHeading", parent=base["Heading2"], fontName=bold_font, fontSize=12, leading=15, textColor=colors.HexColor("#173766"), spaceBefore=10, spaceAfter=6)
+    body_style = ParagraphStyle("AuditBody", parent=base["BodyText"], fontName=body_font, fontSize=8.5, leading=12, textColor=colors.HexColor("#28384f"), spaceAfter=4)
+    small_style = ParagraphStyle("AuditSmall", parent=body_style, fontSize=7.5, leading=10, textColor=colors.HexColor("#64748b"))
+    score_style = ParagraphStyle("AuditScore", parent=body_style, fontName=bold_font, fontSize=26, leading=30, alignment=TA_CENTER, textColor=colors.HexColor("#173766"))
+
+    story = [
+        Paragraph(escape(str(result.get("title") or "Web Audit Report")), title_style),
+        Paragraph(f"Framework v{escape(str(result.get('frameworkVersion') or '1.0'))} | Created {escape(str(record.get('createdAt') or ''))}", small_style),
+        Spacer(1, 4 * mm),
+    ]
+    score_table = Table([
+        [Paragraph(f"{int(result.get('score') or 0)}<br/><font size='9'>/ 100</font>", score_style), Paragraph(f"<b>{escape(str(result.get('rating') or ''))}</b><br/>{escape(str(result.get('url') or record.get('url') or ''))}<br/>Topic: {escape(str(result.get('topic') or 'General readiness'))}<br/>Locale: {escape(str(result.get('locale') or 'Not supplied'))}", body_style)],
+    ], colWidths=[38 * mm, 132 * mm])
+    score_table.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.75, colors.HexColor("#cbd5e1")), ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")), ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
+    story.extend([score_table, Spacer(1, 4 * mm)])
+
+    caps = result.get("caps") if isinstance(result.get("caps"), list) else []
+    if caps:
+        story.append(Paragraph("Score caps", heading_style))
+        for cap in caps:
+            story.append(Paragraph(f"Maximum {escape(str(cap.get('maximum')))}: {escape(str(cap.get('reason') or ''))}", body_style))
+
+    for category in result.get("categories") or []:
+        story.append(KeepTogether([
+            Paragraph(f"{escape(str(category.get('label') or 'Category'))} - {escape(str(category.get('score') if category.get('score') is not None else 'Not assessed'))}/100 ({escape(str(category.get('weight') or 0))}% weight)", heading_style),
+        ]))
+        rows = [[Paragraph("Status", small_style), Paragraph("Check and evidence", small_style), Paragraph("Points", small_style)]]
+        for check in category.get("checks") or []:
+            status = str(check.get("status") or "").replace("_", " ").title()
+            detail = f"<b>{escape(str(check.get('label') or ''))}</b><br/>{escape(str(check.get('evidence') or ''))}"
+            if check.get("recommendation") and check.get("status") != "pass":
+                detail += f"<br/><font color='#64748b'>Recommendation: {escape(str(check.get('recommendation')))}</font>"
+            points = "-" if check.get("status") == "not_applicable" else f"{check.get('pointsEarned', 0)}/{check.get('pointsAvailable', 0)}"
+            rows.append([Paragraph(escape(status), small_style), Paragraph(detail, body_style), Paragraph(escape(points), small_style)])
+        table = Table(rows, colWidths=[25 * mm, 125 * mm, 20 * mm], repeatRows=1)
+        table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e9eff8")), ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#cbd5e1")), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5), ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
+        story.extend([table, Spacer(1, 2 * mm)])
+
+    story.extend([Spacer(1, 3 * mm), Paragraph("How to read this report", heading_style)])
+    for limitation in result.get("limitations") or []:
+        story.append(Paragraph(escape(str(limitation)), body_style))
+    story.append(Paragraph("This PDF is a snapshot of the saved audit result. Re-run the audit to evaluate later page changes.", body_style))
+
+    def footer(canvas, doc):  # noqa: ANN001
+        canvas.saveState()
+        canvas.setFont(body_font, 7)
+        canvas.setFillColor(colors.HexColor("#64748b"))
+        canvas.drawString(16 * mm, 10 * mm, "Optimus web audit")
+        canvas.drawRightString(A4[0] - 16 * mm, 10 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=footer, onLaterPages=footer)
+    return buffer.getvalue()

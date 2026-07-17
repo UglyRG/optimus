@@ -101,7 +101,17 @@ POST /api/tools/seo-checker
 POST /api/tools/geo-checker
 ```
 
-Both accept a JSON object with a required public `url` and optional `topic` and `locale`. Responses contain framework version `1.0`, the capped and uncapped score, rating, category weights and scores, individual check evidence, any critical caps, summary counts, and limitations. These endpoints are stateless and do not persist fetched page content.
+Both accept a JSON object with a required public `url` and optional `topic` and `locale`. Responses contain framework version `1.0`, the capped and uncapped score, rating, category weights and scores, individual check evidence, any critical caps, summary counts, and limitations. Every successful response is saved in Postgres; fetched raw HTML is not retained.
+
+Saved audit routes are:
+
+```text
+GET  /api/tools/{seo|geo}-checker/history
+POST /api/tools/{seo|geo}-checker/history/delete
+GET  /api/tools/{seo|geo}-checker/history/{audit_id}/pdf
+```
+
+The history response contains complete saved records. Delete accepts `{ "id": "..." }`. The PDF route returns the saved result as an attachment and does not rerun the audit.
 
 Knowledge Expert uploads use:
 
