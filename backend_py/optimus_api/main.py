@@ -47,6 +47,7 @@ from .tools import (
 )
 from .versioning import resolve_app_version
 from .utils import bad_request, now_iso
+from .web_audit import audit_page
 
 DATA_STORES = {
     "toolCatalog": "tool_catalog",
@@ -568,6 +569,16 @@ def post_document_markdown(payload: dict[str, Any], _: dict[str, Any] = Depends(
 @app.post("/api/tools/token-usage")
 def post_token_usage(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     return check_token_usage(payload, settings)
+
+
+@app.post("/api/tools/seo-checker")
+def post_seo_checker(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    return audit_page(payload, "seo")
+
+
+@app.post("/api/tools/geo-checker")
+def post_geo_checker(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    return audit_page(payload, "geo")
 
 
 @app.get("/api/outputs/iframe-sources")

@@ -38,6 +38,8 @@ const TOOL_VIEW_IDS = new Set([
   "presentation-suite",
   "demo-builder",
   "knowledge-expert",
+  "seo-checker",
+  "geo-checker",
 ]);
 const NOTELOG_PAGE_WIDTH = 1414;
 const NOTELOG_PAGE_HEIGHT = 1000;
@@ -226,6 +228,10 @@ function App() {
         <DemoBuilderPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "knowledge-expert" ? (
         <KnowledgeExpertPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
+      ) : view.name === "seo-checker" ? (
+        <WebCheckerPage mode="seo" onBack={() => navigateToView(setView, { name: "dashboard" })} />
+      ) : view.name === "geo-checker" ? (
+        <WebCheckerPage mode="geo" onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : (
         <DashboardPage onOpenTool={(toolId) => navigateToView(setView, { name: toolId })} />
       )}
@@ -2988,6 +2994,151 @@ function KnowledgeReportBody({ report, payload }) {
   }
   const clusters = payload.clusters || [];
   return clusters.length ? clusters.slice(0, 12).map((cluster) => <article key={cluster.id}><strong>{cluster.centroidQuestion}</strong><p>{formatInteger(cluster.memberCount)} similar declined question(s)</p></article>) : <div className="tool-list-state">No knowledge gaps yet.</div>;
+}
+
+const WEB_CHECKER_FRAMEWORKS = {
+  seo: {
+    title: "SEO Checker",
+    scoreTitle: "SEO Score",
+    description: "Audit how well a public page can be crawled, understood, indexed, and presented by conventional search engines.",
+    modalTitle: "How the SEO Score works",
+    note: "The score measures page-level readiness. It does not guarantee indexing, ranking, traffic, or rich results.",
+    categories: [
+      ["Crawlability & indexability", 25], ["On-page relevance", 20], ["Content quality", 20],
+      ["Structure & semantics", 15], ["Performance & mobile UX", 15], ["Security & hygiene", 5],
+    ],
+  },
+  geo: {
+    title: "GEO Checker",
+    scoreTitle: "GEO Readiness Score",
+    description: "Assess how readily a public page can be retrieved, understood, verified, and cited by generative engines.",
+    modalTitle: "How GEO Readiness works",
+    note: "Readiness is deterministic; real AI visibility varies by engine, prompt, locale, time, and repeated run, so this is not a citation guarantee.",
+    categories: [
+      ["AI accessibility & retrievability", 20], ["Answer extractability", 25], ["Evidence & citability", 20],
+      ["Entity clarity", 15], ["Semantic structure", 10], ["Originality & trust", 10],
+    ],
+  },
+};
+
+function WebCheckerPage({ mode, onBack }) {
+  const framework = WEB_CHECKER_FRAMEWORKS[mode];
+  const [url, setUrl] = useState("");
+  const [topic, setTopic] = useState("");
+  const [locale, setLocale] = useState("");
+  const [result, setResult] = useState(null);
+  const [message, setMessage] = useState({ type: "", text: "" });
+  const [busy, setBusy] = useState(false);
+  const [showFramework, setShowFramework] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage({ type: "", text: "" });
+    setResult(null);
+    try {
+      setResult(await request(`/tools/${mode}-checker`, { method: "POST", body: JSON.stringify({ url, topic, locale }) }));
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ToolPageShell title={framework.title} description={framework.description} onBack={onBack}>
+      <form className="tool-panel web-checker-form" onSubmit={submit}>
+        <div className="result-head web-checker-form-head">
+          <PanelTitle title="Page audit" body="Only public HTTP and HTTPS pages can be checked. The audit does not persist page content." />
+          <button className="button button-secondary" type="button" onClick={() => setShowFramework(true)}>Explain the score</button>
+        </div>
+        <Field label="Page URL"><input type="url" required placeholder="https://example.com/page" value={url} onChange={(event) => setUrl(event.target.value)} /></Field>
+        <div className="form-grid">
+          <Field label="Target topic (recommended)"><input placeholder="e.g. local SEO consulting" value={topic} onChange={(event) => setTopic(event.target.value)} /></Field>
+          <Field label="Locale (optional)"><input placeholder="e.g. en-GB or el-GR" value={locale} onChange={(event) => setLocale(event.target.value)} /></Field>
+        </div>
+        <ScopedMessage message={message} />
+        <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Auditing page..." : `Calculate ${framework.scoreTitle}`}</button>
+      </form>
+      {result ? <WebAuditResult result={result} onExplain={() => setShowFramework(true)} /> : null}
+      {showFramework ? <WebFrameworkModal mode={mode} onClose={() => setShowFramework(false)} /> : null}
+    </ToolPageShell>
+  );
+}
+
+function WebAuditResult({ result, onExplain }) {
+  return (
+    <section className="result-panel web-audit-result">
+      <div className="web-audit-score-head">
+        <div className={`web-audit-score rating-${scoreTone(result.score)}`}><strong>{result.score}</strong><span>/ 100</span></div>
+        <div className="web-audit-score-copy">
+          <span className="badge">Framework v{result.frameworkVersion}</span>
+          <h2>{result.title}: {result.rating}</h2>
+          <p>{result.url}{result.topic ? ` · Topic: ${result.topic}` : " · General readiness; target-topic alignment not assessed"}</p>
+        </div>
+        <button className="button button-secondary" type="button" onClick={onExplain}>Explain the score</button>
+      </div>
+      <div className="web-audit-summary">
+        <span><strong>{result.summary.passed}</strong> passed</span>
+        <span><strong>{result.summary.warnings}</strong> warnings</span>
+        <span><strong>{result.summary.failed}</strong> failed</span>
+        <span><strong>{result.summary.notApplicable}</strong> not assessed</span>
+      </div>
+      {result.caps?.length ? <div className="web-audit-caps"><strong>Score cap applied</strong>{result.caps.map((cap) => <p key={`${cap.maximum}-${cap.reason}`}>Maximum {cap.maximum}: {cap.reason}</p>)}</div> : null}
+      <div className="web-audit-categories">
+        {result.categories.map((category) => (
+          <details className="web-audit-category" key={category.id} open={category.checks.some((check) => check.status === "fail")}>
+            <summary>
+              <span><strong>{category.label}</strong><small>{category.weight}% weight</small></span>
+              <strong>{category.score == null ? "Not assessed" : `${category.score}/100`}</strong>
+            </summary>
+            <div className="web-audit-checks">
+              {category.checks.map((check) => (
+                <article className={`web-audit-check status-${check.status}`} key={check.id}>
+                  <span className="web-audit-status">{checkStatusLabel(check.status)}</span>
+                  <div><strong>{check.label}</strong><p>{check.evidence}</p>{check.recommendation && check.status !== "pass" ? <small>{check.recommendation}</small> : null}</div>
+                  <span>{check.status === "not_applicable" ? "—" : `${check.pointsEarned}/${check.pointsAvailable}`}</span>
+                </article>
+              ))}
+            </div>
+          </details>
+        ))}
+      </div>
+      <div className="web-audit-limitations"><strong>How to read this result</strong><p>{result.limitations.join(" ")}</p></div>
+    </section>
+  );
+}
+
+function WebFrameworkModal({ mode, onClose }) {
+  const framework = WEB_CHECKER_FRAMEWORKS[mode];
+  return (
+    <div className="ai-modal web-framework-modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="ai-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="web-framework-title">
+        <div className="ai-modal-head"><div><h2 id="web-framework-title">{framework.modalTitle}</h2><p>Optimus framework v1.0</p></div><button className="button button-secondary" type="button" onClick={onClose}>Close</button></div>
+        <div className="ai-modal-body web-framework-body">
+          <p>{framework.note}</p>
+          <div className="web-framework-weights">{framework.categories.map(([label, weight]) => <div key={label}><span>{label}</span><strong>{weight}%</strong></div>)}</div>
+          <h3>Calculation</h3>
+          <p>Each applicable check is marked pass, warning, or fail. Pass earns full points, warning earns half, and fail earns zero. Not-applicable checks are removed from the denominator. Category scores are combined using the weights above.</p>
+          <h3>Critical caps</h3>
+          <p>Blocking conditions cap the final result. For example, a noindex directive caps either score at 20, regardless of metadata or content quality. GEO is additionally capped when too little readable content is exposed or the supplied target topic is substantially absent.</p>
+          <h3>Rating bands</h3>
+          <p>90–100 Excellent · 75–89 Good · 50–74 Needs work · 25–49 Poor · 0–24 Blocked or critical.</p>
+          {mode === "seo" ? <p>Core Web Vitals require field data or a rendered-browser test. This deterministic audit marks them as not assessed instead of inventing a performance result.</p> : <p>Live AI visibility—mention rate, citation rate, prominence, accuracy, and engine coverage—is a separate future measurement and is not folded into readiness.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function scoreTone(score) {
+  if (score >= 75) return "good";
+  if (score >= 50) return "warning";
+  return "poor";
+}
+
+function checkStatusLabel(status) {
+  return ({ pass: "Pass", warning: "Warning", fail: "Fail", not_applicable: "Not assessed" })[status] || status;
 }
 
 function ToolPageShell({ title, description, onBack, children }) {

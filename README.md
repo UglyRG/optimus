@@ -52,6 +52,8 @@ Start here:
 - [Database](docs/database.md)
 - [API](docs/api.md)
 - [Tool Catalog](docs/tools/tool-catalog.md)
+- [SEO Checker](docs/tools/seo-checker.md)
+- [GEO Checker](docs/tools/geo-checker.md)
 - [Backup and Restore](docs/operations/backup-restore.md)
 - [Deployment](docs/operations/deployment.md)
 - [Troubleshooting](docs/operations/troubleshooting.md)
@@ -74,6 +76,8 @@ Agent/project guidance lives in [AGENTS.md](AGENTS.md). Update it when the engin
 - FAQPage JSON-LD Generator
 - Document to Markdown
 - Check My Token Usage
+- SEO Checker
+- GEO Checker
 
 Tool-specific notes live under [docs/tools/](docs/tools/).
 

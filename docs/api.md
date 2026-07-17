@@ -94,6 +94,15 @@ Accepted wrapper payloads:
 
 Internal tool routes live under `/api/tools/...` and require a logged-in browser session. Use `/docs` as the source of truth for route details while the backend is running.
 
+SEO and GEO page audits use:
+
+```text
+POST /api/tools/seo-checker
+POST /api/tools/geo-checker
+```
+
+Both accept a JSON object with a required public `url` and optional `topic` and `locale`. Responses contain framework version `1.0`, the capped and uncapped score, rating, category weights and scores, individual check evidence, any critical caps, summary counts, and limitations. These endpoints are stateless and do not persist fetched page content.
+
 Knowledge Expert uploads use:
 
 ```text

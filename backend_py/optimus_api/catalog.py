@@ -69,6 +69,16 @@ HOSTED_TOOLS = [
         "title": "Knowledge Expert",
         "description": "Upload a small knowledge base and ask grounded questions with source citations.",
     },
+    {
+        "id": "seo-checker",
+        "title": "SEO Checker",
+        "description": "Audit a public page for search crawlability, relevance, content, semantics, mobile readiness, and hygiene.",
+    },
+    {
+        "id": "geo-checker",
+        "title": "GEO Checker",
+        "description": "Assess how readily a public page can be retrieved, understood, verified, and cited by generative engines.",
+    },
 ]
 
 DEFAULT_TOOL_CATALOG_CONFIG = {
@@ -91,5 +101,7 @@ DEFAULT_TOOL_CATALOG_CONFIG = {
         {"id": "document-markdown", "groupId": "utilities", "displayOrder": 10, "enabled": True},
         {"id": "token-usage", "groupId": "utilities", "displayOrder": 11, "enabled": True},
         {"id": "knowledge-expert", "groupId": "utilities", "displayOrder": 12, "enabled": True},
+        {"id": "seo-checker", "groupId": "utilities", "displayOrder": 13, "enabled": True},
+        {"id": "geo-checker", "groupId": "utilities", "displayOrder": 14, "enabled": True},
     ],
 }
