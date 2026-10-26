@@ -6,7 +6,8 @@ BRANCH="${BRANCH:-main}"
 
 cd "$APP_DIR"
 
-git fetch --tags origin "$BRANCH"
+# This deployment checkout follows origin's release tags, including corrected tags.
+git fetch --force --tags origin "$BRANCH"
 git checkout "$BRANCH"
 git pull --ff-only origin "$BRANCH"
 

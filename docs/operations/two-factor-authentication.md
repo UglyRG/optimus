@@ -4,7 +4,7 @@ Optimus supports one TOTP authenticator for the installation, in addition to `OP
 
 ## Enable
 
-1. Log in and select **Security** in the top bar.
+1. Log in and select **Security** in the left sidebar (the navigation moves above the page on smaller screens).
 2. Confirm your access key and select **Set up two-factor authentication**.
 3. Scan the QR code with your authenticator, or manually add the setup key as a time-based, six-digit SHA-1 token with a 30-second period.
 4. Enter the current six-digit code and select **Verify and enable** within ten minutes.

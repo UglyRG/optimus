@@ -16,7 +16,7 @@ Both can be overridden with environment variables.
 The deployment script:
 
 1. Changes into `APP_DIR`.
-2. Fetches tags from the target branch.
+2. Fetches the target branch and synchronizes release tags with origin, accepting corrected tags in this deployment checkout.
 3. Checks out the branch.
 4. Pulls with `--ff-only`.
 5. Resolves the latest Git release tag, falling back to the short commit SHA when no tag exists, and writes it to `.optimus-version`.
