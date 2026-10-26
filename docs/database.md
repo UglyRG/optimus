@@ -24,6 +24,7 @@ The backend currently uses these logical stores:
 - `betlog_bets`
 - `notelog_notes`
 - `sticky_notes`: versioned encrypted notes envelope; see [Sticky Notes](tools/sticky-notes.md)
+- `auth_security`: encrypted TOTP secret, pending enrollment, hashed recovery codes, replay counter, and authentication attempt limits; excluded from tool backup/restore. See [Two-factor authentication](operations/two-factor-authentication.md).
 - `performance_insights`
 - `knowledge_expert`
 - `web_audit_history`

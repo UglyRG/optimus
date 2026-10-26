@@ -15,6 +15,17 @@ Browser-authenticated endpoints use the `optimus_session` cookie created by:
 POST /api/auth/login
 ```
 
+Login accepts `{name, accessKey, code?}`. When 2FA is enabled, valid credentials without a code return `{requiresTwoFactor: true}` without issuing a session cookie. Resubmit the credentials with `code` containing a current six-digit TOTP or unused recovery code. Successful login retains the existing `{user, expiresAt}` response. Invalid credentials/codes return 401; ten failed attempts within five minutes block authentication with 429 until the window expires. Codes cannot be reused.
+
+Session-authenticated security endpoints:
+
+- `GET /api/auth/2fa`: `{enabled, recoveryCodesRemaining}`.
+- `POST /api/auth/2fa/setup`: `{accessKey}` → `{secret, qrCode}` (inline SVG data URL); pending setup lasts ten minutes and is bound to the current session.
+- `POST /api/auth/2fa/enable`: `{accessKey, code}` → `{enabled: true, recoveryCodes}`. Recovery codes appear only in this response.
+- `POST /api/auth/2fa/disable`: `{accessKey, code}` → `{enabled: false}`; requires a valid TOTP or recovery code.
+
+Enable/disable invalidates other browser sessions. Security responses use `Cache-Control: no-store`. These endpoints configure one authenticator for the installation. See [setup, storage, and recovery](operations/two-factor-authentication.md).
+
 Public ingestion endpoints do not use the browser session cookie. Send either:
 
 ```text

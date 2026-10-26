@@ -29,6 +29,7 @@ from .domain import (
 from .knowledge import KnowledgeRepository, normalize_knowledge_store
 from .store import JsonStore
 from .sticky_notes import StickyNotes, STORE_KEY as STICKY_STORE_KEY
+from .two_factor import TwoFactor
 from .tools import (
     analyze_betlog_performance,
     analyze_padelog_performance,
@@ -67,8 +68,9 @@ settings = get_settings()
 store = JsonStore(settings)
 knowledge_repo = KnowledgeRepository(store, settings)
 sticky_notes = StickyNotes(store, settings.data_dir / ".sticky-notes.key")
+two_factor = TwoFactor(store, settings.data_dir / ".auth.key")
 
-app = FastAPI(title="Optimus API", version="6.3.4")
+app = FastAPI(title="Optimus API", version="7.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
@@ -79,8 +81,9 @@ app.add_middleware(
 
 
 @app.exception_handler(HTTPException)
-async def http_error_handler(_: Request, exc: HTTPException) -> JSONResponse:
-    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    headers = {"Cache-Control": "no-store"} if request.url.path.startswith("/api/auth/") else None
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail}, headers=headers)
 
 
 @app.on_event("startup")
@@ -379,16 +382,41 @@ def version() -> dict[str, str]:
 
 @app.post("/api/auth/login")
 def login(payload: dict[str, Any], response: Response, app_settings: Settings = Depends(get_settings)) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
     name = str(payload.get("name") or "").strip()
     access_key = str(payload.get("accessKey") or "")
-    if not name or not access_key or not secrets.compare_digest(access_key, app_settings.optimus_access_key):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    result = two_factor.run("login", password_ok=bool(access_key) and secrets.compare_digest(access_key.encode(), app_settings.optimus_access_key.encode()),
+                            name_ok=bool(name), code=payload.get("code"))
+    if result["requiresTwoFactor"]:
+        return result
     clean_expired_sessions()
     token = secrets.token_urlsafe(32)
     expires_at = time.time() + app_settings.session_ttl_seconds
     sessions[token] = {"name": name, "expiresAt": expires_at}
     session_cookie(response, token, expires_at)
     return {"user": {"name": name}, "expiresAt": int(expires_at * 1000)}
+
+
+@app.get("/api/auth/2fa")
+def two_factor_status(response: Response, _: dict = Depends(require_session)) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return two_factor.run("status")
+
+
+@app.post("/api/auth/2fa/{action}")
+def two_factor_manage(action: str, payload: dict[str, Any], response: Response,
+                      session: dict = Depends(require_session), app_settings: Settings = Depends(get_settings)) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    if action not in {"setup", "enable", "disable"}:
+        raise HTTPException(404, "Unknown two-factor operation")
+    access_key = str(payload.get("accessKey") or "")
+    result = two_factor.run(action, password_ok=bool(access_key) and secrets.compare_digest(access_key.encode(), app_settings.optimus_access_key.encode()),
+                            code=payload.get("code"), owner=session["token"])
+    if action in {"enable", "disable"}:
+        for token in list(sessions):
+            if token != session["token"]:
+                sessions.pop(token, None)
+    return result
 
 
 @app.get("/api/auth/me")

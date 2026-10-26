@@ -52,3 +52,8 @@
 .sticky-save button { display: block; margin-top: 6px; }
 .sticky-empty { padding: 20px; border: 1px dashed currentColor; border-radius: 8px; }
 @media (max-width: 1350px) { .dashboard-layout:has(.sticky-board-home) { grid-template-columns: minmax(0, 1fr); } }
+
+.security-settings { max-width: 560px; }
+.security-qr { width: 240px; height: 240px; background: white; border: 12px solid white; border-radius: 8px; }
+.security-secret { overflow-wrap: anywhere; user-select: all; }
+.security-recovery-codes { padding: 16px; line-height: 1.8; user-select: all; }

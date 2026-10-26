@@ -19,6 +19,8 @@ Generated files in `Outputs/` are not included.
 
 Private `.env` values are not included.
 
+Authentication state (`app_data.auth_security`) and `data/.auth.key` are excluded. Tool restore preserves current 2FA settings and consumed recovery codes. Full database migration requires the original authentication key; see [Two-factor authentication](two-factor-authentication.md).
+
 ## Restore
 
 Restore accepts the backup zip and replaces local persisted Optimus data for:

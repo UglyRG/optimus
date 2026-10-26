@@ -1,14 +1,14 @@
 # Optimus
 
-Version: `v6.3`
+Version: `v7`
 
 Optimus is a local productivity platform made of a React frontend, a FastAPI backend, and Postgres/pgvector persistence. It hosts a growing catalog of tools for personal tracking, knowledge work, demos, document utilities, and AI usage reporting.
 
-## v6.3
+## v7
 
-- Adds the interactive Knowledge Expert Knowledge Map.
-- Visualizes documents, source chunks, Q&A entries, coverage issues, retrievals, and citations.
-- Includes search, node filters, zoom controls, and selected-node details.
+- Adds optional authenticator-based two-factor authentication for the installation.
+- Includes local QR-code enrollment, single-use recovery codes, replay protection, and persistent authentication attempt limits.
+- Configure it from **Security** after logging in; see [setup and recovery](docs/operations/two-factor-authentication.md).
 
 ## Quick Start
 
@@ -55,6 +55,7 @@ Start here:
 - [SEO Checker](docs/tools/seo-checker.md)
 - [GEO Checker](docs/tools/geo-checker.md)
 - [Backup and Restore](docs/operations/backup-restore.md)
+- [Two-factor Authentication](docs/operations/two-factor-authentication.md)
 - [Deployment](docs/operations/deployment.md)
 - [Troubleshooting](docs/operations/troubleshooting.md)
 

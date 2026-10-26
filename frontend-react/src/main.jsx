@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { StickyNotesBoard, StickyNotesProvider } from "./StickyNotes";
+import { SecuritySettings } from "./SecuritySettings";
 import "./styles.css";
 import "./react.css";
 
@@ -87,6 +88,7 @@ const TOKEN_USAGE_EXPLAINERS = {
 };
 
 function viewFromLocation() {
+  if (window.location.pathname === "/security") return { name: "security" };
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   if (path === "/admin") return { name: "admin" };
   const toolMatch = path.match(/^\/tools\/([^/]+)$/);
@@ -95,6 +97,7 @@ function viewFromLocation() {
 }
 
 function pathForView(view) {
+  if (view.name === "security") return "/security";
   if (view.name === "admin") return "/admin";
   if (TOOL_VIEW_IDS.has(view.name)) return `/tools/${view.name}`;
   return "/";
@@ -153,7 +156,8 @@ function App() {
       method: "POST",
       body: JSON.stringify(credentials),
     });
-    setSession(payload);
+    if (!payload.requiresTwoFactor) setSession(payload);
+    return payload;
   }
 
   async function handleLogout() {
@@ -184,10 +188,15 @@ function App() {
         theme={theme}
         onHome={() => navigateToView(setView, { name: "dashboard" })}
         onManageTools={() => navigateToView(setView, { name: "admin" })}
+        onSecurity={() => navigateToView(setView, { name: "security" })}
         onToggleTheme={toggleTheme}
         onLogout={handleLogout}
       />
-      {view.name === "admin" ? (
+      {view.name === "security" ? (
+        <ToolPageShell title="Security" description="Protect your Optimus login with an authenticator app." onBack={() => navigateToView(setView, { name: "dashboard" })}>
+          <SecuritySettings request={request} />
+        </ToolPageShell>
+      ) : view.name === "admin" ? (
         <ToolAdminPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "padelog" ? (
         <PadelogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
@@ -245,6 +254,8 @@ function App() {
 }
 
 function LoginPage({ onLogin }) {
+  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
+  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [error, setError] = useState("");
@@ -255,7 +266,8 @@ function LoginPage({ onLogin }) {
     setSubmitting(true);
     setError("");
     try {
-      await onLogin({ name: name.trim(), accessKey });
+      const result = await onLogin({ name: name.trim(), accessKey, code });
+      if (result?.requiresTwoFactor) setRequiresTwoFactor(true);
     } catch (loginError) {
       setError(loginError.message);
     } finally {
@@ -271,7 +283,7 @@ function LoginPage({ onLogin }) {
         <div className="form-stack">
           <div className="field">
             <label htmlFor="name">Name</label>
-            <input id="name" name="name" autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />
+            <input id="name" name="name" autoComplete="name" required value={name} disabled={requiresTwoFactor} onChange={(event) => setName(event.target.value)} />
           </div>
           <div className="field">
             <label htmlFor="access-key">Access key</label>
@@ -281,22 +293,29 @@ function LoginPage({ onLogin }) {
               type="password"
               autoComplete="current-password"
               required
+              disabled={requiresTwoFactor}
               value={accessKey}
               onChange={(event) => setAccessKey(event.target.value)}
             />
           </div>
+          {requiresTwoFactor && <div className="field">
+            <label htmlFor="auth-code">Authenticator or recovery code</label>
+            <input id="auth-code" autoComplete="one-time-code" autoFocus required maxLength={32} value={code} onChange={(event) => setCode(event.target.value)} />
+            <p>Enter the six-digit code from your authenticator, or an unused recovery code.</p>
+          </div>}
           <p className={`error ${error ? "is-visible" : ""}`}>{error}</p>
           <button className="button button-primary" type="submit" disabled={submitting}>
             {submitting ? "Logging in..." : "Log in"}
           </button>
+          {requiresTwoFactor && <button className="button button-secondary" type="button" disabled={submitting} onClick={() => { setRequiresTwoFactor(false); setCode(""); setError(""); }}>Back</button>}
         </div>
       </form>
     </section>
   );
 }
 
-function Topbar({ showManageTools, theme, onHome, onManageTools, onToggleTheme, onLogout }) {
-  const [version, setVersion] = useState("v6");
+function Topbar({ showManageTools, theme, onHome, onManageTools, onSecurity, onToggleTheme, onLogout }) {
+  const [version, setVersion] = useState("v7");
 
   useEffect(() => {
     request("/version")
@@ -320,6 +339,7 @@ function Topbar({ showManageTools, theme, onHome, onManageTools, onToggleTheme, 
         <img className="brand-logo" src="/assets/optimus-vertical.svg" alt="Optimus" />
       </a>
       <div className="topbar-actions">
+        <button className="button button-secondary" type="button" onClick={onSecurity}>Security</button>
         {showManageTools ? (
           <button className="button button-secondary" type="button" onClick={onManageTools}>
             Manage tools

@@ -45,6 +45,7 @@ Important modules:
 - `knowledge.py`: Knowledge Expert text/PDF/DOCX parsing, source traceability, storage, retrieval, chat, coverage reports, structural and pgvector similarity Knowledge Map data, traces, and migration.
 - `store.py`: Postgres-backed JSON store.
 - `sticky_notes.py`: encrypted sticky-note persistence, domain validation, and revision checks.
+- `two_factor.py`: single-installation TOTP enrollment, encrypted security state, recovery codes, replay prevention, and persistent attempt limits.
 - `config.py`: environment-backed settings.
 
 ## Persistence

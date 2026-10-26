@@ -1,6 +1,6 @@
 [project]
 name = "optimus-api"
-version = "6.3.4"
+version = "7.0.0"
 description = "FastAPI backend for Optimus."
 requires-python = ">=3.10"
 dependencies = [
@@ -12,6 +12,8 @@ dependencies = [
   "reportlab>=4.2.0",
   "pydantic-settings>=2.6.0",
   "python-multipart>=0.0.12",
+  "pyotp>=2.9,<3",
+  "qrcode>=8,<9",
   "uvicorn[standard]>=0.32.0",
 ]
 

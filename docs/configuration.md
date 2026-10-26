@@ -1,5 +1,7 @@
 # Configuration
 
+Optional authenticator-based 2FA is configured from **Security** in the app, without provider keys or fees. Authentication state uses `data/.auth.key`, which must be backed up separately and shared by all backend workers. See [setup and recovery](operations/two-factor-authentication.md).
+
 Optimus reads private configuration from a root `.env` file. The file is ignored by Git.
 
 ## Core Settings
