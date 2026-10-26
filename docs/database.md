@@ -23,6 +23,7 @@ The backend currently uses these logical stores:
 - `padelog_matches`
 - `betlog_bets`
 - `notelog_notes`
+- `sticky_notes`: versioned encrypted notes envelope; see [Sticky Notes](tools/sticky-notes.md)
 - `performance_insights`
 - `knowledge_expert`
 - `web_audit_history`

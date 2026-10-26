@@ -27,3 +27,28 @@
 .toggle-field {
   gap: 8px;
 }
+
+/* The notes board occupies the unused desktop space beside the tool catalog. */
+.dashboard-layout:has(.sticky-board-home) { grid-template-columns: minmax(0, 1120px) minmax(300px, 1fr); }
+.sticky-board { min-width: 0; }
+.sticky-board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.sticky-board-head h2 { margin: 0; font-size: 1.1rem; }
+.sticky-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 18px; align-items: start; }
+.sticky-card { color: #242424; border-radius: 3px 3px 16px 3px; padding: 14px; box-shadow: 2px 6px 14px #0003; min-width: 0; }
+.sticky-yellow { background: #fff0a6; }
+.sticky-pink { background: #ffd4e5; }
+.sticky-blue { background: #cceaff; }
+.sticky-green { background: #d8efb2; }
+.sticky-orange { background: #ffd3a6; }
+.sticky-card textarea { display: block; width: 100%; min-height: 165px; resize: vertical; border: 1px solid transparent; border-radius: 3px; background: transparent; color: #242424; box-shadow: none; font: inherit; line-height: 1.5; padding: 5px; }
+.sticky-card textarea::placeholder { color: #605a49; }
+.sticky-card textarea:focus { outline: 2px solid #3c6590; background: #ffffff30; }
+.sticky-size-large textarea { min-height: 300px; }
+.sticky-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid #0002; }
+.sticky-controls label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #242424; }
+.sticky-controls select, .sticky-controls button, .sticky-save button { width: auto; min-height: 28px; padding: 3px 6px; border: 1px solid #0003; border-radius: 4px; color: #242424; background: #fff8; font: inherit; font-size: 12px; cursor: pointer; }
+.sticky-controls input { width: auto; }
+.sticky-save { font-size: 12px; margin-top: 10px; overflow-wrap: anywhere; }
+.sticky-save button { display: block; margin-top: 6px; }
+.sticky-empty { padding: 20px; border: 1px dashed currentColor; border-radius: 8px; }
+@media (max-width: 1350px) { .dashboard-layout:has(.sticky-board-home) { grid-template-columns: minmax(0, 1fr); } }

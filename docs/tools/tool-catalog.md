@@ -6,7 +6,7 @@ The backend exposes the tool catalog at:
 GET /api/tools
 ```
 
-The frontend dashboard renders tools from this metadata.
+The frontend dashboard renders tools from this metadata. [Sticky Notes](sticky-notes.md) also displays editable homepage cards when enabled.
 
 ## Hosted Tools
 

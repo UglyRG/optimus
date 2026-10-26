@@ -50,3 +50,7 @@ OPENAI_ADMIN_KEY=your-openai-admin-api-key
 The token usage tool uses admin/reporting keys, not normal model-call keys.
 
 Keep optional integration keys documented here when new integrations are added.
+
+## Sticky Notes encryption key
+
+Sticky Notes generates a random key at `data/.sticky-notes.key` on the first save, with file mode `0600`. There is no provider dependency or password prompt. The key is excluded from Git and the application backup; back it up separately in secure storage. Existing notes and backups cannot be recovered without their original key. See [Sticky Notes](tools/sticky-notes.md) for recovery and limitations.

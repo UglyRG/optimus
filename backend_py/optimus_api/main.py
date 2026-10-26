@@ -28,6 +28,7 @@ from .domain import (
 )
 from .knowledge import KnowledgeRepository, normalize_knowledge_store
 from .store import JsonStore
+from .sticky_notes import StickyNotes, STORE_KEY as STICKY_STORE_KEY
 from .tools import (
     analyze_betlog_performance,
     analyze_padelog_performance,
@@ -65,6 +66,7 @@ sessions: dict[str, dict[str, Any]] = {}
 settings = get_settings()
 store = JsonStore(settings)
 knowledge_repo = KnowledgeRepository(store, settings)
+sticky_notes = StickyNotes(store, settings.data_dir / ".sticky-notes.key")
 
 app = FastAPI(title="Optimus API", version="6.3.4")
 app.add_middleware(
@@ -428,8 +430,12 @@ def post_admin_tool_catalog(payload: dict[str, Any], _: dict[str, Any] = Depends
 
 @app.get("/api/admin/backup")
 def get_admin_backup(_: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
+    sticky_envelope = store.get(STICKY_STORE_KEY, None)
+    if sticky_envelope is not None:
+        sticky_notes.decode(sticky_envelope)
     return create_backup_archive(
         {
+            **({"sticky-notes.json": sticky_envelope} if sticky_envelope is not None else {}),
             "tool-catalog.json": load_tool_catalog_config(),
             "padelog-matches.json": {"matches": load_padelog_matches()},
             "betlog-bets.json": {"bets": load_betlog_bets()},
@@ -444,6 +450,11 @@ def get_admin_backup(_: dict[str, Any] = Depends(require_session)) -> dict[str, 
 @app.post("/api/admin/restore")
 def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)) -> dict[str, Any]:
     files = read_backup_archive(payload)
+    sticky_envelope = files.get("sticky-notes.json")
+    if "sticky-notes.json" in files:
+        if not isinstance(sticky_envelope, dict):
+            raise bad_request("Invalid encrypted sticky notes backup")
+        sticky_notes.decode(sticky_envelope)
     catalog = normalize_tool_catalog_config(files.get("tool-catalog.json"), strict=True)
     padelog = files.get("padelog-matches.json", {}).get("matches", [])
     betlog = files.get("betlog-bets.json", {}).get("bets", [])
@@ -460,9 +471,12 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     save_web_audit_history(web_audits if isinstance(web_audits, list) else [])
     if normalized_knowledge is not None:
         knowledge_repo.replace_all(normalized_knowledge)
+    if sticky_envelope is not None:
+        sticky_notes.restore(sticky_envelope)
     return {
         "ok": True,
         "restored": {
+            "stickyNotes": len(sticky_notes.decode(sticky_envelope)) if sticky_envelope is not None else 0,
             "matches": len(padelog),
             "bets": len(betlog),
             "notes": len(notelog),
@@ -811,3 +825,20 @@ def post_knowledge_chat_stream(payload: dict[str, Any], session: dict[str, Any] 
         yield sse_event("done", {})
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.get("/api/tools/sticky-notes/notes")
+def get_sticky_notes(response: Response, _: dict[str, Any] = Depends(require_session)):
+    response.headers["Cache-Control"] = "no-store"
+    return {"notes": sticky_notes.list()}
+
+
+@app.post("/api/tools/sticky-notes/notes")
+def save_sticky_note(payload: dict[str, Any], response: Response, _: dict[str, Any] = Depends(require_session)):
+    response.headers["Cache-Control"] = "no-store"
+    return sticky_notes.update(payload)
+
+
+@app.post("/api/tools/sticky-notes/delete")
+def delete_sticky_note(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)):
+    return sticky_notes.update(payload, delete=True)

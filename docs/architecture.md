@@ -44,6 +44,7 @@ Important modules:
 - `tools.py`: file generators, usage reports, performance analysis, and utility services.
 - `knowledge.py`: Knowledge Expert text/PDF/DOCX parsing, source traceability, storage, retrieval, chat, coverage reports, structural and pgvector similarity Knowledge Map data, traces, and migration.
 - `store.py`: Postgres-backed JSON store.
+- `sticky_notes.py`: encrypted sticky-note persistence, domain validation, and revision checks.
 - `config.py`: environment-backed settings.
 
 ## Persistence

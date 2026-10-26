@@ -1,4 +1,5 @@
 HOSTED_TOOLS = [
+    {"id": "sticky-notes", "title": "Sticky Notes", "description": "Write text notes and edit pinned cards directly on the homepage."},
     {
         "id": "padelog",
         "title": "Padelog",
@@ -87,6 +88,7 @@ DEFAULT_TOOL_CATALOG_CONFIG = {
         {"id": "utilities", "name": "Utilities", "displayOrder": 2},
     ],
     "tools": [
+        {"id": "sticky-notes", "groupId": "utilities", "displayOrder": 15, "enabled": True},
         {"id": "padelog", "groupId": "utilities", "displayOrder": 1, "enabled": True},
         {"id": "betlog", "groupId": "utilities", "displayOrder": 2, "enabled": True},
         {"id": "notelog", "groupId": "utilities", "displayOrder": 3, "enabled": True},

@@ -17,6 +17,7 @@ import {
   Pencil,
   X,
 } from "lucide-react";
+import { StickyNotesBoard, StickyNotesProvider } from "./StickyNotes";
 import "./styles.css";
 import "./react.css";
 
@@ -24,6 +25,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 const THEME_STORAGE_KEY = "optimus-theme";
 const NOTELOG_CALIBRATION_STORAGE_KEY = "optimus-notelog-calibration";
 const TOOL_VIEW_IDS = new Set([
+  "sticky-notes",
   "padelog",
   "betlog",
   "notelog",
@@ -155,6 +157,7 @@ function App() {
   }
 
   async function handleLogout() {
+    if (!window.dispatchEvent(new Event("sticky-notes-before-logout", { cancelable: true }))) return;
     await request("/auth/logout", { method: "POST" }).catch(() => {});
     setSession(null);
     navigateToView(setView, { name: "dashboard" }, { replace: true });
@@ -175,7 +178,7 @@ function App() {
   }
 
   return (
-    <>
+    <StickyNotesProvider request={request}>
       <Topbar
         showManageTools={view.name === "dashboard"}
         theme={theme}
@@ -190,6 +193,8 @@ function App() {
         <PadelogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "betlog" ? (
         <BetlogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
+      ) : view.name === "sticky-notes" ? (
+        <ToolPageShell title="Sticky Notes" description="Text notes with autosave. Pin cards to edit them on your homepage." onBack={() => navigateToView(setView, { name: "dashboard" })}><StickyNotesBoard /></ToolPageShell>
       ) : view.name === "notelog" ? (
         <NotelogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "html-base64" ? (
@@ -235,7 +240,7 @@ function App() {
       ) : (
         <DashboardPage onOpenTool={(toolId) => navigateToView(setView, { name: toolId })} />
       )}
-    </>
+    </StickyNotesProvider>
   );
 }
 
@@ -376,7 +381,7 @@ function DashboardPage({ onOpenTool }) {
             ))}
           </div>
         </main>
-
+        {tools.items.some((tool) => tool.id === "sticky-notes") ? <StickyNotesBoard home /> : null}
       </section>
       {insightsModal ? <PerformanceInsightsModal state={insightsModal} setState={setInsightsModal} onClose={() => setInsightsModal(null)} /> : null}
     </section>
@@ -611,7 +616,7 @@ function ToolAdminPage({ onBack }) {
   async function restore(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const confirmed = window.confirm("Restore this backup? Current tool layout, Padelog, Betlog, and Notelog data will be replaced.");
+    const confirmed = window.confirm("Restore this backup? Current tool layout and included tool data will be replaced, including sticky notes when present. Encrypted notes require their original key file.");
     if (!confirmed) {
       event.target.value = "";
       return;
@@ -627,7 +632,7 @@ function ToolAdminPage({ onBack }) {
       setStatus({
         loading: false,
         saving: false,
-        success: `Backup restored. ${restored.matches || 0} matches, ${restored.bets || 0} bets, and ${restored.notes || 0} notes restored.`,
+        success: `Backup restored. ${restored.matches || 0} matches, ${restored.bets || 0} bets, ${restored.notes || 0} handwritten notes, and ${restored.stickyNotes || 0} sticky notes restored. Refresh notes to see restored cards.`,
         error: "",
       });
     } catch (error) {
@@ -659,7 +664,7 @@ function ToolAdminPage({ onBack }) {
             <div className="admin-section-head">
               <div>
                 <h2>Backup and restore</h2>
-                <p>Download or restore the local data files for tools, Padelog, Betlog, and Notelog.</p>
+                <p>Download or restore persisted tool data, including encrypted sticky notes. Back up data/.sticky-notes.key separately; it is required to restore notes on another installation.</p>
               </div>
               <div className="admin-actions">
                 <button className="button button-secondary react-icon-button" type="button" onClick={backup}>

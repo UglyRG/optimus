@@ -136,3 +136,17 @@ GET /api/tools/knowledge-expert/knowledge-map
 ```
 
 The response contains bounded document, source-chunk, and Q&A nodes; structural edges; optional Q&A semantic-similarity edges; coverage status; retrieval/citation counts; graph totals; and a truncation flag for large datasets. Similarity edges use existing pgvector embeddings, keep up to three nearest neighbors per embedded Q&A entry, and require cosine similarity of at least `0.82`.
+
+## Sticky Notes
+
+These routes require the browser session cookie:
+
+```text
+GET  /api/tools/sticky-notes/notes
+POST /api/tools/sticky-notes/notes
+POST /api/tools/sticky-notes/delete
+```
+
+GET returns `{ "notes": [...] }` sorted by order and creation time. POST save accepts `text`, `color` (`yellow`, `pink`, `blue`, `green`, `orange`), `size` (`small`, `large`), integer `order`, and boolean `showOnHome`. New notes omit `id` and `revision`; updates require both. Save returns `{ "note": {...} }`, including server-generated ID, revision, and timestamps. Delete accepts `{ "id": "...", "revision": "..." }` and returns `{ "note": null }`.
+
+Limits are 500 notes and 20,000 characters per note. Invalid data returns 400; stale revisions/deleted notes return 409. Missing or malformed encryption keys return 503; wrong-key authentication or damaged encrypted documents return 400. Read/save responses use `Cache-Control: no-store`. Plaintext is sent only to authenticated browser requests; storage and backup note entries are encrypted. See [Sticky Notes](tools/sticky-notes.md).

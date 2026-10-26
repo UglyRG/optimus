@@ -34,3 +34,13 @@ The backend reads `.optimus-version` before runtime environment overrides or fal
 - `backend_py/.venv` exists on the server.
 - Postgres and pgvector are available.
 - Production `.env` values are already present on the server.
+
+## Sticky Notes encryption key
+
+Deployment installs the `cryptography` dependency automatically. On the first note save, a fresh production installation creates a random key at `data/.sticky-notes.key` with owner-only permissions (`0600`). With the default `APP_DIR`, this is `/home/argyris/Optimus/data/.sticky-notes.key`. If `DATA_DIR` is configured, the key lives in that directory instead. The backend service account needs permission to create and read the file.
+
+The deployment script updates the existing checkout without clearing `data/`, so normal redeployments preserve the key. The key is ignored by Git and excluded from application backup ZIPs. Preserve it on persistent storage if changing to containers or replacing the server, and back it up separately in secure storage.
+
+Before restoring local notes on production, securely install their original key with owner-only permissions, then restore the archive. A separately generated production key cannot decrypt local notes. If production already has notes under a different key, preserve its archive/database and original key before replacing either; cross-key merging is not supported.
+
+If encrypted notes exist but the key is missing or incorrect, the app locks the notes and refuses to overwrite them. It does not generate a replacement key. See [Sticky Notes](../tools/sticky-notes.md) and [Backup and Restore](backup-restore.md).

@@ -65,6 +65,7 @@ Agent/project guidance lives in [AGENTS.md](AGENTS.md). Update it when the engin
 - Padelog
 - Betlog
 - Notelog
+- [Sticky Notes](docs/tools/sticky-notes.md): editable homepage text cards with encrypted storage and backup.
 - Knowledge Expert
 - Demo Builder
 - Presentation Suite Builder

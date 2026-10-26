@@ -6,6 +6,7 @@ Tool docs are split by product area:
 - [Padelog](padelog.md)
 - [Betlog](betlog.md)
 - [Notelog](notelog.md)
+- [Sticky Notes](sticky-notes.md): editable homepage text cards with encrypted storage and backup.
 - [Knowledge Expert](knowledge-expert.md)
 - [SEO Checker](seo-checker.md)
 - [GEO Checker](geo-checker.md)
