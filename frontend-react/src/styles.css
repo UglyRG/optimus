@@ -1,6 +1,8 @@
 :root {
   color-scheme: light;
   --bg: #f5f8ff;
+  --bg-image: url("/assets/optimus-bg-light.png");
+  --bg-overlay: rgba(245, 248, 255, 0.52);
   --panel: #ffffff;
   --panel-elevated: rgba(255, 255, 255, 0.92);
   --field-bg: #ffffff;
@@ -34,6 +36,8 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #11151d;
+  --bg-image: url("/assets/optimus-bg-dark.png");
+  --bg-overlay: rgba(17, 21, 29, 0.64);
   --panel: #181f2b;
   --panel-elevated: rgba(24, 31, 43, 0.92);
   --field-bg: #111722;
@@ -72,25 +76,14 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    linear-gradient(rgba(245, 248, 255, 0.52), rgba(245, 248, 255, 0.52)),
-    url("/assets/optimus-background.jpg"),
+    linear-gradient(var(--bg-overlay), var(--bg-overlay)),
+    var(--bg-image),
     var(--bg);
   background-attachment: fixed;
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
   color: var(--ink);
-}
-
-:root[data-theme="dark"] body {
-  background:
-    linear-gradient(rgba(17, 21, 29, 0.64), rgba(17, 21, 29, 0.64)),
-    url("/assets/optimus-background.jpg"),
-    var(--bg);
-  background-attachment: fixed;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: cover;
 }
 
 button,

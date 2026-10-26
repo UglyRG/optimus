@@ -32,6 +32,8 @@ Important areas:
 
 Tool routing is driven by stable hosted tool IDs. The frontend maps each tool ID to a local UI.
 
+The app background follows the active light or dark theme through the `--bg-image` CSS variable in `styles.css`. Light mode uses `public/assets/optimus-bg-light.png`; dark mode uses `public/assets/optimus-bg-dark.png`. Both use a centered, fixed, cover-sized image with a theme-specific overlay and solid fallback color. The existing theme toggle switches the background along with the UI colors and saves the theme in browser local storage.
+
 ## Backend
 
 The active backend lives in `backend_py/optimus_api/`.
