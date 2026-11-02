@@ -332,7 +332,7 @@ function LoginPage({ onLogin }) {
 }
 
 function Topbar({ showManageTools, theme, onHome, onManageTools, onSecurity, onToggleTheme, onLogout }) {
-  const [version, setVersion] = useState("v7");
+  const [version, setVersion] = useState("v8");
 
   useEffect(() => {
     request("/version")

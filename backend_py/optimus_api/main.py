@@ -29,6 +29,7 @@ from .domain import (
 from .knowledge import KnowledgeRepository, normalize_knowledge_store
 from .mydata.repository import MydataRepository
 from .mydata.extraction_jobs import ExtractionJobs
+from .mydata.sync_jobs import SyncJobs
 from .mydata.routes import build_router as build_mydata_router
 from .store import JsonStore
 from .sticky_notes import StickyNotes, STORE_KEY as STICKY_STORE_KEY
@@ -72,10 +73,11 @@ store = JsonStore(settings)
 knowledge_repo = KnowledgeRepository(store, settings)
 mydata_repo = MydataRepository(store, settings)
 mydata_extraction_jobs = ExtractionJobs(mydata_repo, settings)
+mydata_sync_jobs = SyncJobs(mydata_repo, settings)
 sticky_notes = StickyNotes(store, settings.data_dir / ".sticky-notes.key")
 two_factor = TwoFactor(store, settings.data_dir / ".auth.key")
 
-app = FastAPI(title="Optimus API", version="7.0.0")
+app = FastAPI(title="Optimus API", version="8.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
@@ -98,10 +100,12 @@ def startup() -> None:
     mydata_repo.ensure_schema()
     knowledge_repo.migrate_from_json_store()
     mydata_extraction_jobs.start()
+    mydata_sync_jobs.start()
 
 
 @app.on_event("shutdown")
 def shutdown() -> None:
+    mydata_sync_jobs.stop()
     mydata_extraction_jobs.stop()
     store.close()
 
@@ -885,4 +889,4 @@ def delete_sticky_note(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
     return sticky_notes.update(payload, delete=True)
 
 
-app.include_router(build_mydata_router(mydata_repo, require_session, settings, mydata_extraction_jobs))
+app.include_router(build_mydata_router(mydata_repo, require_session, settings, mydata_extraction_jobs, mydata_sync_jobs))

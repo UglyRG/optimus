@@ -1,0 +1,38 @@
+{
+  "version": "2.0.2",
+  "retrievedAt": "2026-11-02",
+  "scope": "Read-only RequestDocs structure; not a tax ruleset or full XSD validator",
+  "releaseIndex": "https://www.aade.gr/mydata/tehnikes-prodiagrafes-ekdoseis-mydata",
+  "schemaPackage": {
+    "url": "https://www.aade.gr/sites/default/files/2026-09/v2.0.2XSDs_0.zip",
+    "sha256": "feaf90afc57150c841ad7ef73edbe181b3eac22dfb189b3cb5d54d6fdb85154e"
+  },
+  "files": {
+    "ConfirmDeliveryOutcome-v2.0.2.xsd": "4947cb72ba484f8138bb01ad11012f9cb9bed9fba541d72b093cea4604603990",
+    "ConfirmDeliveryReturn-v2.0.2.xsd": "21f32e2b40a95f17c13829bdf0a40f719d18a4ccd2ae36921f7563d93cb68b2a",
+    "expensesClassification-v2.0.2 1.xsd": "08fcf40bb0f237e10f081a94f1b58d265f8b835f3eab10caf23b51dcc8a2f5a7",
+    "expensesClassification-v2.0.2.xsd": "926f705ef83d3aef1d03676e83067761e5beff47316e3de3621c8d54b641507c",
+    "GenerateGroupQRCode-v2.0.2.xsd": "942db87f570adbff43168fff55e00c4209d903c992b4c13b72d3b0ad3667e18b",
+    "GenerateGroupQRCodeResponse -v2.0.2.xsd": "2268ef61fa6f1b9a60f14062f32522f35a9bba68a4f6bd2c5b768115f3ec652b",
+    "GetDeliveryStatusResponse-v2.0.2.xsd": "2050c15a892f2e8c3ff00e321f74a459cfd4cad1ace5f9246ccfc0f054cee583",
+    "incomeClassification-v2.0.2.xsd": "2bda8e82a9b71eb6c06d9caf8ecc92a3688338cc18475fbfe42d07134e9e91fb",
+    "InvoicesDoc-v2.0.2.xsd": "686769176906d2ebac20471818a554dd49222073ddbc1affce16c1f8c20b1b79",
+    "InvoicesDoc-v2.0.2_aade_detailed.xsd": "c0a8926119da30eca681407a36be2fb11fcf5b95883fb02284f6f7c4a8d61c9c",
+    "paymentMethods-v2.0.2.xsd": "1f63d869853db81cb554d1d6d8a45598e242c9c3c8036c1012f29744fb370151",
+    "RegisterTransfer-v2.0.2.xsd": "71b0db1a995643720e834da3328a162efa3329b723fb19c2b3438b98e1fea536",
+    "RejectDeliveryNote-v2.0.2.xsd": "5699984ae2f3b147ae19dfa34c11d5d45c34e3ba8429bf5ad516af1de3240fc9",
+    "RequestE3InfoResponse-v2.0.2.xsd": "35acc9c20b046300506312bea6ddff0bbb94a86f4f62cb92a2c6b30f1a89b071",
+    "requestedInvoicesDoc-v2.0.2.xsd": "a3ec11340209f8d7efe0600da587316ab292a0211603cb77629d1a44be68fdc8",
+    "RequestedProviderDoc-v2.0.2.xsd": "2d1906bdfb63938eb0f4544d2b59dcfdca311418c9c1fbe96cb0ce2875d1254c",
+    "RequestedStatementDoc-v2.0.2.xsd": "b3daabeb662803e4c93b8ca2a2f9b3e571264f1b407a9bc330265ccd3c3a6853",
+    "RequestGroupQRDetailsResponse-v2.0.2.xsd": "99ecbf39472bfec8819c3f15cd6667d299151d91b6dc608ce57cb15a70bae5de",
+    "RequestVatInfoResponse-v2.0.2.xsd": "13b6f61967138f0001354db14a4123255d04eab92fab1c53370db9c8e5c513ed",
+    "response-v2.0.2.xsd": "1e2f1ff6fe3d88652ad5a094e9619d9cf0672098b595c7d9f25de75a3a5e62a7",
+    "SendStatement-v2.0.2.xsd": "7e91a478761da0359b683590a5a8339f5cf8eba2f81ae20837f7e33df4a60d90",
+    "SimpleTypes-v2.0.2.xsd": "a8a584950e413720124cefc2d63c26147cbf5918a196a65bd6a1677962b5946c",
+    "TransportTypes-v2.0.2.xsd": "db08dd06c2293ee5ef9dd9e32425124726a5544c6bc253dd6a267afdc799bcfa"
+  },
+  "vendored": [
+    "requestedInvoicesDoc-v2.0.2.xsd"
+  ]
+}

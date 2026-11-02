@@ -61,19 +61,26 @@ def vat_number(value):
     return value
 
 
+READ_CONNECTIONS = {f"slot_{slot}_{env}" for slot in range(1, 4) for env in ("test", "prod")}
+
+
 def company(payload):
     name = text(payload.get("name"), 200)
     if not name:
         fail("Company name is required")
-    return {"name": name, "vatNumber": vat_number(payload.get("vatNumber")),
+    alias = payload.get("readConnection", "")
+    principal = payload.get("readPrincipal", "company")
+    if alias not in READ_CONNECTIONS | {""} or principal not in {"company", "representative"}:
+        fail("Choose a supported AADE connection and access type")
+    return {"readConnection": alias, "readPrincipal": principal, "name": name, "vatNumber": vat_number(payload.get("vatNumber")),
             "notes": text(payload.get("notes"), 4000)}
 
 
 def invoice(payload):
     result = {key: text(payload.get(key), limit) for key, limit in {
-        "supplier": 200, "supplierVat": 32, "number": 100, "issueDate": 10,
+        "supplier": 200, "supplierVat": 32, "number": 100, "series": 100, "issueDate": 10,
         "description": 2000, "businessPurpose": 2000, "classificationCategory": 120,
-        "classificationType": 120, "vatTreatment": 500, "notes": 8000, "mark": 80,
+        "classificationType": 120, "vatTreatment": 500, "vatClassification": 32, "mydataInvoiceType": 20, "notes": 8000, "mark": 80,
     }.items()}
     if result["issueDate"]:
         try:
@@ -95,7 +102,8 @@ def invoice(payload):
                   lines=[{"description": text(row.get("description"), 2000),
                           "net": money(row.get("net")), "vat": money(row.get("vat")),
                           "category": text(row.get("category"), 120),
-                          "type": text(row.get("type"), 120)} for row in lines])
+                          "type": text(row.get("type"), 120),
+                          "vatClassification": text(row.get("vatClassification"), 32)} for row in lines])
     for key in ("net", "vat", "otherTaxes", "total"):
         result[key] = money(payload.get(key))
     return result

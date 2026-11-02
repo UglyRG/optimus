@@ -65,3 +65,18 @@ ul.mydata-extraction-warning { padding-left: 32px; }
 .mydata-qr-reference label { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .mydata-qr-reference input { width: auto; }
 .mydata-qr-reference a { color: var(--brand); }
+
+.mydata-intake { margin-bottom: 18px; }
+.mydata-intake h2 { margin: 0 auto 0 0; }
+.mydata-qr-status label.mydata-extraction-field { display: block; margin: 12px 0; }
+
+.mydata-classifications .mydata-fields select { width: 100%; min-width: 0; text-overflow: ellipsis; }
+.mydata-classification-warning { color: var(--muted); display: block; margin-top: 6px; }
+.mydata-classifications h4 { margin: 16px 0 10px; }
+
+.mydata-code-description { display: block; white-space: normal; overflow-wrap: anywhere; color: var(--muted); font-size: .85rem; line-height: 1.4; margin-top: 6px; }
+
+.mydata-classifications .mydata-fields > .field + .field { margin-top: 0; }
+
+.mydata-row-actions { display: flex; gap: 8px; align-items: center; }
+.mydata-page .mydata-delete { color: var(--danger); border-color: var(--danger); }

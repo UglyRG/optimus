@@ -15,11 +15,11 @@ from PIL import Image
 from pypdf import PdfReader
 
 from ..utils import now_iso
-from . import domain
+from . import domain, classifications
 
 MAX_FILE = 25 * 1024 * 1024
 LOCK_ID = 731448223
-TABLES = ("mydata_companies", "mydata_documents", "mydata_invoices", "mydata_audit_events", "mydata_extractions")
+TABLES = ("mydata_companies", "mydata_documents", "mydata_invoices", "mydata_audit_events", "mydata_extractions", "mydata_remote_records", "mydata_sync_jobs")
 
 
 def inspect_file(data, filename):
@@ -130,6 +130,10 @@ class MydataRepository:
     @staticmethod
     def present(row):
         result = {**row["facts"], "id": row["id"], "revision": row["revision"]}
+        if "document_id" in row:
+            result["canDelete"] = bool(row["document_id"] and row["facts"].get("source") != "aade")
+        if "remote_links" in row:
+            result["remoteLinks"] = row["remote_links"] or []
         if "extraction_state" in row:
             result["extractionState"] = row["extraction_state"]
         return result
@@ -164,6 +168,9 @@ class MydataRepository:
             previous = next((row for row in rows if row["id"] == record_id), None)
             if payload.get("id") and (not previous or previous["revision"] != payload.get("revision")):
                 raise HTTPException(409, "Company changed elsewhere. Reload before saving.")
+            if previous and previous["facts"].get("vatNumber") != facts["vatNumber"]:
+                if connection.execute("SELECT id FROM mydata_remote_records WHERE company_id=%s LIMIT 1", (record_id,)).fetchone():
+                    domain.fail("This company has AADE evidence. Its taxpayer identity cannot be changed; use the correct company profile.")
             if not previous and len(rows) >= 3:
                 domain.fail("This workspace supports three companies. Edit an existing company instead.")
             if facts["vatNumber"] and any(row["id"] != record_id and row["facts"]["vatNumber"] == facts["vatNumber"] for row in rows):
@@ -190,7 +197,7 @@ class MydataRepository:
             params = (company_id, start, end)
             total = connection.execute("SELECT count(*) AS count FROM mydata_invoices WHERE company_id=%s "
                                        "AND review_month BETWEEN %s AND %s" + clause, params).fetchone()["count"]
-            rows = connection.execute("SELECT *, (SELECT e.state FROM mydata_extractions e WHERE e.invoice_id=mydata_invoices.id "
+            rows = connection.execute("SELECT *, (SELECT jsonb_agg(jsonb_build_object('id',r.id,'environment',r.environment,'mark',r.mark,'cancelled',r.facts->'cancelled')) FROM mydata_remote_records r WHERE r.invoice_id=mydata_invoices.id) AS remote_links, (SELECT e.state FROM mydata_extractions e WHERE e.invoice_id=mydata_invoices.id "
                                       "ORDER BY e.created_at DESC, e.id DESC LIMIT 1) AS extraction_state "
                                       "FROM mydata_invoices WHERE company_id=%s AND review_month BETWEEN %s AND %s "
                                       + clause + " ORDER BY review_month DESC, id LIMIT 100 OFFSET %s", (*params, offset)).fetchall()
@@ -212,10 +219,14 @@ class MydataRepository:
                                           (record_id, company_id)).fetchone()
             if payload.get("id") and (not previous or previous["revision"] != payload.get("revision")):
                 raise HTTPException(409, "Purchase changed elsewhere or was restored. Reload before saving.")
+            facts["classificationCheck"] = classifications.check_selections(facts, previous["facts"] if previous else {}, classifications.context(connection, company_id, record_id))
             reviewed = payload.get("markReviewed") is True
             issues = domain.review_issues(facts)
             if reviewed and issues:
                 domain.fail("Resolve these before marking reviewed: " + "; ".join(issues))
+            for key in ("source", "sourceEnvironment", "sourceWarnings"):
+                if previous and key in previous["facts"]:
+                    facts[key] = previous["facts"][key]
             facts.update(reviewed=reviewed, reviewedAt=now_iso() if reviewed else None,
                          reviewedBy=actor if reviewed else None, issues=issues, updatedAt=now_iso(),
                          createdAt=previous["facts"]["createdAt"] if previous else now_iso(),
@@ -232,7 +243,40 @@ class MydataRepository:
                        {**facts, "revision": revision})
         return {**facts, "id": record_id, "revision": revision}
 
-    def upload(self, company_id, review_month, filename, data, actor):
+    def delete_upload(self, company_id, invoice_id, expected_revision, actor):
+        company_id, invoice_id = domain.identifier(company_id), domain.identifier(invoice_id)
+        with self.store.pool.connection() as connection, connection.transaction():
+            self.lock(connection)
+            row = connection.execute("SELECT * FROM mydata_invoices WHERE company_id=%s AND id=%s", (company_id, invoice_id)).fetchone()
+            if not row:
+                raise HTTPException(404, "Purchase not found")
+            if row["revision"] != expected_revision:
+                raise HTTPException(409, "Purchase changed elsewhere. Reload before deleting.")
+            if not row["document_id"] or row["facts"].get("source") == "aade":
+                domain.fail("Only manually uploaded purchases can be deleted here")
+            document = connection.execute("SELECT * FROM mydata_documents WHERE company_id=%s AND id=%s", (company_id, row["document_id"])).fetchone()
+            storage_id = domain.identifier(document["facts"]["storageId"])
+            # Preserve remote evidence. Removing a local upload never cancels anything in AADE.
+            links = connection.execute("SELECT id FROM mydata_remote_records WHERE company_id=%s AND invoice_id=%s", (company_id, invoice_id)).fetchall()
+            for link in links:
+                connection.execute("UPDATE mydata_remote_records SET invoice_id=NULL,revision=%s WHERE id=%s", (str(uuid4()), link["id"]))
+            # Workers check the persisted job before saving results; an in-flight result cannot
+            # recreate the deleted draft or its extraction evidence.
+            connection.execute("DELETE FROM mydata_extractions WHERE company_id=%s AND invoice_id=%s", (company_id, invoice_id))
+            connection.execute("DELETE FROM mydata_invoices WHERE company_id=%s AND id=%s", (company_id, invoice_id))
+            connection.execute("DELETE FROM mydata_documents WHERE company_id=%s AND id=%s", (company_id, row["document_id"]))
+            self.audit(connection, company_id, invoice_id, "uploaded_purchase_deleted", actor,
+                       {"documentId": row["document_id"], "deletedRevision": row["revision"], "remoteLinksPreserved": len(links)})
+        # Delete the encrypted file only after commit, so a failed transaction cannot lose it.
+        cleanup_pending = False
+        try:
+            (self.directory / storage_id).unlink(missing_ok=True)
+        except OSError:
+            cleanup_pending = True
+        return {"deleted": True, "invoiceId": invoice_id, "originalCleanupPending": cleanup_pending,
+                "remoteLinksPreserved": len(links)}
+
+    def upload(self, company_id, review_month, filename, data, actor, target=None):
         company_id, review_month = domain.identifier(company_id), domain.month(review_month)
         filename = Path(filename.replace("\\", "/")).name[:200]
         if not data or len(data) > MAX_FILE:
@@ -243,19 +287,30 @@ class MydataRepository:
             with self.store.pool.connection() as connection, connection.transaction():
                 self.lock(connection)
                 self.require_company(connection, company_id)
+                previous = None
+                if target:
+                    invoice_id = domain.identifier(target.get("id"))
+                    previous = connection.execute("SELECT * FROM mydata_invoices WHERE id=%s AND company_id=%s", (invoice_id, company_id)).fetchone()
+                    if not previous:
+                        raise HTTPException(404, "Purchase not found")
+                    if previous["revision"] != target.get("revision") or previous["document_id"]:
+                        raise HTTPException(409, "Purchase changed or already has an original. Reload before attaching.")
+                    review_month = previous["review_month"]
                 existing = connection.execute("SELECT i.* FROM mydata_documents d JOIN mydata_invoices i ON i.document_id=d.id "
                                               "WHERE d.company_id=%s AND d.sha256=%s", (company_id, digest)).fetchone()
                 if existing:
+                    if target:
+                        raise HTTPException(409, "This original already belongs to another purchase in this company. Open that purchase to review it.")
                     return {"invoice": self.present(existing), "duplicate": True}
                 storage_id = self.store_file(doc_id, data)
                 connection.execute("INSERT INTO mydata_documents VALUES (%s,%s,%s,%s::jsonb)",
                                    (doc_id, company_id, digest, json.dumps({"filename": filename, "mime": mime,
                                     "pages": pages, "bytes": len(data), "storageId": storage_id})))
-                facts = domain.invoice({"reviewMonth": review_month, "description": "", "currency": "EUR"})
+                facts = dict(previous["facts"]) if previous else domain.invoice({"reviewMonth": review_month, "description": "", "currency": "EUR"})
                 facts.update(documentId=doc_id, filename=filename, reviewed=False, reviewedAt=None, reviewedBy=None,
-                             createdAt=now_iso(), updatedAt=now_iso(), issues=domain.review_issues(facts))
-                record_id, revision = str(uuid4()), str(uuid4())
-                connection.execute("INSERT INTO mydata_invoices VALUES (%s,%s,%s,%s,%s::jsonb,%s)",
+                             createdAt=previous["facts"]["createdAt"] if previous else now_iso(), updatedAt=now_iso(), issues=domain.review_issues(facts))
+                record_id, revision = previous["id"] if previous else str(uuid4()), str(uuid4())
+                connection.execute("INSERT INTO mydata_invoices VALUES (%s,%s,%s,%s,%s::jsonb,%s) ON CONFLICT(id) DO UPDATE SET document_id=excluded.document_id,facts=excluded.facts,revision=excluded.revision",
                                    (record_id, company_id, doc_id, review_month, json.dumps(facts), revision))
                 self.audit(connection, company_id, record_id, "document_uploaded", actor, {**facts, "revision": revision})
             return {"invoice": {**facts, "id": record_id, "revision": revision}, "duplicate": False}
@@ -290,7 +345,7 @@ class MydataRepository:
                 return None
             for row in snapshot["mydata_documents"]:
                 row["content"] = base64.b64encode(self.read_file(row)).decode()
-            for row in snapshot["mydata_extractions"]:
+            for row in snapshot["mydata_extractions"] + snapshot["mydata_sync_jobs"]:
                 row["created_at"] = row["created_at"].isoformat()
                 row["lease_until"] = None
             snapshot.update(version=1, purpose="preparation-only", productionWrites=False)
@@ -304,7 +359,8 @@ class MydataRepository:
             snapshot = json.loads(self.decrypt(base64.b64decode(envelope["ciphertext"], validate=True), "mydata:backup:v1"))
             if snapshot["version"] != 1 or snapshot["purpose"] != "preparation-only":
                 domain.fail("Unsupported myDATA snapshot")
-            snapshot.setdefault("mydata_extractions", [])  # Version-1 archives before extraction support.
+            for optional in ("mydata_extractions", "mydata_remote_records", "mydata_sync_jobs"):
+                snapshot.setdefault(optional, [])  # Older version-1 archives remain supported.
             ids = {}
             for table in TABLES:
                 rows = snapshot[table]
@@ -336,6 +392,36 @@ class MydataRepository:
                 invoice_row = next(item for item in snapshot["mydata_invoices"] if item["id"] == row["invoice_id"])
                 if invoice_row["company_id"] != row["company_id"]:
                     domain.fail("Invalid extraction company scope")
+            invoice_map = {row["id"]: row for row in snapshot["mydata_invoices"]}
+            remote_keys, links = set(), set()
+            for row in snapshot["mydata_remote_records"]:
+                if not isinstance(row["mark"], str) or not row["mark"].isascii() or not row["mark"].isdigit() or len(row["mark"]) > 80:
+                    domain.fail("Invalid remote MARK")
+                domain.identifier(row["revision"])
+                if row["environment"] not in {"test", "prod"}:
+                    domain.fail("Invalid remote environment")
+                unique = (row["company_id"], row["environment"], row["mark"])
+                if unique in remote_keys:
+                    domain.fail("Duplicate remote MARK in backup")
+                remote_keys.add(unique)
+                if row["invoice_id"]:
+                    local = invoice_map.get(row["invoice_id"])
+                    link = (row["invoice_id"], row["environment"])
+                    if not local or local["company_id"] != row["company_id"] or link in links:
+                        domain.fail("Invalid remote purchase link")
+                    links.add(link)
+                encrypted = row["facts"].get("encryptedXml")
+                if encrypted:
+                    raw = self.decrypt(base64.b64decode(encrypted, validate=True), "mydata:remote:" + row["id"])
+                    if hashlib.sha256(raw).hexdigest() != row["facts"]["payloadHash"]:
+                        domain.fail("Remote evidence checksum mismatch")
+            for row in snapshot["mydata_sync_jobs"]:
+                if row["state"] not in {"queued", "running", "completed", "failed", "cancelled"}:
+                    domain.fail("Invalid read job state")
+                for response in row["facts"].get("responses", []):
+                    raw = self.decrypt(base64.b64decode(response["encryptedXml"], validate=True), f'mydata:sync:{row["id"]}:{response["page"]}')
+                    if hashlib.sha256(raw).hexdigest() != response["hash"]:
+                        domain.fail("Read response checksum mismatch")
             for row in snapshot["mydata_invoices"]:
                 domain.invoice(row["facts"])
                 domain.month(row["review_month"])
@@ -377,6 +463,13 @@ class MydataRepository:
                     state = row["state"] if row["state"] not in {"queued", "running"} else "cancelled"
                     connection.execute("INSERT INTO mydata_extractions(id,company_id,invoice_id,facts,state,created_at) VALUES (%s,%s,%s,%s::jsonb,%s,coalesce(%s::timestamptz,now()))",
                                        (row["id"], row["company_id"], row["invoice_id"], json.dumps(row["facts"]), state, row.get("created_at")))
+                for row in snapshot["mydata_remote_records"]:
+                    connection.execute("INSERT INTO mydata_remote_records VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s)",
+                                       (row["id"], row["company_id"], row["environment"], row["mark"], row["invoice_id"], json.dumps(row["facts"]), str(uuid4())))
+                for row in snapshot["mydata_sync_jobs"]:
+                    state = "cancelled" if row["state"] in {"queued", "running"} else row["state"]
+                    connection.execute("INSERT INTO mydata_sync_jobs(id,company_id,facts,state,created_at) VALUES (%s,%s,%s::jsonb,%s,coalesce(%s::timestamptz,now()))",
+                                       (row["id"], row["company_id"], json.dumps(row["facts"]), state, row.get("created_at")))
                 for row in snapshot["mydata_companies"]:
                     self.audit(connection, row["id"], row["id"], "backup_restored_review_required", actor, {})
         except Exception:

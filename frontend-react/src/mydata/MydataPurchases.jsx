@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import "./mydata.css";
 import { ExtractionPanel } from "./ExtractionPanel";
 import { OriginalDocument } from "./OriginalDocument";
+import { SyncPanel, RemoteEvidence } from "./AadeIntake";
+import { ClassificationPanel } from "./ClassificationPanel";
 
 const root = "/tools/mydata-invoices";
 const kinds = { supplier_invoice: "Supplier invoice", retail_receipt: "Retail receipt", credit_note: "Credit note", other: "Other document" };
@@ -16,9 +18,9 @@ function download(value, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function blank(month) {
-  return { reviewMonth: month, kind: "supplier_invoice", currency: "EUR", lines: [], supplier: "", supplierVat: "", number: "",
+  return { reviewMonth: month, kind: "supplier_invoice", currency: "EUR", lines: [], supplier: "", supplierVat: "", number: "", series: "",
     issueDate: "", net: "", vat: "", otherTaxes: "", total: "", description: "", businessPurpose: "",
-    classificationCategory: "", classificationType: "", vatTreatment: "", mark: "", notes: "" };
+    classificationCategory: "", classificationType: "", vatTreatment: "", vatClassification: "", mydataInvoiceType: "", mark: "", notes: "" };
 }
 
 export function MydataPurchases({ request, apiBase, onBack }) {
@@ -47,6 +49,7 @@ export function MydataPurchases({ request, apiBase, onBack }) {
   guard.current = { dirty, busy };
   const filesRef = useRef(null);
   const restoreRef = useRef(null);
+  const attachRef = useRef(null);
   const activeCompany = companies.find((company) => company.id === companyId);
   const rangeEnd = custom ? end : period;
   const endpoint = `${root}/companies/${companyId}`;
@@ -123,6 +126,15 @@ export function MydataPurchases({ request, apiBase, onBack }) {
       setNotice(next && !following ? "Saved. No further unreviewed purchases on this page." : reviewed ? "Details reviewed. AADE submission is not enabled yet." : "Draft saved. Any previous review has been cleared.");
     });
   }
+  function deleteUpload(row) {
+    if (busy || !row.canDelete) return;
+    setConfirmation({ title: "Delete uploaded purchase?", message: `Delete ${row.supplier || row.filename || "this purchase"}${row.number ? ` · ${row.number}` : ""} from ${activeCompany?.name}? This removes the saved draft, original file and extraction results from Optimus. Audit history and existing backups are retained.${row.remoteLinks?.length ? " Its AADE record stays available for matching." : ""} Recovery requires an earlier backup.`, label: "Delete purchase", danger: true, proceed: () => run(async () => {
+      const result = await request(`${endpoint}/invoices/${row.id}`, { method: "DELETE", body: JSON.stringify({ revision: row.revision }) });
+      if (data.invoices.length === 1 && offset > 0) setOffset(Math.max(0, offset - 100));
+      setRefresh((value) => value + 1);
+      setNotice(result.originalCleanupPending ? "Purchase deleted. The encrypted original could not be removed from disk and needs local cleanup." : "Uploaded purchase deleted.");
+    }) });
+  }
   async function upload(files) {
     if (!files.length) return;
     if (files.length > 50) { setError("Choose up to 50 files per batch."); return; }
@@ -173,13 +185,13 @@ export function MydataPurchases({ request, apiBase, onBack }) {
 
   return <section className="index-page mydata-page">
     {confirmation && <div className="mydata-confirm-backdrop"><section className="tool-panel mydata-confirm" role="dialog" aria-modal="true" aria-labelledby="mydata-confirm-title">
-      <h2 id="mydata-confirm-title">Confirm action</h2><p>{confirmation.message}</p><div className="mydata-actions">
+      <h2 id="mydata-confirm-title">{confirmation.title || "Confirm action"}</h2><p>{confirmation.message}</p><div className="mydata-actions">
         <button className="button button-secondary" autoFocus onClick={() => setConfirmation(null)}>Keep working</button>
-        <button className="button button-primary" onClick={() => { const proceed = confirmation.proceed; setConfirmation(null); proceed(); }}>{confirmation.label}</button>
+        <button className={`button ${confirmation.danger ? "button-secondary mydata-delete" : "button-primary"}`} onClick={() => { const proceed = confirmation.proceed; setConfirmation(null); proceed(); }}>{confirmation.label}</button>
       </div></section></div>}
     <div className="page-head"><div className="page-title"><h1>myDATA Purchases</h1><p>Monthly purchase review · Χαρακτηρισμός παραστατικών</p></div>
       <button className="button button-secondary" disabled={busy} onClick={() => leave(onBack)}>Back to tools</button></div>
-    <p className="mydata-stage">Preparation workspace · AADE import and submission are coming in the next stages. No invoices or classifications are submitted.</p>
+    <p className="mydata-stage">Read-only intake · Import from AADE, add missing originals, then review and edit. No invoices or classifications are submitted.</p>
     <div className="mydata-toolbar tool-panel">
       <label className="field">Company<select disabled={busy} value={companyId} onChange={(e) => leave(() => { setCompanyId(e.target.value); setSettings(false); setOffset(0); })}>
         <option value="" disabled>Select company</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
@@ -207,15 +219,27 @@ export function MydataPurchases({ request, apiBase, onBack }) {
       })}>Download encrypted backup</button>
       <button className="button button-secondary" disabled={busy || dirty} onClick={() => restoreRef.current.click()}>Restore myDATA backup</button>
       <input ref={restoreRef} hidden type="file" accept=".json,application/json" onChange={(e) => { restore(e.target.files[0]); e.target.value = ""; }} /></div>
-      <h2>AADE connections</h2><p>AADE company imports are not connected yet. Public QR lookup supports recognised invoice providers without credentials. Company and optional accountant API credentials will be configured only in the installation’s private .env file.</p>
+      <h2>AADE connection for {companyDraft.name || "this company"}</h2>
+      <p>Save a connection for each company. Credentials stay in the private .env file. Direct company access and authorised representative access are supported; an accountant is optional.</p>
+      <div className="mydata-fields">
+        <label className="field">Connection<select disabled={busy} value={companyDraft.readConnection || ""} onChange={(e) => { setCompanyDraft({ ...companyDraft, readConnection: e.target.value }); setDirty(true); }}><option value="">Local intake only</option>{[1,2,3].flatMap((slot) => ["prod", "test"].map((env) => <option key={`${slot}-${env}`} value={`slot_${slot}_${env}`}>Connection {slot} · {env === "prod" ? "Production" : "Sandbox (test credentials)"}</option>))}</select></label>
+        <label className="field">Access type<select disabled={busy} value={companyDraft.readPrincipal || "company"} onChange={(e) => { setCompanyDraft({ ...companyDraft, readPrincipal: e.target.value }); setDirty(true); }}><option value="company">Company's own API credentials</option><option value="representative">Authorised representative's API credentials</option></select></label>
+      </div>
+      {companyDraft.readConnection && <p>Configure <code>MYDATA_{companyDraft.readConnection.toUpperCase()}_USER_ID</code>, <code>MYDATA_{companyDraft.readConnection.toUpperCase()}_SUBSCRIPTION_KEY</code> and <code>MYDATA_{companyDraft.readConnection.toUpperCase()}_VAT_NUMBER</code> in .env, then restart Optimus. The connection ΑΦΜ is the credential owner's ΑΦΜ. Representative access also requires AADE authorisation for the selected company.</p>}
+      <p>Use Production for credentials issued by the normal myDATA portal. Sandbox requires separate test credentials. The Test connection button checks the selected environment using a read-only request.</p>
+      <p>Use <strong>Save company</strong> above after changing the connection. Production and test records stay labelled separately.</p>
     </section> : draft ? <>
       <div className="mydata-review-head"><div><h2>{draft.supplier || draft.filename || "New purchase"}</h2><p>{activeCompany?.name} · {draft.reviewMonth} · {dirty ? "Unsaved changes" : draft.id ? "Saved" : "Not saved yet"}</p></div>
         <button className="button button-secondary" disabled={busy} onClick={() => leave(() => {})}>Back to purchases</button></div>
       <div className="mydata-review">
         <section className="tool-panel mydata-original"><h3>Original document</h3>{draft.documentId ? <>
           <OriginalDocument request={request} endpoint={endpoint} apiBase={apiBase} documentId={draft.documentId} page={previewPage} onPage={setPreviewPage} />
-        </> : <p>No document attached. This is a manual purchase draft.</p>}</section>
+        </> : <><p>{draft.source === "aade" ? "Imported from AADE. You can attach its invoice or receipt here." : "No original attached."}</p>
+          <button className="button button-secondary" disabled={!draft.id || busy || dirty} onClick={() => attachRef.current.click()}>Attach original</button>
+          <input ref={attachRef} hidden type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => { const file = e.target.files[0]; e.target.value = ""; if (!file) return; run(async () => { const body = new FormData(); body.append("file", file); body.append("revision", draft.revision); body.append("lookupQr", String(uploadQrLookup)); const result = await request(`${endpoint}/invoices/${draft.id}/document`, { method: "POST", headers: {}, body }); setDraft(result.invoice); setRefresh((value) => value + 1); setNotice(result.extractionWarning || "Original attached. Extraction is queued; review suggestions before applying."); }); }} />
+          {(!draft.id || dirty) && <p>Save this draft before attaching an original.</p>}</>}</section>
         <section className="tool-panel">
+          {draft.id && <RemoteEvidence request={request} endpoint={endpoint} draft={draft} busy={busy} dirty={dirty} run={run} onApplied={(invoice) => { setDraft(invoice); setDirty(false); setRefresh((value) => value + 1); setNotice("Selected AADE fields applied. Review the updated draft."); }} />}
           {draft.id && draft.documentId && <ExtractionPanel key={draft.id} request={request} endpoint={endpoint} draft={draft} dirty={dirty} busy={busy} lookupQr={uploadQrLookup} onLookupQrChange={setQrLookupPreference} setBusy={setBusy} onError={setError} onPage={setPreviewPage} onApplied={(invoice) => {
             setDraft(invoice); setDirty(false); setHistory(null); setRefresh((value) => value + 1); setNotice("Selected suggestions applied. Review and edit the fields below before marking details reviewed.");
           }} />}
@@ -223,19 +247,12 @@ export function MydataPurchases({ request, apiBase, onBack }) {
           <label className="field">Document kind<select value={draft.kind} onChange={(e) => patch("kind", e.target.value)}>{Object.entries(kinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           {field("Review month", "reviewMonth", { type: "month" })}
           {field("Supplier", "supplier")}{field("Supplier ΑΦΜ / tax ID", "supplierVat")}
-          {field("Document number", "number")}{field("Issue date", "issueDate", { type: "date" })}
-          {field("Currency", "currency")}{field("Printed MARK (unverified)", "mark")}
+          {field("Series", "series")}{field("Document number", "number")}{field("Issue date", "issueDate", { type: "date" })}
+          {field("Currency", "currency")}{field("Document MARK", "mark")}
           {field("Net amount", "net", { money: true })}{field("VAT amount", "vat", { money: true })}
           {field("Other taxes / adjustments", "otherTaxes", { money: true })}{field("Total amount", "total", { money: true })}
           <div className="mydata-wide">{field("Purchase description", "description", { area: true })}{field("Business purpose", "businessPurpose", { area: true })}</div>
-          <details className="mydata-wide"><summary>Classification notes and line allocations</summary><p>Manual working notes only. Codes and treatment are not validated against AADE yet.</p>
-            {field("Proposed category", "classificationCategory")}{field("Proposed E3 type", "classificationType")}{field("VAT treatment", "vatTreatment", { area: true })}
-            {draft.lines.map((row, index) => <div className="mydata-line" key={index}>
-              {[['description', 'Description'], ['net', 'Net'], ['vat', 'VAT'], ['category', 'Category'], ['type', 'E3 type']].map(([key, label]) => <label className="field" key={key}>{label}<input inputMode={key === "net" || key === "vat" ? "decimal" : undefined} value={row[key]} onChange={(e) => patch("lines", draft.lines.map((line, position) => position === index ? { ...line, [key]: e.target.value } : line))} /></label>)}
-              <button className="button button-secondary" onClick={() => patch("lines", draft.lines.filter((_, position) => position !== index))}>Remove line {index + 1}</button>
-            </div>)}
-            <button className="button button-secondary" onClick={() => patch("lines", [...draft.lines, { description: "", net: "", vat: "", category: "", type: "" }])}>Add purchase line</button>
-          </details>
+          <ClassificationPanel request={request} endpoint={endpoint} draft={draft} busy={busy} patch={patch} />
           <div className="mydata-wide">{field("Review notes", "notes", { area: true })}</div>
         </fieldset>
         {!dirty && draft.issues?.length > 0 && <div className="mydata-issues"><strong>Needs attention</strong><ul>{draft.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></div>}
@@ -253,6 +270,7 @@ export function MydataPurchases({ request, apiBase, onBack }) {
     </> : <>
       <div className="mydata-progress">{companies.map((company) => { const progress = data.progress[company.id]; return <button className={`tool-panel ${company.id === companyId ? "is-selected" : ""}`} key={company.id} disabled={busy || loading} onClick={() => leave(() => { setCompanyId(company.id); setOffset(0); })}>
         <strong>{company.name}</strong><span>{progress ? `${progress.total - progress.reviewed} to review · ${progress.reviewed} reviewed` : "No purchases in this period"}</span></button>; })}</div>
+      {companyId && <SyncPanel key={companyId} request={request} endpoint={endpoint} company={activeCompany} start={period} end={rangeEnd} dirty={dirty} busy={busy} run={run} refresh={refresh} onRefresh={setRefresh} onSettings={() => leave(() => { setSettings(true); setCompanyDraft(activeCompany); })} />}
       <section className="tool-panel"><div className="mydata-actions">
         <button className="button button-primary" disabled={!companyId || busy || loading} onClick={() => filesRef.current.click()}>Add invoices / receipts</button>
         <button className="button button-secondary" disabled={!companyId || busy || loading} onClick={() => edit(blank(period))}>Enter manually</button>
@@ -264,8 +282,8 @@ export function MydataPurchases({ request, apiBase, onBack }) {
       <p>Uploads enter {period}. Unknown issue dates stay empty until you review them. Local extraction runs after upload; open Review to inspect suggestions. One invoice per file.</p>
       {loading ? <p role="status">Loading purchases…</p> : !companyId ? <p>Add your companies in Settings to get started.</p> : <>
         {data.invoices.length ? <div className="mydata-table-scroll"><table className="mydata-table"><thead><tr><th>Supplier / document</th><th>Issue date</th><th>Review month</th><th>Total</th><th>Status</th><th>Action</th></tr></thead><tbody>
-          {data.invoices.map((row) => <tr key={row.id}><td><strong>{row.supplier || row.filename || "Manual purchase"}</strong><small>{kinds[row.kind]}{row.number ? ` · ${row.number}` : ""}</small></td><td>{row.issueDate || "Needs date"}</td><td>{row.reviewMonth}</td><td>{row.total ? `${row.currency} ${row.total}` : "—"}</td><td><span className={`mydata-status ${row.reviewed ? "is-reviewed" : ""}`}>{row.reviewed ? "Details reviewed" : "Needs review"}</span>{row.extractionState && <small>{{queued: "Extraction queued", running: "Reading document…", completed: "Extraction available", failed: "Extraction needs attention", cancelled: "Extraction cancelled"}[row.extractionState]}</small>}</td><td><button className="button button-secondary" onClick={() => edit(row)}>Review</button></td></tr>)}
-        </tbody></table></div> : <div className="mydata-empty"><h2>{filter === "all" ? "Start this period’s purchase review" : "No purchases match this filter"}</h2><p>Add supplier invoices or receipts for local extraction, or enter a purchase manually. AADE import will be added in the next stage.</p></div>}
+          {data.invoices.map((row) => <tr key={row.id}><td><strong>{row.supplier || row.filename || "Manual purchase"}</strong><small>{kinds[row.kind]}{row.source === "aade" ? ` · AADE ${row.sourceEnvironment === "prod" ? "Production" : "Test"}` : row.remoteLinks?.length ? " · Linked to AADE" : " · Local"}{row.remoteLinks?.some((link) => link.cancelled) ? " · Cancelled in AADE" : ""}{row.number ? ` · ${row.number}` : ""}</small></td><td>{row.issueDate || "Needs date"}</td><td>{row.reviewMonth}</td><td>{row.total ? `${row.currency} ${row.total}` : "—"}</td><td><span className={`mydata-status ${row.reviewed ? "is-reviewed" : ""}`}>{row.reviewed ? "Details reviewed" : "Needs review"}</span>{row.extractionState && <small>{{queued: "Extraction queued", running: "Reading document…", completed: "Extraction available", failed: "Extraction needs attention", cancelled: "Extraction cancelled"}[row.extractionState]}</small>}</td><td><div className="mydata-row-actions"><button className="button button-secondary" disabled={busy} onClick={() => edit(row)}>Review</button>{row.canDelete && <button className="button button-secondary mydata-delete" disabled={busy} onClick={() => deleteUpload(row)}>Delete</button>}</div></td></tr>)}
+        </tbody></table></div> : <div className="mydata-empty"><h2>{filter === "all" ? "Start this period’s purchase review" : "No purchases match this filter"}</h2><p>Sync incoming purchases from AADE, add supplier invoices or receipts, or enter a purchase manually.</p></div>}
         <div className="mydata-actions"><span>{data.total} purchases{data.total > 0 ? ` · ${offset + 1}–${Math.min(offset + 100, data.total)}` : ""}</span>
           <button className="button button-secondary" disabled={offset === 0 || busy} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous page</button>
           <button className="button button-secondary" disabled={offset + 100 >= data.total || busy} onClick={() => setOffset(offset + 100)}>Next page</button></div>

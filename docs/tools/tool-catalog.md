@@ -43,4 +43,4 @@ When adding a new hosted tool:
 5. Include it in backup/restore if it persists data.
 6. Add or update docs under `docs/tools/`.
 
-- [myDATA Purchases](mydata-invoices.md) (`mydata-invoices`): monthly purchase preparation, private originals and encrypted backup for three companies. AADE integration is pending.
+- [myDATA Purchases](mydata-invoices.md) (`mydata-invoices`): read-only AADE intake, purchase review, private originals and encrypted backup for three companies. Tax submission is disabled.

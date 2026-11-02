@@ -15,9 +15,13 @@ It creates:
 - `knowledge_conversations`: Knowledge Expert chat conversations.
 - `knowledge_turns`: Knowledge Expert turns, citations, traces, feedback, and optional message embeddings.
 
-## myDATA preparation tables
+## myDATA intake tables
 
-`backend_py/sql/002_mydata.sql` is applied idempotently during backend startup. It creates `mydata_companies`, `mydata_documents`, `mydata_invoices`, `mydata_audit_events` and `mydata_extractions`. Extraction jobs hold saved invoice/company revision references, provider/consent metadata and page/field evidence, QR references, provider XML/checksums and conflicts; a partial unique index prevents concurrent active extraction for one purchase. Companies and drafts store revisioned JSONB facts; document metadata references private encrypted files. Foreign keys enforce company/document consistency. A module advisory transaction lock serializes mutations and backup/restore; edits require the current revision. Amounts and MARKs remain strings in snapshots. See [tool details](tools/mydata-invoices.md).
+`backend_py/sql/002_mydata.sql` is applied idempotently during backend startup. It creates `mydata_companies`, `mydata_documents`, `mydata_invoices`, `mydata_audit_events` `mydata_extractions`, `mydata_remote_records` and `mydata_sync_jobs`. Extraction jobs hold saved invoice/company revision references, provider/consent metadata and page/field evidence, QR references, provider XML/checksums and conflicts; a partial unique index prevents concurrent active extraction for one purchase. Companies and drafts store revisioned JSONB facts; document metadata references private encrypted files. Foreign keys enforce company/document consistency. A module advisory transaction lock serializes mutations and backup/restore; edits require the current revision. Amounts and MARKs remain strings in snapshots. See [tool details](tools/mydata-invoices.md).
+
+Read-only remote records are unique by company/environment/MARK, optionally linked by a company-consistent foreign key to a purchase. A partial index permits one linked remote record per invoice/environment. Parsed facts/classifications remain JSONB; original remote XML is encrypted with the module key. Durable sync jobs retain revision-bound company configuration aliases (never credentials), month/page checkpoints and encrypted full read responses. One active sync per company is enforced by a partial unique index. Evidence updates and cursor advancement commit in the same transaction. Remote changes clear the linked draft review/revision without overwriting its editable facts. Snapshots include both tables; older snapshots default them to empty and restored pending jobs are cancelled.
+
+Classification choices remain in existing draft JSONB: optional document type, document/line VAT classification code and server-generated catalogue/check metadata. No new table is needed. Catalogue source files ship with the app; backups retain chosen values and catalogue version. Old snapshots default absent fields during normalization. Existing typed notes are retained for reviewer correction rather than rewritten during startup.
 
 ## app_data Keys
 

@@ -44,3 +44,11 @@ The deployment script updates the existing checkout without clearing `data/`, so
 Before restoring local notes on production, securely install their original key with owner-only permissions, then restore the archive. A separately generated production key cannot decrypt local notes. If production already has notes under a different key, preserve its archive/database and original key before replacing either; cross-key merging is not supported.
 
 If encrypted notes exist but the key is missing or incorrect, the app locks the notes and refuses to overwrite them. It does not generate a replacement key. See [Sticky Notes](../tools/sticky-notes.md) and [Backup and Restore](backup-restore.md).
+
+## v8 myDATA rollout
+
+Deployment installs the new Python PDF/QR/XML dependencies and applies `002_mydata.sql` idempotently during startup. The normal backend starts both local extraction and AADE read workers; no separate worker service is needed. The bundled classification catalogue and public source workbook ship with the backend package.
+
+Keep existing `data/` and the installation's `data/.mydata.key` on persistent storage. Configure optional AADE production/sandbox slots only in the server's private `.env`, then restart. Local credentials and company/original data are never deployed from Git. Moving module data from another installation requires its original encryption key and encrypted backup; reconfigure credentials separately.
+
+Local extraction works without provider keys. For scanned originals install Tesseract with `ell` and `eng`; missing OCR leaves PDF text/QR extraction and manual review available. See [configuration](../configuration.md) and [myDATA operations](../tools/mydata-invoices.md). A deployed read connector makes no AADE requests until a reviewer starts Test connection or Sync from AADE. v8 exposes no tax-submission or AADE cancellation endpoint.

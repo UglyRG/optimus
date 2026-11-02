@@ -16,4 +16,4 @@ Tool docs are split by product area:
 
 When adding a new hosted tool, add a page here or update the closest existing page.
 
-- [myDATA Purchases](mydata-invoices.md) (`mydata-invoices`): monthly purchase preparation, private originals and encrypted backup for three companies. AADE integration is pending.
+- [myDATA Purchases](mydata-invoices.md) (`mydata-invoices`): read-only AADE intake, purchase review, private originals and encrypted backup for three companies. Tax submission is disabled.

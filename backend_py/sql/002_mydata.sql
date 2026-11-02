@@ -52,3 +52,29 @@ DO $$ BEGIN
       FOREIGN KEY (invoice_id, company_id) REFERENCES mydata_invoices(id, company_id);
   END IF;
 END $$;
+
+-- Read-only intake v2: remote evidence never replaces editable purchase facts.
+CREATE TABLE IF NOT EXISTS mydata_remote_records (
+  id text PRIMARY KEY,
+  company_id text NOT NULL REFERENCES mydata_companies(id),
+  environment text NOT NULL CHECK (environment IN ('test','prod')),
+  mark text NOT NULL,
+  invoice_id text,
+  facts jsonb NOT NULL,
+  revision text NOT NULL,
+  UNIQUE(company_id, environment, mark),
+  FOREIGN KEY(invoice_id, company_id) REFERENCES mydata_invoices(id, company_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mydata_remote_invoice_idx
+ON mydata_remote_records(invoice_id, environment) WHERE invoice_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS mydata_remote_period_idx ON mydata_remote_records(company_id, (facts->>'reviewMonth'));
+CREATE TABLE IF NOT EXISTS mydata_sync_jobs (
+  id text PRIMARY KEY,
+  company_id text NOT NULL REFERENCES mydata_companies(id),
+  facts jsonb NOT NULL,
+  state text NOT NULL CHECK (state IN ('queued','running','completed','failed','cancelled')),
+  lease_until timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mydata_sync_active_idx ON mydata_sync_jobs(company_id) WHERE state IN ('queued','running');
+CREATE INDEX IF NOT EXISTS mydata_sync_queue_idx ON mydata_sync_jobs(state, created_at);

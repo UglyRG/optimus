@@ -12,6 +12,7 @@ Optimus is a local productivity platform that hosts a growing catalog of small, 
 ## Main Capabilities
 
 - Tool catalog dashboard with admin-managed groups, visibility, and display order.
+- [myDATA Purchases](tools/mydata-invoices.md): monthly read-only AADE intake, PDF/OCR/QR evidence, editable classification choices and local-upload deletion for three companies, with encrypted backup/restore.
 - Personal tracking tools: Padelog, Betlog, and Notelog.
 - Knowledge Expert: upload structured files or prose documents, including PDF and DOCX, retain source provenance, visualize the knowledge structure, measure lexical coverage, and ask grounded questions with citations.
 - Builder tools: Demo Builder and Presentation Suite Builder.

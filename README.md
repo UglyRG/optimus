@@ -1,14 +1,17 @@
 # Optimus
 
-Version: `v7`
+Version: `v8`
 
 Optimus is a local productivity platform made of a React frontend, a FastAPI backend, and Postgres/pgvector persistence. It hosts a growing catalog of tools for personal tracking, knowledge work, demos, document utilities, and AI usage reporting.
 
-## v7
+## v8
 
-- Adds optional authenticator-based two-factor authentication for the installation.
-- Includes local QR-code enrollment, single-use recovery codes, replay protection, and persistent authentication attempt limits.
-- Configure it from **Security** after logging in; see [setup and recovery](docs/operations/two-factor-authentication.md).
+- Adds myDATA Purchases for monthly review and historical intake across three companies, with optional accountant involvement.
+- Imports incoming AADE records read-only, with matching, classification/cancellation evidence and editable drafts.
+- Includes local PDF/OCR extraction, QR-assisted provider lookup, optional AI suggestions, official classification dropdowns and deletion of local uploads.
+- Keeps originals private and supports encrypted backup/restore. Tax submissions remain disabled.
+
+See [v8 release notes](docs/releases/v8.md), [myDATA workflow](docs/tools/mydata-invoices.md) and [connection setup](docs/configuration.md#read-only-aade-connections).
 
 ## Quick Start
 
@@ -36,6 +39,7 @@ The `optimus` command is installed in `~/.local/bin` and can be run from anywher
 - `frontend-react/`: React frontend and all hosted tool UIs.
 - `backend_py/optimus_api/`: FastAPI backend, domain logic, persistence, and tool services.
 - `backend_py/sql/001_init.sql`: Postgres and Knowledge Expert schema.
+- `backend_py/sql/002_mydata.sql`: myDATA companies, drafts, extraction, remote evidence and read jobs.
 - `scripts/dev.js`: local multi-service runner.
 - `scripts/deploy-prod.sh`: production deployment helper.
 - `Outputs/`: generated user files. These are not source documentation.
@@ -63,7 +67,7 @@ Agent/project guidance lives in [AGENTS.md](AGENTS.md). Update it when the engin
 
 ## Current Tools
 
-- [myDATA Purchases](docs/tools/mydata-invoices.md): monthly purchase preparation with QR-assisted provider lookup and local PDF/OCR extraction for three companies; authenticated AADE import/submission is pending.
+- [myDATA Purchases](docs/tools/mydata-invoices.md): read-only AADE purchase intake, QR-assisted provider lookup and editable PDF/OCR review for three companies; tax submission remains disabled.
 
 - Padelog
 - Betlog
