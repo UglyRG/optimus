@@ -1,5 +1,7 @@
 import base64
 import tempfile
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,8 +35,17 @@ class DocumentMarkdownTests(unittest.TestCase):
             self.settings,
         )
 
+    def test_backend_import_does_not_load_optional_audio_dependencies(self):
+        result = subprocess.run(
+            [sys.executable, "-Werror::RuntimeWarning", "-c",
+             "import sys; import optimus_api.main; "
+             "assert 'markitdown' not in sys.modules; assert 'pydub' not in sys.modules"],
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_converts_document_and_saves_markdown_output(self):
-        with patch("optimus_api.tools.MarkItDown", FakeMarkItDown):
+        with patch("optimus_api.tools.load_markitdown", return_value=FakeMarkItDown):
             result = self.convert()
 
         self.assertEqual("Quarterly-Report.md", result["fileName"])
@@ -49,7 +60,7 @@ class DocumentMarkdownTests(unittest.TestCase):
         self.assertIn("Base64", raised.exception.detail)
 
     def test_reports_missing_markitdown_dependency(self):
-        with patch("optimus_api.tools.MarkItDown", None):
+        with patch("optimus_api.tools.load_markitdown", return_value=None):
             with self.assertRaises(HTTPException) as raised:
                 self.convert()
 

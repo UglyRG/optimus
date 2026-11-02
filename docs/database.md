@@ -15,6 +15,10 @@ It creates:
 - `knowledge_conversations`: Knowledge Expert chat conversations.
 - `knowledge_turns`: Knowledge Expert turns, citations, traces, feedback, and optional message embeddings.
 
+## myDATA preparation tables
+
+`backend_py/sql/002_mydata.sql` is applied idempotently during backend startup. It creates `mydata_companies`, `mydata_documents`, `mydata_invoices`, `mydata_audit_events` and `mydata_extractions`. Extraction jobs hold saved invoice/company revision references, provider/consent metadata and page/field evidence, QR references, provider XML/checksums and conflicts; a partial unique index prevents concurrent active extraction for one purchase. Companies and drafts store revisioned JSONB facts; document metadata references private encrypted files. Foreign keys enforce company/document consistency. A module advisory transaction lock serializes mutations and backup/restore; edits require the current revision. Amounts and MARKs remain strings in snapshots. See [tool details](tools/mydata-invoices.md).
+
 ## app_data Keys
 
 The backend currently uses these logical stores:

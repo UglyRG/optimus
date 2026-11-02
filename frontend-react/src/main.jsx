@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { StickyNotesBoard, StickyNotesProvider } from "./StickyNotes";
 import { SecuritySettings } from "./SecuritySettings";
+import { MydataPurchases } from "./mydata/MydataPurchases";
 import "./styles.css";
 import "./react.css";
 
@@ -26,6 +27,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 const THEME_STORAGE_KEY = "optimus-theme";
 const NOTELOG_CALIBRATION_STORAGE_KEY = "optimus-notelog-calibration";
 const TOOL_VIEW_IDS = new Set([
+  "mydata-invoices",
   "sticky-notes",
   "padelog",
   "betlog",
@@ -108,11 +110,15 @@ function outputDownloadUrl(fileName) {
 }
 
 function navigateToView(setView, view, options = {}) {
-  const path = pathForView(view);
-  if (window.location.pathname !== path) {
-    window.history[options.replace ? "replaceState" : "pushState"]({}, "", path);
-  }
-  setView(view);
+  const proceed = () => {
+    const path = pathForView(view);
+    if (window.location.pathname !== path) {
+      window.history[options.replace ? "replaceState" : "pushState"]({}, "", path);
+    }
+    setView(view);
+  };
+  if (!window.dispatchEvent(new CustomEvent("optimus-before-navigation", { cancelable: true, detail: { proceed } }))) return;
+  proceed();
 }
 
 function App() {
@@ -127,11 +133,20 @@ function App() {
 
   useEffect(() => {
     function handlePopState() {
-      setView(viewFromLocation());
+      const target = viewFromLocation();
+      const proceed = () => {
+        if (window.location.pathname !== pathForView(target)) window.history.pushState({}, "", pathForView(target));
+        setView(target);
+      };
+      if (!window.dispatchEvent(new CustomEvent("optimus-before-navigation", { cancelable: true, detail: { proceed } }))) {
+        window.history.pushState({}, "", pathForView(view));
+        return;
+      }
+      proceed();
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     let alive = true;
@@ -161,7 +176,7 @@ function App() {
   }
 
   async function handleLogout() {
-    if (!window.dispatchEvent(new Event("sticky-notes-before-logout", { cancelable: true }))) return;
+    if (!window.dispatchEvent(new CustomEvent("sticky-notes-before-logout", { cancelable: true, detail: { proceed: handleLogout } }))) return;
     await request("/auth/logout", { method: "POST" }).catch(() => {});
     setSession(null);
     navigateToView(setView, { name: "dashboard" }, { replace: true });
@@ -198,6 +213,8 @@ function App() {
         </ToolPageShell>
       ) : view.name === "admin" ? (
         <ToolAdminPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
+      ) : view.name === "mydata-invoices" ? (
+        <MydataPurchases request={request} apiBase={API_BASE} onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "padelog" ? (
         <PadelogPage onBack={() => navigateToView(setView, { name: "dashboard" })} />
       ) : view.name === "betlog" ? (

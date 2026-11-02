@@ -15,3 +15,5 @@ Tool docs are split by product area:
 - [Utilities](utilities.md)
 
 When adding a new hosted tool, add a page here or update the closest existing page.
+
+- [myDATA Purchases](mydata-invoices.md) (`mydata-invoices`): monthly purchase preparation, private originals and encrypted backup for three companies. AADE integration is pending.

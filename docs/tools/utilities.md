@@ -56,6 +56,8 @@ The output filename uses the source file stem:
 initialfilename.md
 ```
 
+MarkItDown is loaded only when this tool runs, keeping its optional audio dependencies out of backend startup. Invoice PDF/OCR extraction uses a separate local pipeline and does not require FFmpeg.
+
 Supported formats depend on the installed MarkItDown extras. The Optimus backend installs the local document extras for DOCX, PDF, PPTX, XLS, and XLSX conversion without the remote, audio, and video extras from `markitdown[all]`.
 
 ## Check My Token Usage

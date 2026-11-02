@@ -63,6 +63,8 @@ Agent/project guidance lives in [AGENTS.md](AGENTS.md). Update it when the engin
 
 ## Current Tools
 
+- [myDATA Purchases](docs/tools/mydata-invoices.md): monthly purchase preparation with QR-assisted provider lookup and local PDF/OCR extraction for three companies; authenticated AADE import/submission is pending.
+
 - Padelog
 - Betlog
 - Notelog

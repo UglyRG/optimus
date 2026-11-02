@@ -18,3 +18,7 @@ Outputs/*
 # Local sticky notes encryption key (back up separately)
 data/.sticky-notes.key
 data/.auth.key
+
+# Private myDATA originals and encryption key (recover the key separately)
+data/mydata/
+data/.mydata.key

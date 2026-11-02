@@ -42,3 +42,5 @@ When adding a new hosted tool:
 4. Add backend endpoints or services if needed.
 5. Include it in backup/restore if it persists data.
 6. Add or update docs under `docs/tools/`.
+
+- [myDATA Purchases](mydata-invoices.md) (`mydata-invoices`): monthly purchase preparation, private originals and encrypted backup for three companies. AADE integration is pending.

@@ -50,6 +50,10 @@ Important modules:
 - `two_factor.py`: single-installation TOTP enrollment, encrypted security state, recovery codes, replay prevention, and persistent attempt limits.
 - `config.py`: environment-backed settings.
 
+## myDATA Purchases
+
+The `mydata-invoices` tool uses `frontend-react/src/mydata/` and `backend_py/optimus_api/mydata/`. A session-only router is registered in `main.py`; the repository uses dedicated tables, explicit transactions, revision checks and private encrypted original files. The current release is preparation-only, with no AADE calls or submission jobs. A durable extraction worker processes local PDF/OCR work in credential-free subprocesses; optional text-only Anthropic assistance requires per-job consent. Recognised public QR references can be resolved by a credential-free, allowlisted provider client with pinned DNS/TLS and secure XML parsing. AADE/receipt QR verification links are recognised without claiming authenticated import. Suggestions are applied separately under revision checks. See [myDATA Purchases](tools/mydata-invoices.md).
+
 ## Persistence
 
 General app data is stored in Postgres `app_data` as JSONB documents. Knowledge Expert uses dedicated tables for entries, uploads, retained source chunks, conversations, and turns. Entries store source-chunk IDs so derived Q&A remains traceable to the uploaded content.

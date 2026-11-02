@@ -67,3 +67,9 @@ npm run build:react
 ```
 
 Use this after frontend changes when practical.
+
+## myDATA local extraction
+
+Install current backend dependencies with `backend_py/.venv/bin/python -m pip install -e ./backend_py`. PDF text extraction works without OCR. Scans and receipt images require Tesseract plus Greek (`ell`) and English (`eng`) language data; see [OCR setup](tools/mydata-invoices.md#ocr-setup). Start the backend normally; its extraction worker uses durable Postgres jobs. No separate worker command or model key is required for local extraction.
+
+QR extraction additionally uses the declared `zxing-cpp` and `defusedxml` dependencies. Reinstall the backend package after updating source. Provider QR tests mock all network responses; the explicit local test database remains separate from user records. Live source verification is performed separately using a supplied document and never runs as part of the test suite.

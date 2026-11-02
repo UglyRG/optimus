@@ -27,6 +27,9 @@ from .domain import (
     sorted_tool_catalog,
 )
 from .knowledge import KnowledgeRepository, normalize_knowledge_store
+from .mydata.repository import MydataRepository
+from .mydata.extraction_jobs import ExtractionJobs
+from .mydata.routes import build_router as build_mydata_router
 from .store import JsonStore
 from .sticky_notes import StickyNotes, STORE_KEY as STICKY_STORE_KEY
 from .two_factor import TwoFactor
@@ -67,6 +70,8 @@ sessions: dict[str, dict[str, Any]] = {}
 settings = get_settings()
 store = JsonStore(settings)
 knowledge_repo = KnowledgeRepository(store, settings)
+mydata_repo = MydataRepository(store, settings)
+mydata_extraction_jobs = ExtractionJobs(mydata_repo, settings)
 sticky_notes = StickyNotes(store, settings.data_dir / ".sticky-notes.key")
 two_factor = TwoFactor(store, settings.data_dir / ".auth.key")
 
@@ -82,7 +87,7 @@ app.add_middleware(
 
 @app.exception_handler(HTTPException)
 async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    headers = {"Cache-Control": "no-store"} if request.url.path.startswith("/api/auth/") else None
+    headers = {"Cache-Control": "no-store"} if request.url.path.startswith(("/api/auth/", "/api/tools/mydata-invoices")) else None
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail}, headers=headers)
 
 
@@ -90,11 +95,14 @@ async def http_error_handler(request: Request, exc: HTTPException) -> JSONRespon
 def startup() -> None:
     store.open()
     knowledge_repo.ensure_schema()
+    mydata_repo.ensure_schema()
     knowledge_repo.migrate_from_json_store()
+    mydata_extraction_jobs.start()
 
 
 @app.on_event("shutdown")
 def shutdown() -> None:
+    mydata_extraction_jobs.stop()
     store.close()
 
 
@@ -461,9 +469,11 @@ def get_admin_backup(_: dict[str, Any] = Depends(require_session)) -> dict[str, 
     sticky_envelope = store.get(STICKY_STORE_KEY, None)
     if sticky_envelope is not None:
         sticky_notes.decode(sticky_envelope)
+    mydata_backup = mydata_repo.backup()
     return create_backup_archive(
         {
             **({"sticky-notes.json": sticky_envelope} if sticky_envelope is not None else {}),
+            **({"mydata-invoices.json": mydata_backup} if mydata_backup is not None else {}),
             "tool-catalog.json": load_tool_catalog_config(),
             "padelog-matches.json": {"matches": load_padelog_matches()},
             "betlog-bets.json": {"bets": load_betlog_bets()},
@@ -483,6 +493,7 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
         if not isinstance(sticky_envelope, dict):
             raise bad_request("Invalid encrypted sticky notes backup")
         sticky_notes.decode(sticky_envelope)
+    mydata_snapshot = mydata_repo.validate_backup(files["mydata-invoices.json"]) if "mydata-invoices.json" in files else None
     catalog = normalize_tool_catalog_config(files.get("tool-catalog.json"), strict=True)
     padelog = files.get("padelog-matches.json", {}).get("matches", [])
     betlog = files.get("betlog-bets.json", {}).get("bets", [])
@@ -501,6 +512,8 @@ def post_admin_restore(payload: dict[str, Any], _: dict[str, Any] = Depends(requ
         knowledge_repo.replace_all(normalized_knowledge)
     if sticky_envelope is not None:
         sticky_notes.restore(sticky_envelope)
+    if mydata_snapshot is not None:
+        mydata_repo.restore(mydata_snapshot, _["name"])
     return {
         "ok": True,
         "restored": {
@@ -870,3 +883,6 @@ def save_sticky_note(payload: dict[str, Any], response: Response, _: dict[str, A
 @app.post("/api/tools/sticky-notes/delete")
 def delete_sticky_note(payload: dict[str, Any], _: dict[str, Any] = Depends(require_session)):
     return sticky_notes.update(payload, delete=True)
+
+
+app.include_router(build_mydata_router(mydata_repo, require_session, settings, mydata_extraction_jobs))

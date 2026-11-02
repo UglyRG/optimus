@@ -21,6 +21,10 @@ Private `.env` values are not included.
 
 Authentication state (`app_data.auth_security`) and `data/.auth.key` are excluded. Tool restore preserves current 2FA settings and consumed recovery codes. Full database migration requires the original authentication key; see [Two-factor authentication](two-factor-authentication.md).
 
+## myDATA Purchases
+
+When companies exist, the ZIP also includes `mydata-invoices.json`: an AES-256-GCM encrypted snapshot of company profiles, drafts, extraction jobs/evidence (including private QR references and downloaded provider XML), audit history and original files. Restored pending extraction jobs are cancelled, and old results cannot apply to restored revisions. Older archives without extraction records remain supported. Back up `data/.mydata.key` separately; it is excluded from the ZIP. Install the original key before recovery on another installation. A missing key or damaged module entry is rejected before general tool replacement starts. Archives without this entry preserve current module data. Module restore is transactional and invalidates revisions and review markers; general multi-tool restore is not a single transaction. Module-only encrypted backup/restore is also available in myDATA Settings. See [recovery details](../tools/mydata-invoices.md).
+
 ## Restore
 
 Restore accepts the backup zip and replaces local persisted Optimus data for:

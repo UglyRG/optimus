@@ -1,4 +1,5 @@
 HOSTED_TOOLS = [
+    {"id": "mydata-invoices", "title": "myDATA Purchases", "description": "Review monthly purchases and receipts for your three companies."},
     {"id": "sticky-notes", "title": "Sticky Notes", "description": "Write text notes and edit pinned cards directly on the homepage."},
     {
         "id": "padelog",
@@ -88,6 +89,7 @@ DEFAULT_TOOL_CATALOG_CONFIG = {
         {"id": "utilities", "name": "Utilities", "displayOrder": 2},
     ],
     "tools": [
+        {"id": "mydata-invoices", "groupId": "utilities", "displayOrder": 16, "enabled": True},
         {"id": "sticky-notes", "groupId": "utilities", "displayOrder": 15, "enabled": True},
         {"id": "padelog", "groupId": "utilities", "displayOrder": 1, "enabled": True},
         {"id": "betlog", "groupId": "utilities", "displayOrder": 2, "enabled": True},

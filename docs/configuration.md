@@ -1,5 +1,9 @@
 # Configuration
 
+## myDATA Purchases preparation
+
+No AADE keys are consumed. Public QR retrieval for supported providers requires no credentials; its visible UI option is remembered in browser storage and can be disabled for offline use. Local extraction requires no AI keys; optional per-extraction AI assistance reuses `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` only after explicit consent. Originals use `DATA_DIR/mydata/`; the generated `DATA_DIR/.mydata.key` must be recovered separately from backups. Company settings are entered in the tool. Optional `MYDATA_TESSERACT_PATH` and `MYDATA_TESSDATA_DIR` configure local OCR lookup. Restart the backend after installing OCR/language data. Future AADE credentials will be backend-only private `.env` values, never frontend settings. See [myDATA Purchases](tools/mydata-invoices.md).
+
 Optional authenticator-based 2FA is configured from **Security** in the app, without provider keys or fees. Authentication state uses `data/.auth.key`, which must be backed up separately and shared by all backend workers. See [setup and recovery](operations/two-factor-authentication.md).
 
 Optimus reads private configuration from a root `.env` file. The file is ignored by Git.

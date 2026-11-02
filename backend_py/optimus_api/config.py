@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     anthropic_model: str | None = None
     knowledge_expert_chat_model: str | None = None
     knowledge_expert_embed_model: str = "text-embedding-3-small"
+    mydata_tesseract_path: str | None = None
+    mydata_tessdata_dir: str | None = None
     session_ttl_seconds: int = 60 * 60 * 12
     data_dir: Path = ROOT_DIR / "data"
     outputs_dir: Path = ROOT_DIR / "Outputs"

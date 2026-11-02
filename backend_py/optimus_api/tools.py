@@ -13,15 +13,11 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
 from html import escape
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
-
-try:
-    from markitdown import MarkItDown
-except ImportError:  # pragma: no cover - exercised through the runtime error path
-    MarkItDown = None
 
 from .config import Settings
 from .domain import normalize_betlog_bet, normalize_padelog_match
@@ -289,6 +285,17 @@ def save_csv_qa_markdown(payload: dict[str, Any], settings: Settings) -> dict[st
     }
 
 
+@lru_cache(maxsize=1)
+def load_markitdown():
+    # Its optional audio converters import pydub. Keep them out of backend startup
+    # and unrelated tools, including local invoice PDF/OCR extraction.
+    try:
+        from markitdown import MarkItDown
+    except ImportError:
+        return None
+    return MarkItDown
+
+
 def convert_document_to_markdown(payload: dict[str, Any], settings: Settings) -> dict[str, Any]:
     file_name = str(payload.get("fileName") or "")
     compact_base64 = str(payload.get("base64") or "").strip()
@@ -302,15 +309,16 @@ def convert_document_to_markdown(payload: dict[str, Any], settings: Settings) ->
     if not document_bytes:
         raise bad_request("The selected document is empty")
 
-    if MarkItDown is None:
-        raise bad_request("MarkItDown is not installed. Install the backend dependency with markitdown[all].")
+    converter_class = load_markitdown()
+    if converter_class is None:
+        raise bad_request("MarkItDown is not installed. Reinstall the backend document dependencies with pip install -e ./backend_py.")
 
     suffix = Path(file_name).suffix.lower()
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir) / f"source{suffix}"
         temp_path.write_bytes(document_bytes)
         try:
-            result = MarkItDown(enable_plugins=False).convert(str(temp_path))
+            result = converter_class(enable_plugins=False).convert(str(temp_path))
         except Exception as exc:
             raise bad_request(f"{file_name} could not be converted to Markdown") from exc
 
