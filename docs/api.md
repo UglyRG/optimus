@@ -68,6 +68,8 @@ Accepted wrapper payloads:
 
 ## Public Betlog Endpoint
 
+A combo can be submitted as one row with pipe-separated values in `odds`, `selection`, `market`, `match`, and `score`, in leg order. The score column may also be empty. Supply the shared bet ID and set `legs` to the number of prices. Betlog saves one selection per leg and reports the number of saved selections.
+
 ```bash
 curl -X POST http://localhost:8788/api/public/betlog/bets \
   -H "Authorization: Bearer $OPTIMUS_PUBLIC_API_KEY" \

@@ -30,6 +30,8 @@ CSV import expects:
 - `outcome_type`
 - `legs`
 
+A combo can be submitted as one row with pipe-separated values in `odds`, `selection`, `market`, `match`, and `score`, in leg order. The score column may also be empty. Supply the shared bet ID and set `legs` to the number of prices. Betlog saves one selection per leg and reports the number of saved selections.
+
 ## Analysis
 
 The UI shows month-to-date, year-to-date, and custom-range statistics. AI performance insights use `ANTHROPIC_API_KEY` and the configured Anthropic chat model, then analyze the full saved betting history.

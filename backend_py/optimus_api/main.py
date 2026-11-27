@@ -17,6 +17,7 @@ from .catalog import DEFAULT_TOOL_CATALOG_CONFIG
 from .config import Settings, get_settings
 from .domain import (
     admin_tool_catalog,
+    expand_betlog_row,
     normalize_betlog_bet,
     normalize_notelog_note,
     normalize_padelog_match,
@@ -279,7 +280,7 @@ def add_betlog_bets(payload: dict[str, Any]) -> dict[str, Any]:
     if not incoming:
         raise bad_request("Add at least one bet")
     existing = load_betlog_bets()
-    created = [normalize_betlog_bet(row) for row in incoming]
+    created = [bet for row in incoming for bet in expand_betlog_row(row)]
     bets = sort_betlog_bets([*created, *existing])
     save_betlog_bets(bets)
     return {"imported": len(created), "created": created, "bets": bets}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -151,7 +152,7 @@ def clean_positive_decimal(value: Any, message: str) -> float:
         number = float(str(value if value is not None else "").strip().replace(",", "."))
     except ValueError as exc:
         raise bad_request(message) from exc
-    if number <= 0:
+    if not math.isfinite(number) or round(number, 4) <= 0:
         raise bad_request(message)
     return round(number, 4)
 
@@ -190,6 +191,35 @@ def normalize_betlog_bet(raw_bet: Any) -> dict[str, Any]:
         "legs": clean_positive_integer(first_present(raw_bet, "legs", "Legs"), 1),
         "createdAt": clean_text(raw_bet.get("createdAt"), now_iso(), 40),
     }
+
+
+def expand_betlog_row(row: Any) -> list[dict[str, Any]]:
+    row = row if isinstance(row, dict) else {}
+    odds = str(first_present(row, "odds", "Odds"))
+    if "|" not in odds:
+        return [normalize_betlog_bet(row)]
+
+    prices = odds.split("|")
+    bet_id = first_present(row, "bet_id", "betId", "Bet ID")
+    if not bet_id or not str(bet_id).strip():
+        raise bad_request("Multi-leg bets require a bet ID")
+    if str(first_present(row, "legs", "Legs")).strip() != str(len(prices)):
+        raise bad_request(f"Bet {bet_id}: legs must match the number of odds")
+    fields = {"odds": prices}
+    for field in ("selection", "market", "match", "score"):
+        value = str(first_present(row, field, field.title()) or "")
+        parts = value.split("|")
+        if field == "score" and not value.strip():
+            parts = [""] * len(prices)
+        if len(parts) != len(prices):
+            raise bad_request(f"Bet {bet_id}: expected {len(prices)} pipe-separated {field} values")
+        fields[field] = parts
+
+    selections = []
+    for index in range(len(prices)):
+        leg = {field: parts[index].strip() for field, parts in fields.items()}
+        selections.append(normalize_betlog_bet({**row, **leg, "id": new_id()}))
+    return selections
 
 
 def first_present(source: dict[str, Any], *keys: str) -> Any:
